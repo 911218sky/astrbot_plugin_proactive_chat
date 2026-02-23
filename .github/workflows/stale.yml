@@ -23,7 +23,7 @@ jobs:
 
     steps:
       - name: 檢出程式碼
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: 確保標籤顏色正確
         # 僅在非 dry-run 模式下執行，避免預覽時報錯或產生副作用
