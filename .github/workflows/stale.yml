@@ -1,15 +1,15 @@
-# 本工作流用于标记并关闭长期不活跃的 Issue。
-# 文档: https://github.com/actions/stale
-name: 标记长期未活跃的 Issue
+# 本工作流用於標記並關閉長期不活躍的 Issue。
+# 文件: https://github.com/actions/stale
+name: 標記長期未活躍的 Issue
 
 on:
   schedule:
-    # 每天 UTC 00:30 执行 (北京时间 08:30)
+    # 每天 UTC 00:30 執行（台北時間 08:30）
     - cron: '30 0 * * *'
   workflow_dispatch:
     inputs:
       dry-run:
-        description: '仅预览, 不实际执行 (Dry run mode)'
+        description: '僅預覽，不實際執行（Dry run mode）'
         required: false
         default: true
         type: boolean
@@ -22,16 +22,16 @@ jobs:
       pull-requests: write
 
     steps:
-      - name: 检出代码
+      - name: 檢出程式碼
         uses: actions/checkout@v4
 
-      - name: 确保标签颜色正确
-        # 仅在非 dry-run 模式下执行，避免预览时报错或产生副作用
+      - name: 確保標籤顏色正確
+        # 僅在非 dry-run 模式下執行，避免預覽時報錯或產生副作用
         if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.dry-run) }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh label create "status/stale" --color "EDEDED" --description "长期无活动的 Issue" || gh label edit "status/stale" --color "EDEDED" --description "长期无活动的 Issue"
+          gh label create "status/stale" --color "EDEDED" --description "長期無活動的 Issue" || gh label edit "status/stale" --color "EDEDED" --description "長期無活動的 Issue"
 
       - uses: actions/stale@v10
         with:
@@ -40,19 +40,19 @@ jobs:
 
           any-of-labels: 'type/fix,bug'
 
-          # 不处理 PR
+          # 不處理 PR
           days-before-pr-stale: -1
           days-before-pr-close: -1
 
-          # 不活跃判定与关闭策略: 先标记 stale, 再延迟关闭
+          # 不活躍判定與關閉策略：先標記 stale，再延遲關閉
           days-before-issue-stale: 60
           days-before-issue-close: 30
 
           stale-issue-label: 'status/stale'
           stale-issue-message: |
-            该 Issue 因较长时间无活动，已被标记为 `status/stale`。
-            如无后续活动，将在一段时间后自动关闭。
-            如仍需跟进，请回复评论。
+            該 Issue 因較長時間無活動，已被標記為 `status/stale`。
+            如無後續活動，將在一段時間後自動關閉。
+            如仍需跟進，請回覆評論。
 
             ---
 
@@ -67,8 +67,8 @@ jobs:
             まだ関連性がある場合は、コメントを残してください。
 
           close-issue-message: |
-            该 Issue 因长期无活动已自动关闭。
-            如问题仍存在，欢迎补充复现信息并重新打开或新建 Issue。
+            該 Issue 因長期無活動已自動關閉。
+            如問題仍存在，歡迎補充重現資訊並重新開啟或新建 Issue。
 
             ---
 

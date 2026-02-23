@@ -1,5 +1,5 @@
 # core/scheduler.py — 排程邏輯
-"""加權隨機間隔計算、時段規則匹配。"""
+"""加權隨機間隔計算、時段規則匹配、未回覆概率衰減。"""
 
 from __future__ import annotations
 
@@ -49,59 +49,45 @@ def compute_weighted_interval(schedule_conf: dict, timezone=None) -> int:
 def should_trigger_by_unanswered(
     unanswered_count: int,
     schedule_conf: dict,
+    timezone=None,
 ) -> tuple[bool, str]:
     """
-    根據未回覆次數與衰減規則，判斷是否應觸發主動訊息。
+    根據未回覆次數與衰減率，判斷是否應觸發主動訊息。
 
-    優先使用 ``unanswered_decay_rules``（概率衰減規則列表）；
-    若未配置衰減規則，則回退到 ``max_unanswered_times``（硬性上限）。
+    衰減率查找順序：
+    1. 當前時段匹配的 schedule_rule 中的 ``decay_rate``
+    2. ``default_decay_rate``（全域預設衰減率）
+    3. 若以上皆未配置，回退到 ``max_unanswered_times``（硬性上限）
+
+    衰減公式：觸發概率 = decay_rate ^ unanswered_count
+    例如 decay_rate=0.7, unanswered_count=2 → 概率 = 0.7² = 0.49
 
     Returns:
         (是否觸發, 原因描述)
     """
-    decay_rules = schedule_conf.get("unanswered_decay_rules", [])
+    if unanswered_count <= 0:
+        return True, ""
 
-    if decay_rules:
-        # 解析衰減規則：按 min_count 排序，找到匹配的區間
-        parsed: list[tuple[int, float]] = []
-        for rule in decay_rules:
-            if not isinstance(rule, dict):
-                continue
-            min_count = rule.get("min_count", 0)
-            prob = rule.get("trigger_probability", 1.0)
-            # schema 中 trigger_probability 為 string 類型，需轉換
-            try:
-                prob = float(prob)
-            except (ValueError, TypeError):
-                prob = 1.0
-            # 將百分比值歸一化到 0~1
-            if prob > 1.0:
-                prob = prob / 100.0
-            prob = max(0.0, min(1.0, prob))
-            parsed.append((int(min_count), prob))
+    # 嘗試從當前時段的排程規則取得 decay_rate
+    decay_rate = _resolve_decay_rate(schedule_conf, timezone)
 
-        if parsed:
-            # 按 min_count 降序排列，找到第一個 <= unanswered_count 的規則
-            parsed.sort(key=lambda x: x[0], reverse=True)
-            matched_prob = 1.0
-            for min_count, prob in parsed:
-                if unanswered_count >= min_count:
-                    matched_prob = prob
-                    break
+    if decay_rate is not None:
+        # decay_rate = 0 → 只觸發一次就停止
+        if decay_rate <= 0.0:
+            return False, (f"衰減率為 0：未回覆 {unanswered_count} 次，概率為 0%，跳過")
 
-            if matched_prob <= 0.0:
-                return False, f"衰減規則：未回覆 {unanswered_count} 次，概率為 0%，跳過"
-
-            roll = random.random()
-            if roll < matched_prob:
-                return True, (
-                    f"衰減規則：未回覆 {unanswered_count} 次，"
-                    f"概率 {matched_prob:.0%}，擲骰 {roll:.2f}，觸發"
-                )
-            return False, (
-                f"衰減規則：未回覆 {unanswered_count} 次，"
-                f"概率 {matched_prob:.0%}，擲骰 {roll:.2f}，跳過"
+        # 計算衰減後的觸發概率
+        probability = decay_rate**unanswered_count
+        roll = random.random()
+        if roll < probability:
+            return True, (
+                f"衰減觸發：未回覆 {unanswered_count} 次，"
+                f"衰減率 {decay_rate}，概率 {probability:.1%}，擲骰 {roll:.2f}，觸發"
             )
+        return False, (
+            f"衰減跳過：未回覆 {unanswered_count} 次，"
+            f"衰減率 {decay_rate}，概率 {probability:.1%}，擲骰 {roll:.2f}，跳過"
+        )
 
     # 回退到硬性上限
     max_unanswered = schedule_conf.get("max_unanswered_times", 3)
@@ -110,6 +96,47 @@ def should_trigger_by_unanswered(
             f"硬性上限：未回覆 {unanswered_count} 次，已達上限 {max_unanswered}，暫停"
         )
     return True, ""
+
+
+def _resolve_decay_rate(schedule_conf: dict, timezone=None) -> float | None:
+    """
+    解析當前生效的衰減率。
+
+    優先從匹配的時段規則取得，其次使用 default_decay_rate。
+    回傳 None 表示未配置任何衰減率。
+    """
+    now = datetime.now(timezone) if timezone else datetime.now()
+    hour = now.hour
+
+    # 1) 嘗試從匹配的時段規則取得 decay_rate
+    for rule in schedule_conf.get("schedule_rules", ()):
+        if not isinstance(rule, dict):
+            continue
+        start_h = rule.get("start_hour", 0)
+        end_h = rule.get("end_hour", 24)
+        if not _hour_in_range(hour, start_h, end_h):
+            continue
+        raw = (rule.get("decay_rate") or "").strip()
+        if raw:
+            return _parse_decay_rate(raw)
+        break  # 規則匹配但未設定 decay_rate → 繼續查找 default
+
+    # 2) 使用全域預設衰減率
+    raw = (schedule_conf.get("default_decay_rate") or "").strip()
+    if raw:
+        return _parse_decay_rate(raw)
+
+    return None
+
+
+def _parse_decay_rate(raw: str) -> float | None:
+    """解析衰減率字串，回傳 0~1 的浮點數，解析失敗回傳 None。"""
+    try:
+        val = float(raw)
+        return max(0.0, min(1.0, val))
+    except (ValueError, TypeError):
+        logger.warning(f"{_LOG_TAG} 解析衰減率失敗: {raw!r}，忽略。")
+        return None
 
 
 def _hour_in_range(current: int, start: int, end: int) -> bool:

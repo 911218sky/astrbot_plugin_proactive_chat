@@ -989,16 +989,15 @@ class ProactiveChatPlugin(star.Star):
                     "unanswered_count", 0
                 )
                 should_trigger, reason = should_trigger_by_unanswered(
-                    unanswered_count, schedule_conf
+                    unanswered_count, schedule_conf, self.timezone
                 )
                 if not should_trigger:
                     logger.info(
                         f"{_LOG_TAG} {get_session_log_str(session_id, session_config, self.session_data)} "
                         f"{reason}"
                     )
-                    # 概率衰減跳過時仍需排定下一次（給下次機會擲骰）
-                    decay_rules = schedule_conf.get("unanswered_decay_rules", [])
-                    if decay_rules:
+                    # 衰減跳過時仍需排定下一次（給下次機會擲骰）
+                    if "衰減" in reason:
                         await self._schedule_next_chat_and_save(session_id)
                     return
                 if reason:

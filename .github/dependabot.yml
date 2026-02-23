@@ -13,7 +13,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    # 同样建议加上分组，防止 Python 依赖更新刷屏
+    # 同樣建議加上分組，防止 Python 依賴更新刷屏
     groups:
       python-dependencies:
         patterns:
