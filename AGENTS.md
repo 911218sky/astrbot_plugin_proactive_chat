@@ -65,6 +65,18 @@ AstrBot 主動訊息插件（Enhanced Fork），讓 Bot 能在會話沉默後主
 - 動態列表使用 `template_list` 類型（參考 https://docs.astrbot.app/dev/star/guides/plugin-config.html）
 - Emoji 圖示需確保為完整的 Unicode 字元，避免出現亂碼 `�`
 
+## 程式碼品質
+
+提交前務必執行：
+
+```bash
+ruff format .        # 格式化
+ruff check --fix .   # Lint 修復
+ruff check .         # 確認零錯誤
+```
+
+專案已配置 GitHub Actions 自動執行 ruff 檢查，PR 未通過會被標記。
+
 ## 測試方式
 
 本插件無獨立測試套件，測試方式為在 AstrBot 環境中載入插件並觀察日誌輸出。
