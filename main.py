@@ -133,9 +133,7 @@ class ProactiveChatPlugin(star.Star):
         """從 JSON 檔案載入會話持久化數據。若檔案不存在或損壞則初始化為空 dict。"""
         try:
             if await aio_os.path.exists(str(self.session_data_file)):
-                async with aiofiles.open(
-                    self.session_data_file, encoding="utf-8"
-                ) as f:
+                async with aiofiles.open(self.session_data_file, encoding="utf-8") as f:
                     content = await f.read()
                     self.session_data = json.loads(content) if content.strip() else {}
             else:
