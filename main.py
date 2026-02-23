@@ -31,21 +31,22 @@ from astrbot.core.message.components import Plain, Record
 from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.platform import PlatformStatus
 
-# ── 核心模組匯入（使用相對匯入，避免與 AstrBot 自身的 core 衝突） ──
-from .core.utils import (
-    is_quiet_time,
-    parse_session_id,
-    get_session_log_str,
-    resolve_full_umo,
-    is_group_session_id,
-)
-from .core.config import get_session_config, validate_config, backup_configurations
-from .core.scheduler import compute_weighted_interval
+from .core.config import backup_configurations, get_session_config, validate_config
 from .core.messaging import (
-    send_chain_with_hooks,
-    split_text,
     calc_segment_interval,
     sanitize_history_content,
+    send_chain_with_hooks,
+    split_text,
+)
+from .core.scheduler import compute_weighted_interval
+
+# ── 核心模組匯入（使用相對匯入，避免與 AstrBot 自身的 core 衝突） ──
+from .core.utils import (
+    get_session_log_str,
+    is_group_session_id,
+    is_quiet_time,
+    parse_session_id,
+    resolve_full_umo,
 )
 
 # 統一日誌前綴，方便在 AstrBot 日誌中篩選本插件的輸出
@@ -68,12 +69,21 @@ class ProactiveChatPlugin(star.Star):
 
     # 使用 __slots__ 減少記憶體開銷（每個實例不再需要 __dict__）
     __slots__ = (
-        "config", "scheduler", "timezone",
-        "data_dir", "session_data_file", "data_lock", "session_data",
-        "group_timers", "last_bot_message_time",
-        "session_temp_state", "last_message_times",
-        "auto_trigger_timers", "plugin_start_time",
-        "first_message_logged", "_cleanup_counter",
+        "config",
+        "scheduler",
+        "timezone",
+        "data_dir",
+        "session_data_file",
+        "data_lock",
+        "session_data",
+        "group_timers",
+        "last_bot_message_time",
+        "session_temp_state",
+        "last_message_times",
+        "auto_trigger_timers",
+        "plugin_start_time",
+        "first_message_logged",
+        "_cleanup_counter",
     )
 
     def __init__(self, context: star.Context, config: AstrBotConfig) -> None:
@@ -123,7 +133,9 @@ class ProactiveChatPlugin(star.Star):
         """從 JSON 檔案載入會話持久化數據。若檔案不存在或損壞則初始化為空 dict。"""
         try:
             if await aio_os.path.exists(str(self.session_data_file)):
-                async with aiofiles.open(self.session_data_file, "r", encoding="utf-8") as f:
+                async with aiofiles.open(
+                    self.session_data_file, encoding="utf-8"
+                ) as f:
                     content = await f.read()
                     self.session_data = json.loads(content) if content.strip() else {}
             else:
@@ -136,8 +148,12 @@ class ProactiveChatPlugin(star.Star):
         """將會話持久化數據寫入 JSON 檔案。呼叫前須持有 data_lock。"""
         try:
             await aio_os.makedirs(self.data_dir, exist_ok=True)
-            async with aiofiles.open(self.session_data_file, "w", encoding="utf-8") as f:
-                await f.write(json.dumps(self.session_data, indent=2, ensure_ascii=False))
+            async with aiofiles.open(
+                self.session_data_file, "w", encoding="utf-8"
+            ) as f:
+                await f.write(
+                    json.dumps(self.session_data, indent=2, ensure_ascii=False)
+                )
         except Exception as e:
             logger.error(f"{_LOG_TAG} 保存會話數據失敗: {e}")
 
@@ -243,14 +259,20 @@ class ProactiveChatPlugin(star.Star):
         """
         run_date = datetime.fromtimestamp(time.time() + delay_seconds, tz=self.timezone)
         self.scheduler.add_job(
-            self.check_and_chat, "date", run_date=run_date,
-            args=[session_id], id=session_id,
-            replace_existing=True, misfire_grace_time=60,
+            self.check_and_chat,
+            "date",
+            run_date=run_date,
+            args=[session_id],
+            id=session_id,
+            replace_existing=True,
+            misfire_grace_time=60,
         )
         return run_date
 
     async def _schedule_next_chat_and_save(
-        self, session_id: str, reset_counter: bool = False,
+        self,
+        session_id: str,
+        reset_counter: bool = False,
     ) -> None:
         """
         安排下一次主動聊天並持久化狀態。
@@ -273,7 +295,9 @@ class ProactiveChatPlugin(star.Star):
             run_date = self._add_scheduled_job(session_id, interval)
 
             # 持久化下次觸發時間（供重啟後恢復）
-            self.session_data.setdefault(session_id, {})["next_trigger_time"] = time.time() + interval
+            self.session_data.setdefault(session_id, {})["next_trigger_time"] = (
+                time.time() + interval
+            )
             logger.info(
                 f"{_LOG_TAG} 已為 {get_session_log_str(session_id, session_config, self.session_data)} "
                 f"安排下一次主動訊息，時間：{run_date.strftime('%Y-%m-%d %H:%M:%S')}。"
@@ -281,7 +305,9 @@ class ProactiveChatPlugin(star.Star):
             await self._save_data()
 
     async def _is_chat_allowed(
-        self, session_id: str, session_config: dict | None = None,
+        self,
+        session_id: str,
+        session_config: dict | None = None,
     ) -> bool:
         """
         檢查是否允許主動聊天。
@@ -331,9 +357,13 @@ class ProactiveChatPlugin(star.Star):
             try:
                 run_date = datetime.fromtimestamp(next_t, tz=self.timezone)
                 self.scheduler.add_job(
-                    self.check_and_chat, "date", run_date=run_date,
-                    args=[sid], id=sid,
-                    replace_existing=True, misfire_grace_time=60,
+                    self.check_and_chat,
+                    "date",
+                    run_date=run_date,
+                    args=[sid],
+                    id=sid,
+                    replace_existing=True,
+                    misfire_grace_time=60,
                 )
                 restored += 1
             except Exception as e:
@@ -370,7 +400,8 @@ class ProactiveChatPlugin(star.Star):
         _, _, target_id = parsed
         suffix = f":{target_id}"
         to_cancel = [
-            sid for sid in self.auto_trigger_timers
+            sid
+            for sid in self.auto_trigger_timers
             if sid.endswith(suffix) or sid == session_id
         ]
         for sid in to_cancel:
@@ -425,7 +456,8 @@ class ProactiveChatPlugin(star.Star):
         try:
             loop = asyncio.get_running_loop()
             self.auto_trigger_timers[session_id] = loop.call_later(
-                auto_minutes * 60, _auto_trigger_callback,
+                auto_minutes * 60,
+                _auto_trigger_callback,
             )
             if not silent:
                 logger.info(
@@ -436,7 +468,11 @@ class ProactiveChatPlugin(star.Star):
             logger.error(f"{_LOG_TAG} 設置自動觸發計時器失敗: {e}")
 
     async def _setup_auto_trigger_for_session_config(
-        self, settings: dict, message_type: str, target_id: str, session_name: str = "",
+        self,
+        settings: dict,
+        message_type: str,
+        target_id: str,
+        session_name: str = "",
     ) -> int:
         """
         根據會話配置為指定目標設置自動觸發器。
@@ -445,7 +481,9 @@ class ProactiveChatPlugin(star.Star):
             1 表示成功設置，0 表示跳過。
         """
         type_desc = "私聊" if "Friend" in message_type else "群聊"
-        log_str = f"{type_desc} {target_id}" + (f" ({session_name})" if session_name else "")
+        log_str = f"{type_desc} {target_id}" + (
+            f" ({session_name})" if session_name else ""
+        )
 
         auto_settings = settings.get("auto_trigger_settings", {})
         if not auto_settings.get("enable_auto_trigger", False):
@@ -457,7 +495,9 @@ class ProactiveChatPlugin(star.Star):
         for sid, info in self.session_data.items():
             if sid.endswith(suffix) and info.get("next_trigger_time"):
                 if now < info["next_trigger_time"] + 60:
-                    logger.info(f"{_LOG_TAG} {log_str} 已存在持久化任務，跳過自動觸發。")
+                    logger.info(
+                        f"{_LOG_TAG} {log_str} 已存在持久化任務，跳過自動觸發。"
+                    )
                     return 0
 
         # 解析 target_id（可能本身就是完整 UMO 格式）
@@ -467,11 +507,16 @@ class ProactiveChatPlugin(star.Star):
 
         # 動態解析完整的 UMO（找到存活的平台）
         session_id = resolve_full_umo(
-            real_target_id, message_type,
-            self.context.platform_manager, self.session_data, preferred_platform,
+            real_target_id,
+            message_type,
+            self.context.platform_manager,
+            self.session_data,
+            preferred_platform,
         )
         auto_minutes = auto_settings.get("auto_trigger_after_minutes", 5)
-        logger.info(f"{_LOG_TAG} 已為 {log_str} 設置自動觸發器，{auto_minutes} 分鐘後檢查。")
+        logger.info(
+            f"{_LOG_TAG} 已為 {log_str} 設置自動觸發器，{auto_minutes} 分鐘後檢查。"
+        )
         await self._setup_auto_trigger(session_id, silent=True)
         return 1
 
@@ -497,7 +542,10 @@ class ProactiveChatPlugin(star.Star):
                 if tid and tid not in processed and sc.get("enable", False):
                     processed.add(tid)
                     count += await self._setup_auto_trigger_for_session_config(
-                        sc, msg_type, tid, sc.get("session_name", ""),
+                        sc,
+                        msg_type,
+                        tid,
+                        sc.get("session_name", ""),
                     )
 
         # 2) 全域設定中的 session_list
@@ -511,12 +559,17 @@ class ProactiveChatPlugin(star.Star):
                 continue
             # 建立名稱查找表，用於日誌顯示
             sessions = self.config.get(sessions_key, [])
-            name_map = {sc.get("session_id"): sc.get("session_name", "") for sc in sessions}
+            name_map = {
+                sc.get("session_id"): sc.get("session_name", "") for sc in sessions
+            }
             for tid in sl:
                 if tid not in processed:
                     processed.add(tid)
                     count += await self._setup_auto_trigger_for_session_config(
-                        settings, msg_type, tid, name_map.get(tid, ""),
+                        settings,
+                        msg_type,
+                        tid,
+                        name_map.get(tid, ""),
                     )
 
         if count:
@@ -637,7 +690,8 @@ class ProactiveChatPlugin(star.Star):
     def _cleanup_expired_session_states(self, now: float) -> None:
         """清理超過 1 小時未活動的群聊臨時狀態。"""
         expired = [
-            sid for sid, st in self.session_temp_state.items()
+            sid
+            for sid, st in self.session_temp_state.items()
             if now - st.get("last_user_time", 0) > 3600
         ]
         for sid in expired:
@@ -684,7 +738,9 @@ class ProactiveChatPlugin(star.Star):
 
         try:
             loop = asyncio.get_running_loop()
-            self.group_timers[session_id] = loop.call_later(idle_minutes * 60, _schedule_callback)
+            self.group_timers[session_id] = loop.call_later(
+                idle_minutes * 60, _schedule_callback
+            )
         except Exception as e:
             logger.error(f"{_LOG_TAG} 設置沉默倒計時失敗: {e}")
 
@@ -722,7 +778,10 @@ class ProactiveChatPlugin(star.Star):
                 segments = split_text(text, seg_conf) or [text]
                 for idx, seg in enumerate(segments):
                     await send_chain_with_hooks(
-                        session_id, [Plain(text=seg)], self.context, self.session_data,
+                        session_id,
+                        [Plain(text=seg)],
+                        self.context,
+                        self.session_data,
                     )
                     if idx < len(segments) - 1:
                         interval = calc_segment_interval(seg, seg_conf)
@@ -730,7 +789,10 @@ class ProactiveChatPlugin(star.Star):
             else:
                 # 整段發送
                 await send_chain_with_hooks(
-                    session_id, [Plain(text=text)], self.context, self.session_data,
+                    session_id,
+                    [Plain(text=text)],
+                    self.context,
+                    self.session_data,
                 )
 
         # 群聊：發送後重設沉默倒計時
@@ -747,7 +809,9 @@ class ProactiveChatPlugin(star.Star):
             audio_path = await tts_provider.get_audio(text)
             if not audio_path:
                 return False
-            await self.context.send_message(session_id, MessageChain([Record(file=audio_path)]))
+            await self.context.send_message(
+                session_id, MessageChain([Record(file=audio_path)])
+            )
             # 短暫等待，避免語音和文字訊息同時到達
             await asyncio.sleep(0.5)
             return True
@@ -788,10 +852,14 @@ class ProactiveChatPlugin(star.Star):
         """
         try:
             # 取得或建立對話 ID
-            conv_id = await self.context.conversation_manager.get_curr_conversation_id(session_id)
+            conv_id = await self.context.conversation_manager.get_curr_conversation_id(
+                session_id
+            )
             if not conv_id:
                 try:
-                    conv_id = await self.context.conversation_manager.new_conversation(session_id)
+                    conv_id = await self.context.conversation_manager.new_conversation(
+                        session_id
+                    )
                 except ValueError:
                     raise
                 except Exception as e:
@@ -801,7 +869,9 @@ class ProactiveChatPlugin(star.Star):
                 return None
 
             # 取得對話物件及歷史記錄
-            conversation = await self.context.conversation_manager.get_conversation(session_id, conv_id)
+            conversation = await self.context.conversation_manager.get_conversation(
+                session_id, conv_id
+            )
 
             history: list = []
             if conversation and conversation.history:
@@ -820,7 +890,11 @@ class ProactiveChatPlugin(star.Star):
                 logger.error(f"{_LOG_TAG} 無法加載任何人格設定，放棄。")
                 return None
 
-            return {"conv_id": conv_id, "history": history, "system_prompt": system_prompt}
+            return {
+                "conv_id": conv_id,
+                "history": history,
+                "system_prompt": system_prompt,
+            }
         except Exception as e:
             logger.warning(f"{_LOG_TAG} 獲取上下文或人格失敗: {e}")
             return None
@@ -832,16 +906,24 @@ class ProactiveChatPlugin(star.Star):
         優先順序：對話綁定的人格 → AstrBot 預設人格。
         """
         if conversation and conversation.persona_id:
-            persona = await self.context.persona_manager.get_persona(conversation.persona_id)
+            persona = await self.context.persona_manager.get_persona(
+                conversation.persona_id
+            )
             if persona and persona.system_prompt:
                 return persona.system_prompt
 
-        default_persona = await self.context.persona_manager.get_default_persona_v3(umo=session_id)
+        default_persona = await self.context.persona_manager.get_default_persona_v3(
+            umo=session_id
+        )
         return default_persona["prompt"] if default_persona else ""
 
     async def _finalize_and_reschedule(
-        self, session_id: str, conv_id: str,
-        user_prompt: str, assistant_response: str, unanswered_count: int,
+        self,
+        session_id: str,
+        conv_id: str,
+        user_prompt: str,
+        assistant_response: str,
+        unanswered_count: int,
     ) -> None:
         """
         主動訊息發送成功後的收尾工作。
@@ -856,7 +938,9 @@ class ProactiveChatPlugin(star.Star):
             await self.context.conversation_manager.add_message_pair(
                 cid=conv_id,
                 user_message=UserMessageSegment(content=[TextPart(text=user_prompt)]),
-                assistant_message=AssistantMessageSegment(content=[TextPart(text=assistant_response)]),
+                assistant_message=AssistantMessageSegment(
+                    content=[TextPart(text=assistant_response)]
+                ),
             )
         except Exception as e:
             logger.error(f"{_LOG_TAG} 存檔對話歷史失敗: {e}")
@@ -903,7 +987,9 @@ class ProactiveChatPlugin(star.Star):
 
             # ── 步驟 2：檢查未回覆次數上限 ──
             async with self.data_lock:
-                unanswered_count = self.session_data.get(session_id, {}).get("unanswered_count", 0)
+                unanswered_count = self.session_data.get(session_id, {}).get(
+                    "unanswered_count", 0
+                )
                 max_unanswered = schedule_conf.get("max_unanswered_times", 3)
                 if max_unanswered > 0 and unanswered_count >= max_unanswered:
                     logger.info(
@@ -918,8 +1004,11 @@ class ProactiveChatPlugin(star.Star):
             if parsed:
                 original_platform, msg_type, target_id = parsed
                 new_session_id = resolve_full_umo(
-                    target_id, msg_type,
-                    self.context.platform_manager, self.session_data, original_platform,
+                    target_id,
+                    msg_type,
+                    self.context.platform_manager,
+                    self.session_data,
+                    original_platform,
                 )
 
                 # 驗證目標平台是否正在運行
@@ -931,7 +1020,10 @@ class ProactiveChatPlugin(star.Star):
                         if p.meta().id
                     }
                     platform_inst = insts.get(new_parsed[0])
-                    if not platform_inst or platform_inst.status != PlatformStatus.RUNNING:
+                    if (
+                        not platform_inst
+                        or platform_inst.status != PlatformStatus.RUNNING
+                    ):
                         # 平台未運行，延後重試
                         await self._schedule_next_chat_and_save(session_id)
                         return
@@ -956,17 +1048,17 @@ class ProactiveChatPlugin(star.Star):
             # ── 步驟 5：構造 Prompt 並呼叫 LLM ──
             motivation_template = session_config.get("proactive_prompt", "")
             now_str = datetime.now(self.timezone).strftime("%Y年%m月%d日 %H:%M")
-            final_prompt = (
-                motivation_template
-                .replace("{{unanswered_count}}", str(unanswered_count))
-                .replace("{{current_time}}", now_str)
-            )
+            final_prompt = motivation_template.replace(
+                "{{unanswered_count}}", str(unanswered_count)
+            ).replace("{{current_time}}", now_str)
 
             # 清洗歷史記錄格式（確保 content 欄位一致）
             history = sanitize_history_content(history)
 
             # 呼叫 LLM（主要路徑 + 備用路徑）
-            llm_response = await self._call_llm(session_id, final_prompt, history, system_prompt)
+            llm_response = await self._call_llm(
+                session_id, final_prompt, history, system_prompt
+            )
             if not llm_response or not llm_response.completion_text:
                 await self._schedule_next_chat_and_save(session_id)
                 return
@@ -980,18 +1072,26 @@ class ProactiveChatPlugin(star.Star):
             # ── 步驟 6：狀態一致性檢查 ──
             # 若在 LLM 生成期間使用者發送了新訊息，則丟棄本次回應
             current_last_msg = self.last_message_times.get(session_id, 0)
-            current_unanswered = self.session_data.get(session_id, {}).get("unanswered_count", 0)
+            current_unanswered = self.session_data.get(session_id, {}).get(
+                "unanswered_count", 0
+            )
             if (
                 current_last_msg > snapshot_last_msg
                 or current_unanswered < snapshot_unanswered
             ):
-                logger.info(f"{_LOG_TAG} 使用者在 LLM 生成期間發送了新訊息，丟棄本次回應。")
+                logger.info(
+                    f"{_LOG_TAG} 使用者在 LLM 生成期間發送了新訊息，丟棄本次回應。"
+                )
                 return
 
             # ── 步驟 7：發送訊息並收尾 ──
             await self._send_proactive_message(session_id, response_text)
             await self._finalize_and_reschedule(
-                session_id, conv_id, final_prompt, response_text, unanswered_count,
+                session_id,
+                conv_id,
+                final_prompt,
+                response_text,
+                unanswered_count,
             )
 
             # 群聊：清除 next_trigger_time（由沉默計時器接管後續排程）
@@ -1048,7 +1148,11 @@ class ProactiveChatPlugin(star.Star):
             raise
 
     async def _call_llm(
-        self, session_id: str, prompt: str, contexts: list, system_prompt: str,
+        self,
+        session_id: str,
+        prompt: str,
+        contexts: list,
+        system_prompt: str,
     ):
         """
         呼叫 LLM 生成回應。
@@ -1070,7 +1174,9 @@ class ProactiveChatPlugin(star.Star):
                 provider = self.context.get_using_provider(umo=session_id)
                 if provider:
                     return await provider.text_chat(
-                        prompt=prompt, contexts=contexts, system_prompt=system_prompt,
+                        prompt=prompt,
+                        contexts=contexts,
+                        system_prompt=system_prompt,
                     )
             except Exception:
                 pass

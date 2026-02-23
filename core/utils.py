@@ -20,6 +20,7 @@ _LOG_TAG = "[主動訊息]"
 
 # ── 時間工具 ──────────────────────────────────────────────
 
+
 def is_quiet_time(quiet_hours_str: str, tz: zoneinfo.ZoneInfo | None) -> bool:
     """檢查當前時間是否處於免打擾時段。支援跨日（如 ``22-6``）。"""
     try:
@@ -34,6 +35,7 @@ def is_quiet_time(quiet_hours_str: str, tz: zoneinfo.ZoneInfo | None) -> bool:
 
 
 # ── UMO 解析 ─────────────────────────────────────────────
+
 
 def parse_session_id(session_id: str) -> tuple[str, str, str] | None:
     """
@@ -64,6 +66,7 @@ def is_group_session_id(session_id: str) -> bool:
 
 # ── 日誌格式化 ────────────────────────────────────────────
 
+
 def get_session_log_str(
     session_id: str,
     session_config: dict | None = None,
@@ -79,7 +82,9 @@ def get_session_log_str(
 
     name = ""
     if session_config:
-        name = session_config.get("_session_name") or session_config.get("session_name", "")
+        name = session_config.get("_session_name") or session_config.get(
+            "session_name", ""
+        )
 
     if name:
         return f"[{type_str} {target_id} ({name})]"
@@ -87,6 +92,7 @@ def get_session_log_str(
 
 
 # ── 平台解析 ─────────────────────────────────────────────
+
 
 def resolve_full_umo(
     target_id: str,

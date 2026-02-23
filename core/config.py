@@ -9,6 +9,7 @@ from pathlib import Path
 
 import aiofiles
 import aiofiles.os as aio_os
+
 from astrbot.api import logger
 from astrbot.core.config.astrbot_config import AstrBotConfig
 
@@ -16,6 +17,7 @@ _LOG_TAG = "[主動訊息]"
 
 
 # ── 驗證 ──────────────────────────────────────────────────
+
 
 async def validate_config(config: AstrBotConfig) -> None:
     """驗證插件配置的完整性和有效性。"""
@@ -38,8 +40,12 @@ async def validate_config(config: AstrBotConfig) -> None:
                     f"（既無個性化配置也無 session_list）。"
                 )
             sched = settings.get("schedule_settings", {})
-            if sched.get("min_interval_minutes", 0) > sched.get("max_interval_minutes", 999):
-                logger.warning(f"{_LOG_TAG} {label}配置中最小間隔大於最大間隔，將自動調整。")
+            if sched.get("min_interval_minutes", 0) > sched.get(
+                "max_interval_minutes", 999
+            ):
+                logger.warning(
+                    f"{_LOG_TAG} {label}配置中最小間隔大於最大間隔，將自動調整。"
+                )
 
         logger.info(f"{_LOG_TAG} 配置驗證完成。")
     except Exception as e:
@@ -49,9 +55,10 @@ async def validate_config(config: AstrBotConfig) -> None:
 
 # ── 會話配置查詢 ──────────────────────────────────────────
 
+
 def get_session_config(config: AstrBotConfig, session_id: str) -> dict | None:
     """根據會話 ID 取得對應配置（個性化優先，全域兜底）。"""
-    from .utils import parse_session_id, is_private_session
+    from .utils import is_private_session, parse_session_id
 
     parsed = parse_session_id(session_id)
     if not parsed:
@@ -61,14 +68,16 @@ def get_session_config(config: AstrBotConfig, session_id: str) -> dict | None:
 
     if is_private_session(msg_type):
         return _match_session(
-            config, target_id,
+            config,
+            target_id,
             sessions_key="private_sessions",
             settings_key="private_settings",
             session_type="private",
         )
     if "Group" in msg_type:
         return _match_session(
-            config, target_id,
+            config,
+            target_id,
             sessions_key="group_sessions",
             settings_key="group_settings",
             session_type="group",
@@ -109,6 +118,7 @@ def _match_session(
 
 
 # ── 備份 ──────────────────────────────────────────────────
+
 
 async def backup_configurations(config: AstrBotConfig, data_dir: Path) -> None:
     """備份使用者配置快照及 Prompt 彙總。"""

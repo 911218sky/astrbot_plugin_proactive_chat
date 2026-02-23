@@ -35,6 +35,7 @@ _DEFAULT_SPLIT_RE = re.compile(r".*?[。？！~…\n]+|.+$")
 
 # ── 裝飾鉤子 ─────────────────────────────────────────────
 
+
 async def trigger_decorating_hooks(
     session_id: str,
     chain: list,
@@ -104,6 +105,7 @@ async def trigger_decorating_hooks(
 
 # ── 訊息發送 ─────────────────────────────────────────────
 
+
 async def send_chain_with_hooks(
     session_id: str,
     components: list,
@@ -125,7 +127,8 @@ async def send_chain_with_hooks(
 
     p_id, m_type_str, t_id = parsed
     m_type = (
-        MessageType.GROUP_MESSAGE if "Group" in m_type_str
+        MessageType.GROUP_MESSAGE
+        if "Group" in m_type_str
         else MessageType.FRIEND_MESSAGE
     )
 
@@ -155,6 +158,7 @@ async def send_chain_with_hooks(
 
 
 # ── 文本分段 ─────────────────────────────────────────────
+
 
 def split_text(text: str, settings: dict) -> list[str]:
     """根據配置將文本分段。"""
@@ -209,6 +213,7 @@ def calc_segment_interval(text: str, settings: dict) -> float:
 
 # ── 歷史清洗 ─────────────────────────────────────────────
 
+
 def sanitize_history_content(history: list) -> list:
     """清洗歷史記錄，確保 content 欄位格式一致。"""
     if not history:
@@ -223,7 +228,8 @@ def sanitize_history_content(history: list) -> list:
         content = entry.get("content")
         if isinstance(content, list):
             entry["content"] = [
-                p if isinstance(p, dict)
+                p
+                if isinstance(p, dict)
                 else {"type": "text", "text": p if isinstance(p, str) else str(p)}
                 for p in content
             ]
