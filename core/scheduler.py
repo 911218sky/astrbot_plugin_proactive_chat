@@ -46,6 +46,72 @@ def compute_weighted_interval(schedule_conf: dict, timezone=None) -> int:
     return random.randint(min_s, max_s)
 
 
+def should_trigger_by_unanswered(
+    unanswered_count: int,
+    schedule_conf: dict,
+) -> tuple[bool, str]:
+    """
+    根據未回覆次數與衰減規則，判斷是否應觸發主動訊息。
+
+    優先使用 ``unanswered_decay_rules``（概率衰減規則列表）；
+    若未配置衰減規則，則回退到 ``max_unanswered_times``（硬性上限）。
+
+    Returns:
+        (是否觸發, 原因描述)
+    """
+    decay_rules = schedule_conf.get("unanswered_decay_rules", [])
+
+    if decay_rules:
+        # 解析衰減規則：按 min_count 排序，找到匹配的區間
+        parsed: list[tuple[int, float]] = []
+        for rule in decay_rules:
+            if not isinstance(rule, dict):
+                continue
+            min_count = rule.get("min_count", 0)
+            prob = rule.get("trigger_probability", 1.0)
+            # schema 中 trigger_probability 為 string 類型，需轉換
+            try:
+                prob = float(prob)
+            except (ValueError, TypeError):
+                prob = 1.0
+            # 將百分比值歸一化到 0~1
+            if prob > 1.0:
+                prob = prob / 100.0
+            prob = max(0.0, min(1.0, prob))
+            parsed.append((int(min_count), prob))
+
+        if parsed:
+            # 按 min_count 降序排列，找到第一個 <= unanswered_count 的規則
+            parsed.sort(key=lambda x: x[0], reverse=True)
+            matched_prob = 1.0
+            for min_count, prob in parsed:
+                if unanswered_count >= min_count:
+                    matched_prob = prob
+                    break
+
+            if matched_prob <= 0.0:
+                return False, f"衰減規則：未回覆 {unanswered_count} 次，概率為 0%，跳過"
+
+            roll = random.random()
+            if roll < matched_prob:
+                return True, (
+                    f"衰減規則：未回覆 {unanswered_count} 次，"
+                    f"概率 {matched_prob:.0%}，擲骰 {roll:.2f}，觸發"
+                )
+            return False, (
+                f"衰減規則：未回覆 {unanswered_count} 次，"
+                f"概率 {matched_prob:.0%}，擲骰 {roll:.2f}，跳過"
+            )
+
+    # 回退到硬性上限
+    max_unanswered = schedule_conf.get("max_unanswered_times", 3)
+    if max_unanswered > 0 and unanswered_count >= max_unanswered:
+        return False, (
+            f"硬性上限：未回覆 {unanswered_count} 次，已達上限 {max_unanswered}，暫停"
+        )
+    return True, ""
+
+
 def _hour_in_range(current: int, start: int, end: int) -> bool:
     """判斷 *current* 是否在 ``[start, end)``，支援跨日。"""
     if start <= end:

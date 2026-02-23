@@ -38,7 +38,7 @@ from .core.messaging import (
     send_chain_with_hooks,
     split_text,
 )
-from .core.scheduler import compute_weighted_interval
+from .core.scheduler import compute_weighted_interval, should_trigger_by_unanswered
 
 # ── 核心模組匯入（使用相對匯入，避免與 AstrBot 自身的 core 衝突） ──
 from .core.utils import (
@@ -983,18 +983,29 @@ class ProactiveChatPlugin(star.Star):
 
             schedule_conf = session_config.get("schedule_settings", {})
 
-            # ── 步驟 2：檢查未回覆次數上限 ──
+            # ── 步驟 2：檢查未回覆次數（概率衰減 / 硬性上限） ──
             async with self.data_lock:
                 unanswered_count = self.session_data.get(session_id, {}).get(
                     "unanswered_count", 0
                 )
-                max_unanswered = schedule_conf.get("max_unanswered_times", 3)
-                if max_unanswered > 0 and unanswered_count >= max_unanswered:
+                should_trigger, reason = should_trigger_by_unanswered(
+                    unanswered_count, schedule_conf
+                )
+                if not should_trigger:
                     logger.info(
                         f"{_LOG_TAG} {get_session_log_str(session_id, session_config, self.session_data)} "
-                        f"未回覆次數 ({unanswered_count}) 已達上限 ({max_unanswered})，暫停。"
+                        f"{reason}"
                     )
+                    # 概率衰減跳過時仍需排定下一次（給下次機會擲骰）
+                    decay_rules = schedule_conf.get("unanswered_decay_rules", [])
+                    if decay_rules:
+                        await self._schedule_next_chat_and_save(session_id)
                     return
+                if reason:
+                    logger.info(
+                        f"{_LOG_TAG} {get_session_log_str(session_id, session_config, self.session_data)} "
+                        f"{reason}"
+                    )
 
             # ── 步驟 3：動態修正 UMO ──
             # 平台可能重啟導致 ID 變更，需要重新解析到存活的平台

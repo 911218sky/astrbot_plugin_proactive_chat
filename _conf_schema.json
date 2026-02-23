@@ -69,11 +69,37 @@
                         "hint": "格式 '开始-结束'，例如 '23-7' 表示晚上11点到早上7点。在此时间段内不会发送主动消息"
                     },
                     "max_unanswered_times": {
-                        "description": "最大未回复次数上限",
+                        "description": "⛔ 最大未回复次数上限 (硬性停止)",
                         "type": "int",
                         "default": 4,
-                        "hint": "当Bot连续发送N次主动消息用户都未回复后，将暂停主动消息，直到用户下次回复。填0则不限制",
+                        "hint": "当Bot连续发送N次主动消息用户都未回复后，将暂停主动消息，直到用户下次回复。填0则不限制。如果配置了下方的概率衰减规则，此项作为绝对上限兜底",
                         "slider": { "min": 0, "max": 20, "step": 1 }
+                    },
+                    "unanswered_decay_rules": {
+                        "description": "📉 未回复概率衰减规则",
+                        "type": "template_list",
+                        "hint": "根据未回复次数动态降低触发概率，让Bot逐渐「识趣」地减少打扰。配置后优先于上方的硬性上限生效。未配置则回退到硬性上限逻辑",
+                        "templates": {
+                            "decay_rule": {
+                                "name": "📊 衰减规则",
+                                "hint": "当未回复次数 >= 指定次数时，以指定概率决定是否触发主动消息",
+                                "items": {
+                                    "min_count": {
+                                        "description": "🔢 最小未回复次数",
+                                        "type": "int",
+                                        "default": 1,
+                                        "hint": "当未回复次数 >= 此值时，应用此规则的触发概率",
+                                        "slider": { "min": 0, "max": 20, "step": 1 }
+                                    },
+                                    "trigger_probability": {
+                                        "description": "🎲 触发概率 (0~1)",
+                                        "type": "string",
+                                        "default": "1.0",
+                                        "hint": "0.0 = 完全不触发，0.5 = 50%概率触发，1.0 = 必定触发。例如：次数>=2时填0.7表示70%概率触发"
+                                    }
+                                }
+                            }
+                        }
                     },
                     "schedule_rules": {
                         "description": "📅 分时段排程规则",
@@ -263,11 +289,37 @@
                         "hint": "格式 '开始-结束'，例如 '2-6' 表示午夜2点到早上6点。在此时间段内不会发送主动消息"
                     },
                     "max_unanswered_times": {
-                        "description": "最大未回复次数上限",
+                        "description": "⛔ 最大未回复次数上限 (硬性停止)",
                         "type": "int",
                         "default": 2,
-                        "hint": "当Bot连续发送N次主动消息群成员都未回复后，将暂停主动消息。填0则不限制",
+                        "hint": "当Bot连续发送N次主动消息群成员都未回复后，将暂停主动消息。填0则不限制。如果配置了下方的概率衰减规则，此项作为绝对上限兜底",
                         "slider": { "min": 0, "max": 20, "step": 1 }
+                    },
+                    "unanswered_decay_rules": {
+                        "description": "📉 未回复概率衰减规则",
+                        "type": "template_list",
+                        "hint": "根据未回复次数动态降低触发概率，让Bot逐渐「识趣」地减少打扰。配置后优先于上方的硬性上限生效。未配置则回退到硬性上限逻辑",
+                        "templates": {
+                            "decay_rule": {
+                                "name": "📊 衰减规则",
+                                "hint": "当未回复次数 >= 指定次数时，以指定概率决定是否触发主动消息",
+                                "items": {
+                                    "min_count": {
+                                        "description": "🔢 最小未回复次数",
+                                        "type": "int",
+                                        "default": 1,
+                                        "hint": "当未回复次数 >= 此值时，应用此规则的触发概率",
+                                        "slider": { "min": 0, "max": 20, "step": 1 }
+                                    },
+                                    "trigger_probability": {
+                                        "description": "🎲 触发概率 (0~1)",
+                                        "type": "string",
+                                        "default": "1.0",
+                                        "hint": "0.0 = 完全不触发，0.5 = 50%概率触发，1.0 = 必定触发。例如：次数>=2时填0.7表示70%概率触发"
+                                    }
+                                }
+                            }
+                        }
                     },
                     "schedule_rules": {
                         "description": "📅 分时段排程规则",
@@ -461,11 +513,37 @@
                                 "hint": "格式 '开始-结束'，例如 '23-7' 表示晚上11点到早上7点。在此时间段内不会发送主动消息"
                             },
                             "max_unanswered_times": {
-                                "description": "最大未回复次数上限",
+                                "description": "⛔ 最大未回复次数上限 (硬性停止)",
                                 "type": "int",
                                 "default": 4,
-                                "hint": "当Bot连续发送N次主动消息用户都未回复后，将暂停主动消息，直到用户下次回复。填0则不限制",
+                                "hint": "当Bot连续发送N次主动消息用户都未回复后，将暂停主动消息，直到用户下次回复。填0则不限制。如果配置了下方的概率衰减规则，此项作为绝对上限兜底",
                                 "slider": { "min": 0, "max": 20, "step": 1 }
+                            },
+                            "unanswered_decay_rules": {
+                                "description": "📉 未回复概率衰减规则",
+                                "type": "template_list",
+                                "hint": "根据未回复次数动态降低触发概率，让Bot逐渐「识趣」地减少打扰。配置后优先于上方的硬性上限生效。未配置则回退到硬性上限逻辑",
+                                "templates": {
+                                    "decay_rule": {
+                                        "name": "📊 衰减规则",
+                                        "hint": "当未回复次数 >= 指定次数时，以指定概率决定是否触发主动消息",
+                                        "items": {
+                                            "min_count": {
+                                                "description": "🔢 最小未回复次数",
+                                                "type": "int",
+                                                "default": 1,
+                                                "hint": "当未回复次数 >= 此值时，应用此规则的触发概率",
+                                                "slider": { "min": 0, "max": 20, "step": 1 }
+                                            },
+                                            "trigger_probability": {
+                                                "description": "🎲 触发概率 (0~1)",
+                                                "type": "string",
+                                                "default": "1.0",
+                                                "hint": "0.0 = 完全不触发，0.5 = 50%概率触发，1.0 = 必定触发。例如：次数>=2时填0.7表示70%概率触发"
+                                            }
+                                        }
+                                    }
+                                }
                             },
                             "schedule_rules": {
                                 "description": "📅 分时段排程规则",
@@ -667,11 +745,37 @@
                                 "hint": "格式 '开始-结束'，例如 '2-6' 表示午夜2点到早上6点。在此时间段内不会发送主动消息"
                             },
                             "max_unanswered_times": {
-                                "description": "最大未回复次数上限",
+                                "description": "⛔ 最大未回复次数上限 (硬性停止)",
                                 "type": "int",
                                 "default": 2,
-                                "hint": "当Bot连续发送N次主动消息群成员都未回复后，将暂停主动消息。填0则不限制",
+                                "hint": "当Bot连续发送N次主动消息群成员都未回复后，将暂停主动消息。填0则不限制。如果配置了下方的概率衰减规则，此项作为绝对上限兜底",
                                 "slider": { "min": 0, "max": 20, "step": 1 }
+                            },
+                            "unanswered_decay_rules": {
+                                "description": "📉 未回复概率衰减规则",
+                                "type": "template_list",
+                                "hint": "根据未回复次数动态降低触发概率，让Bot逐渐「识趣」地减少打扰。配置后优先于上方的硬性上限生效。未配置则回退到硬性上限逻辑",
+                                "templates": {
+                                    "decay_rule": {
+                                        "name": "📊 衰减规则",
+                                        "hint": "当未回复次数 >= 指定次数时，以指定概率决定是否触发主动消息",
+                                        "items": {
+                                            "min_count": {
+                                                "description": "🔢 最小未回复次数",
+                                                "type": "int",
+                                                "default": 1,
+                                                "hint": "当未回复次数 >= 此值时，应用此规则的触发概率",
+                                                "slider": { "min": 0, "max": 20, "step": 1 }
+                                            },
+                                            "trigger_probability": {
+                                                "description": "🎲 触发概率 (0~1)",
+                                                "type": "string",
+                                                "default": "1.0",
+                                                "hint": "0.0 = 完全不触发，0.5 = 50%概率触发，1.0 = 必定触发。例如：次数>=2时填0.7表示70%概率触发"
+                                            }
+                                        }
+                                    }
+                                }
                             },
                             "schedule_rules": {
                                 "description": "📅 分时段排程规则",

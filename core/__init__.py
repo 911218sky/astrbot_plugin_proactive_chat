@@ -12,7 +12,7 @@ from .messaging import (
     split_text,
     trigger_decorating_hooks,
 )
-from .scheduler import compute_weighted_interval
+from .scheduler import compute_weighted_interval, should_trigger_by_unanswered
 from .utils import (
     get_session_log_str,
     is_group_session_id,
@@ -36,6 +36,7 @@ __all__ = [
     "backup_configurations",
     # scheduler
     "compute_weighted_interval",
+    "should_trigger_by_unanswered",
     # messaging
     "trigger_decorating_hooks",
     "send_chain_with_hooks",
