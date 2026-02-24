@@ -4,7 +4,7 @@
 
 ## 專案概述
 
-AstrBot 主動訊息插件（Enhanced Fork），讓 Bot 能在會話沉默後主動發起對話。
+AstrBot 主動訊息插件（Plus Fork），讓 Bot 能在會話沉默後主動發起對話。
 基於 [DBJD-CR/astrbot_plugin_proactive_chat](https://github.com/DBJD-CR/astrbot_plugin_proactive_chat) 修改。
 
 ## 技術棧
@@ -22,7 +22,8 @@ AstrBot 主動訊息插件（Enhanced Fork），讓 Bot 能在會話沉默後主
 │   ├── __init__.py        # 模組匯出（使用相對匯入）
 │   ├── utils.py           # 通用工具：免打擾判斷、UMO 解析、日誌格式化
 │   ├── config.py          # 配置管理：驗證、會話配置查詢、備份
-│   ├── scheduler.py       # 排程邏輯：加權隨機間隔、時段規則匹配
+│   ├── scheduler.py       # 排程邏輯：加權隨機間隔、時段規則匹配、未回覆概率衰減
+│   ├── context_predictor.py # 語境感知：LLM 預測主動訊息時機、任務取消判斷
 │   └── messaging.py       # 訊息發送：裝飾鉤子、分段回覆、歷史清洗
 ├── _conf_schema.json      # WebUI 配置結構定義（AstrBot schema 格式）
 ├── metadata.yaml          # 插件元資料
@@ -34,12 +35,35 @@ AstrBot 主動訊息插件（Enhanced Fork），讓 Bot 能在會話沉默後主
 1. 使用者發送訊息 → `_handle_message()` 記錄時間、重設計時器
 2. 私聊：立即排定下一次主動訊息（`_schedule_next_chat_and_save`）
 3. 群聊：等待沉默 N 分鐘後才排定（`_reset_group_silence_timer`）
-4. APScheduler 觸發 `check_and_chat()` → 檢查條件 → 呼叫 LLM → 發送訊息
+4. APScheduler 觸發 `check_and_chat()` → 檢查條件（含衰減概率判定）→ 呼叫 LLM → 發送訊息
+
+## 語境感知排程
+
+`context_aware_settings` 啟用後，每次使用者發訊息時會呼叫 LLM 分析對話語境，動態預測下一次主動訊息的最佳時機：
+- 例如用戶說「我在看電影」→ LLM 預測約 90-120 分鐘後問「電影好看嗎？」
+- 例如用戶說「晚安」→ LLM 預測約 7-9 小時後早安問候
+- 與原有的隨機排程並行運作，語境預測的任務會額外排定
+- 用戶發新訊息時會檢查已排定的語境任務是否應取消（例如用戶說「看完了」）
+
+相關函數：`core/context_predictor.py` 中的 `predict_proactive_timing()` 和 `check_should_cancel_task()`。
+
+## 未回覆衰減機制
+
+每條 `schedule_rules` 時段規則可選配置 `decay_rate`（逐次概率列表）：
+- 格式：逗號分隔的 0~1 概率值，每個值對應第 N 次未回覆的觸發概率
+- 例如 `decay_rate="0.8,0.5,0.3,0.15"`：第 1 次 → 80%、第 2 次 → 50%、第 3 次 → 30%、第 4 次 → 15%
+- 填單一值如 `"0.7"` 則每次未回覆都用同一概率
+- 留空表示不衰減（100% 觸發），填 `"0"` 表示只觸發一次就停止
+- 超出列表長度時使用 `default_decay_rate`（全域預設回退概率）
+- 以上皆未配置時，回退到 `max_unanswered_times` 硬性上限
+
+相關函數：`core/scheduler.py` 中的 `should_trigger_by_unanswered()`、`_resolve_decay_list()`、`_roll_probability()`。
 
 ## 開發規範
 
 ### 語言與編碼
 - 所有程式碼註解、日誌字串使用**繁體中文**（台灣標準：群 不是 羣、為 不是 爲、啟 不是 啓）
+- `_conf_schema.json` 中的 description / hint 使用**繁體中文**
 - 日誌前綴統一使用 `_LOG_TAG = "[主動訊息]"`
 - 檔案編碼一律 UTF-8
 
@@ -64,6 +88,7 @@ AstrBot 主動訊息插件（Enhanced Fork），讓 Bot 能在會話沉默後主
 - `_conf_schema.json` 使用 AstrBot 的 schema 格式
 - 動態列表使用 `template_list` 類型（參考 https://docs.astrbot.app/dev/star/guides/plugin-config.html）
 - Emoji 圖示需確保為完整的 Unicode 字元，避免出現亂碼 `�`
+- Prompt 佔位符：`{{current_time}}`（當前時間）、`{{unanswered_count}}`（未回覆次數）
 
 ## 程式碼品質
 
@@ -86,3 +111,4 @@ ruff check .         # 確認零錯誤
 
 - Commit message 使用**英文**
 - 格式：`type: description`（如 `feat: add schedule_rules support`、`fix: resolve UMO parsing error`）
+- **禁止自動提交**：AI 代理完成程式碼修改後，**不得自動執行 `git add` / `git commit` / `git push`**，必須等待使用者明確指示後才能提交。這是為了讓使用者有機會檢視變更內容。

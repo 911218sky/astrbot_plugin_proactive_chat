@@ -3,7 +3,7 @@
 
 <div align="center">
 
-# 🤖 AstrBot Proactive Chat Plugin (Enhanced Fork)
+# 🤖 AstrBot Proactive Chat Plugin (Plus Fork)
 
 [繁體中文](README.md) | English | [日本語](README_JP.md)
 

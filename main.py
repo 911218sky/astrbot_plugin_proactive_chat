@@ -32,6 +32,7 @@ from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.platform import PlatformStatus
 
 from .core.config import backup_configurations, get_session_config, validate_config
+from .core.context_predictor import check_should_cancel_task, predict_proactive_timing
 from .core.messaging import (
     calc_segment_interval,
     sanitize_history_content,
@@ -84,6 +85,7 @@ class ProactiveChatPlugin(star.Star):
         "plugin_start_time",
         "first_message_logged",
         "_cleanup_counter",
+        "_pending_context_tasks",
     )
 
     def __init__(self, context: star.Context, config: AstrBotConfig) -> None:
@@ -122,6 +124,8 @@ class ProactiveChatPlugin(star.Star):
         self.first_message_logged: set[str] = set()
         # 清理計數器：每處理 10 次 after_message_sent 就清理過期的 session_temp_state
         self._cleanup_counter: int = 0
+        # 語境預測的待執行任務追蹤: { session_id: { job_id, reason, hint } }
+        self._pending_context_tasks: dict[str, dict] = {}
 
         logger.info(f"{_LOG_TAG} 插件實例已創建。")
 
@@ -206,6 +210,7 @@ class ProactiveChatPlugin(star.Star):
 
         # 恢復上次未完成的定時任務 & 設置自動觸發器
         await self._init_jobs_from_data()
+        await self._restore_pending_context_tasks()
         await self._setup_auto_triggers_for_enabled_sessions()
         logger.info(f"{_LOG_TAG} 初始化完成。")
 
@@ -368,6 +373,33 @@ class ProactiveChatPlugin(star.Star):
                 logger.error(f"{_LOG_TAG} 恢復任務失敗: {e}")
 
         logger.info(f"{_LOG_TAG} 任務恢復完成，共恢復 {restored} 個定時任務。")
+
+    async def _restore_pending_context_tasks(self) -> None:
+        """從持久化的 session_data 中恢復語境預測的待執行任務。"""
+        restored = 0
+        now = time.time()
+        for sid, info in self.session_data.items():
+            if not isinstance(info, dict):
+                continue
+            pending = info.get("pending_context_task")
+            if not isinstance(pending, dict):
+                continue
+            # 只恢復尚未過期的任務
+            run_at_str = pending.get("run_at", "")
+            if run_at_str:
+                try:
+                    run_at_dt = datetime.fromisoformat(run_at_str)
+                    if run_at_dt.timestamp() < now:
+                        # 任務已過期，清理
+                        info.pop("pending_context_task", None)
+                        continue
+                except (ValueError, TypeError):
+                    info.pop("pending_context_task", None)
+                    continue
+            self._pending_context_tasks[sid] = pending
+            restored += 1
+        if restored:
+            logger.info(f"{_LOG_TAG} 已恢復 {restored} 個語境預測的待執行任務。")
 
     # ═══════════════════════════════════════════════════════════
     #  自動觸發
@@ -651,6 +683,16 @@ class ProactiveChatPlugin(star.Star):
             # 私聊：立即安排下一次主動訊息，並歸零未回覆計數
             await self._schedule_next_chat_and_save(session_id, reset_counter=True)
 
+        # 語境感知排程：在背景執行，避免阻塞訊息處理流程
+        ctx_settings = session_config.get("context_aware_settings", {})
+        if ctx_settings.get("enable", False):
+            message_text = event.message_str or ""
+            asyncio.create_task(
+                self._handle_context_aware_scheduling(
+                    session_id, message_text, ctx_settings
+                )
+            )
+
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE, priority=998)
     async def on_private_message(self, event: AstrMessageEvent) -> None:
         """私聊訊息事件處理器。priority=998 確保在大多數插件之前執行。"""
@@ -741,6 +783,201 @@ class ProactiveChatPlugin(star.Star):
             )
         except Exception as e:
             logger.error(f"{_LOG_TAG} 設置沉默倒計時失敗: {e}")
+
+    # ═══════════════════════════════════════════════════════════
+    #  語境感知排程
+    #
+    #  利用 LLM 根據對話語境預測最佳的主動訊息觸發時機。
+    #  使用插件自帶的 APScheduler 管理排程，觸發時走 check_and_chat
+    #  流程，確保所有業務邏輯（免打擾、衰減、一致性檢查等）生效。
+    # ═══════════════════════════════════════════════════════════
+
+    async def _handle_context_aware_scheduling(
+        self,
+        session_id: str,
+        message_text: str,
+        ctx_settings: dict,
+    ) -> None:
+        """
+        背景任務：檢查待執行的語境任務並執行 LLM 預測。
+
+        步驟：
+        1. 若存在待執行的語境任務，詢問 LLM 是否應該取消
+        2. 根據最新訊息執行 LLM 時機預測
+        3. 若預測結果建議排程，建立一次性任務
+        """
+        try:
+            # 步驟 1：檢查待執行的語境任務是否應該取消
+            cancelled_reason = await self._maybe_cancel_pending_context_task(
+                session_id, message_text
+            )
+
+            # 步驟 2：取得對話歷史用於語境分析
+            history = await self._get_history_for_prediction(session_id)
+
+            now_str = datetime.now(self.timezone).strftime("%Y年%m月%d日 %H:%M")
+
+            # 步驟 3：呼叫 LLM 預測時機（若剛取消了任務，傳入原因讓 LLM 知道語境已轉移）
+            prediction = await predict_proactive_timing(
+                context=self.context,
+                session_id=session_id,
+                last_message=message_text,
+                history=history,
+                current_time_str=now_str,
+                config=ctx_settings,
+                just_cancelled_reason=cancelled_reason,
+            )
+
+            if not prediction or not prediction.get("should_schedule"):
+                return
+
+            delay_minutes = prediction.get("delay_minutes", 60)
+            reason = prediction.get("reason", "")
+            hint = prediction.get("message_hint", "")
+
+            # 步驟 4：建立排程任務
+            await self._create_context_predicted_task(
+                session_id=session_id,
+                delay_minutes=delay_minutes,
+                reason=reason,
+                hint=hint,
+            )
+
+        except Exception as e:
+            logger.error(f"{_LOG_TAG} 語境感知排程失敗: {e}")
+
+    async def _maybe_cancel_pending_context_task(
+        self,
+        session_id: str,
+        message_text: str,
+    ) -> str:
+        """若用戶的新訊息使待執行的語境任務不再需要，則取消該任務。
+
+        Returns:
+            被取消任務的原因字串，未取消則回傳空字串。
+        """
+        pending = self._pending_context_tasks.get(session_id)
+        if not pending:
+            return ""
+
+        job_id = pending.get("job_id", "")
+        task_reason = pending.get("reason", "")
+        task_hint = pending.get("hint", "")
+
+        should_cancel = await check_should_cancel_task(
+            context=self.context,
+            session_id=session_id,
+            last_message=message_text,
+            task_reason=task_reason,
+            task_hint=task_hint,
+        )
+
+        if should_cancel:
+            await self._remove_context_predicted_task(session_id, job_id)
+            logger.info(
+                f"{_LOG_TAG} 已取消 "
+                f"{get_session_log_str(session_id, None, self.session_data)} "
+                f"的語境預測任務：用戶新訊息使其不再需要。"
+            )
+            return task_reason
+        return ""
+
+    async def _remove_context_predicted_task(
+        self, session_id: str, job_id: str
+    ) -> None:
+        """從本地排程器和追蹤中移除語境預測任務。"""
+        self._pending_context_tasks.pop(session_id, None)
+
+        ctx_job_id = job_id or f"ctx_{session_id}"
+        try:
+            if self.scheduler.get_job(ctx_job_id):
+                self.scheduler.remove_job(ctx_job_id)
+        except Exception:
+            pass
+
+    async def _create_context_predicted_task(
+        self,
+        *,
+        session_id: str,
+        delay_minutes: int,
+        reason: str,
+        hint: str,
+    ) -> None:
+        """
+        根據 LLM 預測結果建立一次性排程任務。
+
+        統一使用插件自帶的 APScheduler，觸發時走 check_and_chat 流程，
+        確保免打擾、衰減、一致性檢查等業務邏輯都能生效。
+        """
+        # 先取消該會話已有的語境任務
+        old_pending = self._pending_context_tasks.get(session_id)
+        if old_pending:
+            await self._remove_context_predicted_task(
+                session_id, old_pending.get("job_id", "")
+            )
+
+        run_at = datetime.fromtimestamp(
+            time.time() + delay_minutes * 60, tz=self.timezone
+        )
+
+        ctx_job_id = f"ctx_{session_id}"
+        self.scheduler.add_job(
+            self.check_and_chat,
+            "date",
+            run_date=run_at,
+            args=[session_id],
+            id=ctx_job_id,
+            replace_existing=True,
+            misfire_grace_time=120,
+        )
+
+        session_config = get_session_config(self.config, session_id)
+        logger.info(
+            f"{_LOG_TAG} 已為 "
+            f"{get_session_log_str(session_id, session_config, self.session_data)} "
+            f"建立語境預測排程，"
+            f"觸發時間 {run_at.strftime('%Y-%m-%d %H:%M:%S')} "
+            f"(+{delay_minutes}分鐘，原因: {reason})"
+        )
+
+        # 追蹤待執行任務
+        self._pending_context_tasks[session_id] = {
+            "job_id": ctx_job_id,
+            "reason": reason,
+            "hint": hint,
+            "delay_minutes": delay_minutes,
+            "created_at": time.time(),
+            "run_at": run_at.isoformat(),
+        }
+
+        # 持久化到 session_data
+        async with self.data_lock:
+            sd = self.session_data.setdefault(session_id, {})
+            sd["pending_context_task"] = self._pending_context_tasks[session_id]
+            await self._save_data()
+
+    async def _get_history_for_prediction(self, session_id: str) -> list:
+        """取得最近的對話歷史，用於語境預測。"""
+        try:
+            conv_id = await self.context.conversation_manager.get_curr_conversation_id(
+                session_id
+            )
+            if not conv_id:
+                return []
+            conversation = await self.context.conversation_manager.get_conversation(
+                session_id, conv_id
+            )
+            if not conversation or not conversation.history:
+                return []
+            history = (
+                json.loads(conversation.history)
+                if isinstance(conversation.history, str)
+                else conversation.history
+            )
+            return sanitize_history_content(history) if history else []
+        except Exception as e:
+            logger.debug(f"{_LOG_TAG} 取得預測用歷史記錄失敗: {e}")
+            return []
 
     # ═══════════════════════════════════════════════════════════
     #  訊息發送
@@ -1060,6 +1297,18 @@ class ProactiveChatPlugin(star.Star):
                 "{{unanswered_count}}", str(unanswered_count)
             ).replace("{{current_time}}", now_str)
 
+            # 若本次觸發來自語境預測，將預測的原因和跟進提示注入 Prompt
+            ctx_task = self._pending_context_tasks.get(session_id)
+            if ctx_task:
+                ctx_reason = ctx_task.get("reason", "")
+                ctx_hint = ctx_task.get("hint", "")
+                final_prompt += (
+                    f"\n\n[語境感知觸發]\n"
+                    f"這條主動訊息的排程原因：{ctx_reason}\n"
+                    f"建議的跟進話題：{ctx_hint}\n"
+                    f"請將這個語境自然地融入你的訊息中。"
+                )
+
             # 清洗歷史記錄格式（確保 content 欄位一致）
             history = sanitize_history_content(history)
 
@@ -1101,6 +1350,14 @@ class ProactiveChatPlugin(star.Star):
                 response_text,
                 unanswered_count,
             )
+
+            # 清理語境預測任務的追蹤（任務已成功執行）
+            if session_id in self._pending_context_tasks:
+                self._pending_context_tasks.pop(session_id, None)
+                async with self.data_lock:
+                    sd = self.session_data.get(session_id)
+                    if sd:
+                        sd.pop("pending_context_task", None)
 
             # 群聊：清除 next_trigger_time（由沉默計時器接管後續排程）
             if is_group_session_id(session_id):

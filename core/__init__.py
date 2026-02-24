@@ -5,6 +5,10 @@ from .config import (
     get_session_config,
     validate_config,
 )
+from .context_predictor import (
+    check_should_cancel_task,
+    predict_proactive_timing,
+)
 from .messaging import (
     calc_segment_interval,
     sanitize_history_content,
@@ -37,6 +41,9 @@ __all__ = [
     # scheduler
     "compute_weighted_interval",
     "should_trigger_by_unanswered",
+    # context_predictor
+    "predict_proactive_timing",
+    "check_should_cancel_task",
     # messaging
     "trigger_decorating_hooks",
     "send_chain_with_hooks",

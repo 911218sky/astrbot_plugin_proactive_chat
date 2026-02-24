@@ -3,7 +3,7 @@
 
 <div align="center">
 
-# 🤖 AstrBot 能動的チャットプラグイン (Enhanced Fork)
+# 🤖 AstrBot 能動的チャットプラグイン (Plus Fork)
 
 [繁體中文](README.md) | [English](README_EN.md) | 日本語
 
