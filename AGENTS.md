@@ -17,17 +17,19 @@ AstrBot 主動訊息插件（Plus Fork），讓 Bot 能在會話沉默後主動�
 ## 專案結構
 
 ```
-├── main.py                # 插件入口：生命週期、事件處理、定時調度、LLM 呼叫
+├── main.py                  # 插件入口：生命週期、事件處理、定時調度
 ├── core/
-│   ├── __init__.py        # 模組匯出（使用相對匯入）
-│   ├── utils.py           # 通用工具：免打擾判斷、UMO 解析、日誌格式化
-│   ├── config.py          # 配置管理：驗證、會話配置查詢、備份
-│   ├── scheduler.py       # 排程邏輯：加權隨機間隔、時段規則匹配、未回覆概率衰減
+│   ├── __init__.py          # 模組匯出（使用相對匯入）
+│   ├── utils.py             # 通用工具：免打擾判斷、UMO 解析、日誌格式化
+│   ├── config.py            # 配置管理：驗證、會話配置查詢、備份
+│   ├── scheduler.py         # 排程邏輯：加權隨機間隔、時段規則匹配、未回覆概率衰減
 │   ├── context_predictor.py # 語境感知：LLM 預測主動訊息時機、任務取消判斷
-│   └── messaging.py       # 訊息發送：裝飾鉤子、分段回覆、歷史清洗
-├── _conf_schema.json      # WebUI 配置結構定義（AstrBot schema 格式）
-├── metadata.yaml          # 插件元資料
-└── requirements.txt       # 依賴列表
+│   ├── messaging.py         # 訊息發送：裝飾鉤子、分段回覆、歷史清洗
+│   ├── llm_helpers.py       # LLM 輔助：請求準備、記憶檢索整合、LLM 呼叫封裝
+│   └── send.py              # 主動訊息發送：TTS / 文字 / 分段發送邏輯
+├── _conf_schema.json        # WebUI 配置結構定義（AstrBot schema 格式）
+├── metadata.yaml            # 插件元資料
+└── requirements.txt         # 依賴列表
 ```
 
 ## 核心流程
@@ -46,6 +48,17 @@ AstrBot 主動訊息插件（Plus Fork），讓 Bot 能在會話沉默後主動�
 - 用戶發新訊息時會檢查已排定的語境任務是否應取消（例如用戶說「看完了」）
 
 相關函數：`core/context_predictor.py` 中的 `predict_proactive_timing()` 和 `check_should_cancel_task()`。
+
+## livingmemory 記憶整合
+
+主動訊息生成時可選從 [astrbot_plugin_livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory) 檢索相關長期記憶，注入到 system_prompt 中，讓 LLM 生成更貼合用戶歷史的主動訊息。
+
+- 透過 `context_aware_settings.memory_top_k` 控制檢索數量（0 = 停用）
+- 為可選依賴：未安裝 livingmemory 時自動跳過，不影響主動訊息功能
+- 檢索查詢優先使用語境任務的 hint/reason，無語境任務時使用當前時間
+- 記憶內容截斷至 200 字元，避免 prompt 過長
+
+相關函數：`core/llm_helpers.py` 中的 `get_livingmemory_engine()`、`recall_memories_for_proactive()`。
 
 ## 未回覆衰減機制
 

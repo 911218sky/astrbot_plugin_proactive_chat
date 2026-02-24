@@ -27,19 +27,18 @@ from astrbot.core.agent.message import (
     UserMessageSegment,
 )
 from astrbot.core.config.astrbot_config import AstrBotConfig
-from astrbot.core.message.components import Plain, Record
-from astrbot.core.message.message_event_result import MessageChain
 from astrbot.core.platform.platform import PlatformStatus
 
 from .core.config import backup_configurations, get_session_config, validate_config
 from .core.context_predictor import check_should_cancel_task, predict_proactive_timing
-from .core.messaging import (
-    calc_segment_interval,
-    sanitize_history_content,
-    send_chain_with_hooks,
-    split_text,
+from .core.llm_helpers import (
+    call_llm,
+    recall_memories_for_proactive,
+    safe_prepare_llm_request,
 )
+from .core.messaging import sanitize_history_content
 from .core.scheduler import compute_weighted_interval, should_trigger_by_unanswered
+from .core.send import send_proactive_message
 
 # ── 核心模組匯入（使用相對匯入，避免與 AstrBot 自身的 core 衝突） ──
 from .core.utils import (
@@ -979,179 +978,6 @@ class ProactiveChatPlugin(star.Star):
             logger.debug(f"{_LOG_TAG} 取得預測用歷史記錄失敗: {e}")
             return []
 
-    # ═══════════════════════════════════════════════════════════
-    #  訊息發送
-    # ═══════════════════════════════════════════════════════════
-
-    async def _send_proactive_message(self, session_id: str, text: str) -> None:
-        """
-        發送主動訊息。
-
-        流程：嘗試 TTS 語音 → 判斷是否需要文字 → 分段或整段發送 →
-              群聊額外重設沉默倒計時。
-        """
-        session_config = get_session_config(self.config, session_id)
-        if not session_config:
-            return
-
-        tts_conf = session_config.get("tts_settings", {})
-        seg_conf = session_config.get("segmented_reply_settings", {})
-
-        # 嘗試 TTS 發送
-        is_tts_sent = False
-        if tts_conf.get("enable_tts", True):
-            is_tts_sent = await self._try_send_tts(session_id, text)
-
-        # 判斷是否需要額外發送文字（TTS 失敗時一定發、成功時看 always_send_text）
-        should_send_text = not is_tts_sent or tts_conf.get("always_send_text", True)
-        if should_send_text:
-            enable_seg = seg_conf.get("enable", False)
-            threshold = seg_conf.get("words_count_threshold", 150)
-
-            if enable_seg and len(text) <= threshold:
-                # 分段發送：模擬打字效果，每段之間有隨機間隔
-                segments = split_text(text, seg_conf) or [text]
-                for idx, seg in enumerate(segments):
-                    await send_chain_with_hooks(
-                        session_id,
-                        [Plain(text=seg)],
-                        self.context,
-                        self.session_data,
-                    )
-                    if idx < len(segments) - 1:
-                        interval = calc_segment_interval(seg, seg_conf)
-                        await asyncio.sleep(interval)
-            else:
-                # 整段發送
-                await send_chain_with_hooks(
-                    session_id,
-                    [Plain(text=text)],
-                    self.context,
-                    self.session_data,
-                )
-
-        # 群聊：發送後重設沉默倒計時
-        if is_group_session_id(session_id):
-            await self._reset_group_silence_timer(session_id)
-            self.last_bot_message_time = time.time()
-
-    async def _try_send_tts(self, session_id: str, text: str) -> bool:
-        """嘗試透過 TTS 發送語音。成功回傳 True，失敗回傳 False。"""
-        try:
-            tts_provider = self._get_tts_provider(session_id)
-            if not tts_provider:
-                return False
-            audio_path = await tts_provider.get_audio(text)
-            if not audio_path:
-                return False
-            await self.context.send_message(
-                session_id, MessageChain([Record(file=audio_path)])
-            )
-            # 短暫等待，避免語音和文字訊息同時到達
-            await asyncio.sleep(0.5)
-            return True
-        except Exception as e:
-            logger.error(f"{_LOG_TAG} TTS 流程異常: {e}")
-            return False
-
-    def _get_tts_provider(self, session_id: str):
-        """
-        取得 TTS provider。
-
-        處理 AstrBot 某些版本中 UMO 格式不相容的 ValueError，
-        自動回退為標準三段式格式重試。
-        """
-        try:
-            return self.context.get_using_tts_provider(umo=session_id)
-        except ValueError as e:
-            if "too many values" not in str(e) and "expected 3" not in str(e):
-                raise
-            parsed = parse_session_id(session_id)
-            if parsed:
-                return self.context.get_using_tts_provider(
-                    umo=f"{parsed[0]}:{parsed[1]}:{parsed[2]}"
-                )
-            return None
-
-    # ═══════════════════════════════════════════════════════════
-    #  LLM 請求準備
-    # ═══════════════════════════════════════════════════════════
-
-    async def _prepare_llm_request(self, session_id: str) -> dict | None:
-        """
-        準備 LLM 請求所需的上下文。
-
-        Returns:
-            包含 conv_id、history、system_prompt 的 dict，
-            若無法取得則回傳 None。
-        """
-        try:
-            # 取得或建立對話 ID
-            conv_id = await self.context.conversation_manager.get_curr_conversation_id(
-                session_id
-            )
-            if not conv_id:
-                try:
-                    conv_id = await self.context.conversation_manager.new_conversation(
-                        session_id
-                    )
-                except ValueError:
-                    raise
-                except Exception as e:
-                    logger.error(f"{_LOG_TAG} 創建新對話失敗: {e}")
-                    return None
-            if not conv_id:
-                return None
-
-            # 取得對話物件及歷史記錄
-            conversation = await self.context.conversation_manager.get_conversation(
-                session_id, conv_id
-            )
-
-            history: list = []
-            if conversation and conversation.history:
-                try:
-                    history = (
-                        json.loads(conversation.history)
-                        if isinstance(conversation.history, str)
-                        else conversation.history
-                    )
-                except (json.JSONDecodeError, TypeError):
-                    pass
-
-            # 取得 system prompt（人格設定）
-            system_prompt = await self._resolve_system_prompt(conversation, session_id)
-            if not system_prompt:
-                logger.error(f"{_LOG_TAG} 無法加載任何人格設定，放棄。")
-                return None
-
-            return {
-                "conv_id": conv_id,
-                "history": history,
-                "system_prompt": system_prompt,
-            }
-        except Exception as e:
-            logger.warning(f"{_LOG_TAG} 獲取上下文或人格失敗: {e}")
-            return None
-
-    async def _resolve_system_prompt(self, conversation, session_id: str) -> str:
-        """
-        依序嘗試取得 system prompt。
-
-        優先順序：對話綁定的人格 → AstrBot 預設人格。
-        """
-        if conversation and conversation.persona_id:
-            persona = await self.context.persona_manager.get_persona(
-                conversation.persona_id
-            )
-            if persona and persona.system_prompt:
-                return persona.system_prompt
-
-        default_persona = await self.context.persona_manager.get_default_persona_v3(
-            umo=session_id
-        )
-        return default_persona["prompt"] if default_persona else ""
-
     async def _finalize_and_reschedule(
         self,
         session_id: str,
@@ -1277,7 +1103,7 @@ class ProactiveChatPlugin(star.Star):
                     session_id = new_session_id
 
             # ── 步驟 4：準備 LLM 請求 ──
-            request_package = await self._safe_prepare_llm_request(session_id)
+            request_package = await safe_prepare_llm_request(self.context, session_id)
             if not request_package:
                 await self._schedule_next_chat_and_save(session_id)
                 return
@@ -1309,12 +1135,35 @@ class ProactiveChatPlugin(star.Star):
                     f"請將這個語境自然地融入你的訊息中。"
                 )
 
+            # 嘗試從 livingmemory 檢索相關記憶並注入 system_prompt（可選依賴）
+            ctx_settings = session_config.get("context_aware_settings", {})
+            memory_top_k = ctx_settings.get("memory_top_k", 5)
+            memory_query = ""
+            if ctx_task:
+                memory_query = ctx_task.get("hint", "") or ctx_task.get("reason", "")
+            if not memory_query:
+                memory_query = now_str
+            memory_str = await recall_memories_for_proactive(
+                self.context, session_id, memory_query, memory_top_k=memory_top_k
+            )
+            if memory_str:
+                system_prompt = system_prompt + "\n\n" + memory_str
+                logger.info(
+                    f"{_LOG_TAG} 已為 {get_session_log_str(session_id, session_config, self.session_data)} "
+                    f"注入記憶到主動訊息 system_prompt。"
+                )
+            else:
+                logger.info(
+                    f"{_LOG_TAG} {get_session_log_str(session_id, session_config, self.session_data)} "
+                    f"本次主動訊息未帶記憶（無相關記憶或 livingmemory 不可用）。"
+                )
+
             # 清洗歷史記錄格式（確保 content 欄位一致）
             history = sanitize_history_content(history)
 
             # 呼叫 LLM（主要路徑 + 備用路徑）
-            llm_response = await self._call_llm(
-                session_id, final_prompt, history, system_prompt
+            llm_response = await call_llm(
+                self.context, session_id, final_prompt, history, system_prompt
             )
             if not llm_response or not llm_response.completion_text:
                 await self._schedule_next_chat_and_save(session_id)
@@ -1342,7 +1191,18 @@ class ProactiveChatPlugin(star.Star):
                 return
 
             # ── 步驟 7：發送訊息並收尾 ──
-            await self._send_proactive_message(session_id, response_text)
+            def _set_bot_time(t: float) -> None:
+                self.last_bot_message_time = t
+
+            await send_proactive_message(
+                session_id=session_id,
+                text=response_text,
+                config=self.config,
+                context=self.context,
+                session_data=self.session_data,
+                reset_group_silence_cb=self._reset_group_silence_timer,
+                last_bot_message_time_setter=_set_bot_time,
+            )
             await self._finalize_and_reschedule(
                 session_id,
                 conv_id,
@@ -1390,59 +1250,3 @@ class ProactiveChatPlugin(star.Star):
                 await self._schedule_next_chat_and_save(session_id)
             except Exception as se:
                 logger.error(f"{_LOG_TAG} 錯誤恢復中重新調度失敗: {se}")
-
-    # ── check_and_chat 的輔助方法 ─────────────────────────────
-
-    async def _safe_prepare_llm_request(self, session_id: str) -> dict | None:
-        """
-        準備 LLM 請求，自動處理 UMO 格式相容問題。
-
-        某些 AstrBot 版本的 conversation_manager 對 UMO 格式有嚴格要求，
-        若首次呼叫失敗且為 ValueError，會嘗試用標準三段式格式重試。
-        """
-        try:
-            return await self._prepare_llm_request(session_id)
-        except ValueError as e:
-            if "too many values" not in str(e) and "expected 3" not in str(e):
-                raise
-            parsed = parse_session_id(session_id)
-            if parsed:
-                return await self._prepare_llm_request(
-                    f"{parsed[0]}:{parsed[1]}:{parsed[2]}"
-                )
-            raise
-
-    async def _call_llm(
-        self,
-        session_id: str,
-        prompt: str,
-        contexts: list,
-        system_prompt: str,
-    ):
-        """
-        呼叫 LLM 生成回應。
-
-        主要路徑：透過 ``llm_generate`` API。
-        備用路徑：若主要路徑失敗，回退到 ``get_using_provider().text_chat()``。
-        """
-        try:
-            provider_id = await self.context.get_current_chat_provider_id(session_id)
-            return await self.context.llm_generate(
-                chat_provider_id=provider_id,
-                prompt=prompt,
-                contexts=contexts,
-                system_prompt=system_prompt,
-            )
-        except Exception as llm_err:
-            logger.error(f"{_LOG_TAG} LLM 調用失敗: {llm_err}")
-            try:
-                provider = self.context.get_using_provider(umo=session_id)
-                if provider:
-                    return await provider.text_chat(
-                        prompt=prompt,
-                        contexts=contexts,
-                        system_prompt=system_prompt,
-                    )
-            except Exception:
-                pass
-            return None

@@ -84,7 +84,11 @@ def build_recent_messages_str(history: list, max_messages: int = 10) -> str:
     if not history:
         return "（無最近訊息）"
 
-    recent = history[-max_messages:] if len(history) > max_messages else history
+    recent = (
+        history[-max_messages:]
+        if max_messages > 0 and len(history) > max_messages
+        else history
+    )
     lines: list[str] = []
     for msg in recent:
         if not isinstance(msg, dict):

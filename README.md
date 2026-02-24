@@ -67,6 +67,7 @@ APScheduler 定時觸發 check_and_chat()
 - 動態會話管理 — 使用 `template_list`，不限會話數量，WebUI 自由新增/刪除
 - 持久化 — 重啟後自動恢復排程任務，不遺失狀態
 - 自動觸發 — 插件啟動後若會話無訊息，可自動建立首次排程
+- 記憶整合 — 可選整合 [livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory) 插件，主動訊息生成時檢索長期記憶，讓對話更貼合用戶歷史
 
 ### 智慧排程
 
@@ -98,6 +99,7 @@ APScheduler 定時觸發 check_and_chat()
 | 分時段排程 | 新增 `schedule_rules`，不同時段可設定不同的間隔分佈 |
 | 逐次概率衰減 | `decay_rate` 從單一指數衰減改為逐次概率列表，更精細 |
 | 語境感知排程 | 新增 LLM 語境分析，根據對話內容智慧決定觸發時機 |
+| 記憶整合 | 可選整合 livingmemory 插件，主動訊息帶入長期記憶上下文 |
 | 配置精簡 | `_conf_schema.json` 從 ~2500 行縮減至 ~1200 行 |
 
 ## 🚀 安裝與使用
@@ -200,7 +202,9 @@ astrbot_plugin_proactive_chat_plus/
 │   ├── config.py              # 配置管理（驗證、會話配置查詢、備份）
 │   ├── scheduler.py           # 排程邏輯（加權隨機間隔、時段規則、衰減判定）
 │   ├── context_predictor.py   # 語境感知（LLM 預測時機、任務取消判斷）
-│   └── messaging.py           # 訊息發送（裝飾鉤子、分段回覆、歷史清洗）
+│   ├── messaging.py           # 訊息發送（裝飾鉤子、分段回覆、歷史清洗）
+│   ├── llm_helpers.py         # LLM 輔助（請求準備、記憶檢索整合、LLM 呼叫封裝）
+│   └── send.py                # 主動訊息發送（TTS / 文字 / 分段發送）
 ├── _conf_schema.json          # WebUI 配置結構定義
 ├── metadata.yaml              # 插件元資料
 ├── requirements.txt           # 依賴列表

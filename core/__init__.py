@@ -9,6 +9,14 @@ from .context_predictor import (
     check_should_cancel_task,
     predict_proactive_timing,
 )
+from .llm_helpers import (
+    call_llm,
+    get_livingmemory_engine,
+    prepare_llm_request,
+    recall_memories_for_proactive,
+    resolve_system_prompt,
+    safe_prepare_llm_request,
+)
 from .messaging import (
     calc_segment_interval,
     sanitize_history_content,
@@ -17,6 +25,11 @@ from .messaging import (
     trigger_decorating_hooks,
 )
 from .scheduler import compute_weighted_interval, should_trigger_by_unanswered
+from .send import (
+    get_tts_provider,
+    send_proactive_message,
+    try_send_tts,
+)
 from .utils import (
     get_session_log_str,
     is_group_session_id,
@@ -50,4 +63,15 @@ __all__ = [
     "split_text",
     "calc_segment_interval",
     "sanitize_history_content",
+    # llm_helpers
+    "get_livingmemory_engine",
+    "recall_memories_for_proactive",
+    "prepare_llm_request",
+    "resolve_system_prompt",
+    "safe_prepare_llm_request",
+    "call_llm",
+    # send
+    "send_proactive_message",
+    "try_send_tts",
+    "get_tts_provider",
 ]

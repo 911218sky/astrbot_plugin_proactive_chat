@@ -83,6 +83,14 @@
 - デコレータフック（スタンプ/感情プラグインと互換）
 - 高度な設定可能（WebUI ベース、コード変更不要）
 
+### 4. livingmemory 統合
+
+[astrbot_plugin_livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory) とのオプション統合 — 能動的メッセージ生成時に関連する長期記憶を検索し、system prompt に注入することで、よりパーソナライズされた文脈豊かな会話を実現します。
+
+- `context_aware_settings.memory_top_k` で検索数を制御（0 で無効化）
+- 完全にオプション：livingmemory 未インストールでもエラーなく動作
+- 検索クエリ優先順位：コンテキストタスクの hint/reason → 現在時刻にフォールバック
+
 ## 🚀 インストール
 
 1. 本リポジトリから `.zip` をダウンロードし、AstrBot WebUI の「ファイルからインストール」で導入
@@ -94,20 +102,21 @@
 
 ```
 astrbot_plugin_proactive_chat/
-├── core/                  # コアモジュール
-│   ├── __init__.py        # モジュールエクスポート
-│   ├── config.py          # 設定管理
-│   ├── messaging.py       # メッセージ送信
-│   ├── scheduler.py       # スケジューリングロジック
-│   └── utils.py           # ユーティリティ
-├── assets/                # 静的リソース
-├── main.py                # プラグインエントリポイント（詳細コメント付き）
-├── _conf_schema.json      # 設定スキーマ定義
-├── metadata.yaml          # プラグインメタデータ
-├── requirements.txt       # 依存関係
-├── CHANGELOG.md           # 更新ログ
-├── LICENSE                # AGPL-3.0
-└── README.md
+├── core/                      # コアモジュール
+│   ├── __init__.py            # モジュールエクスポート
+│   ├── config.py              # 設定管理
+│   ├── context_predictor.py   # コンテキスト認識スケジューリング（LLM 予測）
+│   ├── llm_helpers.py         # LLM ヘルパー（リクエスト準備、記憶検索、LLM 呼び出し）
+│   ├── messaging.py           # メッセージ送信
+│   ├── scheduler.py           # スケジューリングロジック
+│   ├── send.py                # 能動的メッセージ送信（TTS / テキスト / 分割）
+│   └── utils.py               # ユーティリティ
+├── main.py                    # プラグインエントリポイント
+├── _conf_schema.json          # 設定スキーマ定義
+├── metadata.yaml              # プラグインメタデータ
+├── requirements.txt           # 依存関係
+├── CHANGELOG.md               # 更新ログ
+└── LICENSE                    # AGPL-3.0
 ```
 
 ## 🌐 プラットフォーム対応

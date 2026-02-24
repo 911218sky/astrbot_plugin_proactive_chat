@@ -83,6 +83,14 @@ Added `schedule_rules` (`template_list` type) to all `schedule_settings`, enabli
 - Decorator hooks (compatible with meme/emotion plugins)
 - Highly configurable (WebUI-based, no code changes needed)
 
+### 4. livingmemory Integration
+
+Optional integration with [astrbot_plugin_livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory) — retrieves relevant long-term memories during proactive message generation and injects them into the system prompt, making conversations more personalized and contextually rich.
+
+- Controlled via `context_aware_settings.memory_top_k` (set to 0 to disable)
+- Fully optional: works without livingmemory installed, no errors or side effects
+- Query priority: context task hint/reason → current time as fallback
+
 ## 🚀 Installation
 
 1. Download `.zip` from this repo, install via AstrBot WebUI "Install from file"
@@ -94,20 +102,21 @@ Added `schedule_rules` (`template_list` type) to all `schedule_settings`, enabli
 
 ```
 astrbot_plugin_proactive_chat/
-├── core/                  # Core modules
-│   ├── __init__.py        # Module exports
-│   ├── config.py          # Config management
-│   ├── messaging.py       # Message sending
-│   ├── scheduler.py       # Scheduling logic
-│   └── utils.py           # Utilities
-├── assets/                # Static assets
-├── main.py                # Plugin entry point (with detailed comments)
-├── _conf_schema.json      # Config schema definition
-├── metadata.yaml          # Plugin metadata
-├── requirements.txt       # Dependencies
-├── CHANGELOG.md           # Changelog
-├── LICENSE                # AGPL-3.0
-└── README.md
+├── core/                      # Core modules
+│   ├── __init__.py            # Module exports
+│   ├── config.py              # Config management
+│   ├── context_predictor.py   # Context-aware scheduling (LLM prediction)
+│   ├── llm_helpers.py         # LLM helpers (request prep, memory retrieval, LLM calls)
+│   ├── messaging.py           # Message sending
+│   ├── scheduler.py           # Scheduling logic
+│   ├── send.py                # Proactive message dispatch (TTS / text / segmented)
+│   └── utils.py               # Utilities
+├── main.py                    # Plugin entry point
+├── _conf_schema.json          # Config schema definition
+├── metadata.yaml              # Plugin metadata
+├── requirements.txt           # Dependencies
+├── CHANGELOG.md               # Changelog
+└── LICENSE                    # AGPL-3.0
 ```
 
 ## 🌐 Platform Support
