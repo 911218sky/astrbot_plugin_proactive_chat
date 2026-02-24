@@ -829,12 +829,31 @@ class ProactiveChatPlugin(star.Star):
                 extra_prompt=ctx_settings.get("extra_prompt", ""),
             )
 
+            session_config = get_session_config(self.config, session_id)
+            log_name = get_session_log_str(
+                session_id, session_config, self.session_data
+            )
+
             if not prediction or not prediction.get("should_schedule"):
+                logger.info(
+                    f"{_LOG_TAG} {log_name} "
+                    f"語境分析完成，LLM 判定目前不需要排程主動訊息。"
+                )
                 return
 
             delay_minutes = prediction.get("delay_minutes", 60)
             reason = prediction.get("reason", "")
             hint = prediction.get("message_hint", "")
+
+            run_at = datetime.fromtimestamp(
+                time.time() + delay_minutes * 60, tz=self.timezone
+            )
+            logger.info(
+                f"{_LOG_TAG} {log_name} "
+                f"語境分析完成，LLM 判定需要排程主動訊息，"
+                f"預計觸發時間 {run_at.strftime('%Y-%m-%d %H:%M:%S')} "
+                f"(+{delay_minutes}分鐘，原因: {reason})"
+            )
 
             # 步驟 4：建立排程任務
             await self._create_context_predicted_task(

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -171,12 +172,23 @@ async def predict_proactive_timing(
                 delay = 60
             result["delay_minutes"] = delay
 
-        logger.info(
-            f"{_LOG_TAG} {session_id} 的預測結果: "
-            f"排程={result.get('should_schedule')}, "
-            f"延遲={result.get('delay_minutes')}分鐘, "
-            f"原因={result.get('reason', '無')}"
-        )
+        should = result.get("should_schedule")
+        delay = result.get("delay_minutes")
+        reason = result.get("reason", "無")
+
+        if should and delay:
+            trigger_at = datetime.now() + timedelta(minutes=delay)
+            logger.info(
+                f"{_LOG_TAG} {session_id} 的預測結果: "
+                f"排程={should}, "
+                f"延遲={delay}分鐘, "
+                f"預計觸發時間={trigger_at.strftime('%Y-%m-%d %H:%M:%S')}, "
+                f"原因={reason}"
+            )
+        else:
+            logger.info(
+                f"{_LOG_TAG} {session_id} 的預測結果: 排程={should}, 原因={reason}"
+            )
         return result
 
     except Exception as e:
