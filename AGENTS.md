@@ -60,24 +60,27 @@ AstrBot 主動訊息插件（Plus Fork），讓 Bot 能在會話沉默後主動�
 
 相關函數：`core/llm_helpers.py` 中的 `get_livingmemory_engine()`、`recall_memories_for_proactive()`。
 
-## Unanswered Decay Mechanism
+## 未回覆衰減機制
 
-Each `schedule_rules` time-slot rule can optionally configure `decay_rate` (a per-attempt probability list):
-- Format: comma-separated 0~1 values, each corresponding to the trigger probability for the Nth unanswered attempt
-- Example: `decay_rate="0.8,0.5,0.3,0.15"` means: 1st → 80%, 2nd → 50%, 3rd → 30%, 4th → 15%
-- A single value like `"0.7"` applies the same probability every time
-- Empty means no decay (always 100%), `"0"` means trigger only once then stop
-- When the list is exhausted, `default_decay_rate` (global decay step) continues decrementing from the last list value
-- `default_decay_rate` is a decrement step (0~1), e.g. `0.05` means subtract 5% each time:
-  - With a `decay_rate` list: continues from the last value (e.g. list ends at 0.8, step 0.05 → 0.75, 0.70, ...)
-  - Without a `decay_rate` list: starts from 1.0 and decrements (1.0, 0.95, 0.90, ...)
-  - `0` means no decay (maintain 100% or the last list probability forever)
-  - Empty means no step decay (falls back to hard limit logic)
-- If none of the above is configured, falls back to `max_unanswered_times` hard limit
+每條 `schedule_rules` 時段規則可選配置 `decay_rate`（逐次概率列表）：
+- 格式：逗號分隔的 0~1 概率值，每個值對應第 N 次未回覆的觸發概率
+- 例如 `decay_rate="0.8,0.5,0.3,0.15"`：第 1 次 → 80%、第 2 次 → 50%、第 3 次 → 30%、第 4 次 → 15%
+- 填單一值如 `"0.7"` 則每次未回覆都用同一概率
+- 留空表示不衰減（100% 觸發），填 `"0"` 表示只觸發一次就停止
+- 超出列表長度時使用 `default_decay_rate`（全域預設遞減步長）從列表末尾值接續遞減
+- `default_decay_rate` 為遞減步長（0~1）：填 `0.05` 表示每次遞減 5%
+  - 有 `decay_rate` 列表時：列表用盡後從末尾值接續遞減（如列表末尾 0.8，步長 0.05 → 0.75, 0.70, ...）
+  - 無 `decay_rate` 列表時：從 1.0 開始遞減（1.0, 0.95, 0.90, ...）
+  - 填 `0` 表示不衰減（維持 100% 或列表末尾概率永遠觸發）
+  - 留空表示不使用遞減衰減（回退到硬性上限邏輯）
+- 以上皆未配置時，回退到 `max_unanswered_times` 硬性上限
 
-Related functions: `should_trigger_by_unanswered()`, `_resolve_decay_list()`, `_roll_probability()`, `_continue_decay_from()`, `_generate_step_decay_list()` in `core/scheduler.py`.
+相關函數：`core/scheduler.py` 中的 `should_trigger_by_unanswered()`、`_resolve_decay_list()`、`_roll_probability()`、`_continue_decay_from()`、`_generate_step_decay_list()`。
 
 ## 開發規範
+
+### AI 回覆語言
+- AI 代理與使用者對話時**一律使用英文回覆**，即使使用者以中文提問也必須用英文回答
 
 ### 語言與編碼
 - 所有程式碼註解、日誌字串使用**繁體中文**（台灣標準：群 不是 羣、為 不是 爲、啟 不是 啓）
