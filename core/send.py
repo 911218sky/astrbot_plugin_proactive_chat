@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from astrbot.api import logger
 from astrbot.core.message.components import Plain, Record
@@ -18,6 +19,9 @@ from .config import get_session_config
 from .messaging import calc_segment_interval, send_chain_with_hooks, split_text
 from .utils import is_group_session_id, parse_session_id
 
+if TYPE_CHECKING:
+    from astrbot.core.star.context import Context
+
 _LOG_TAG = "[主動訊息]"
 
 
@@ -26,7 +30,7 @@ async def send_proactive_message(
     session_id: str,
     text: str,
     config,
-    context,
+    context: Context,
     session_data: dict,
     reset_group_silence_cb: Callable[[str], Awaitable[None]] | None = None,
     last_bot_message_time_setter: Callable[[float], None] | None = None,
@@ -78,7 +82,7 @@ async def send_proactive_message(
             last_bot_message_time_setter(time.time())
 
 
-async def try_send_tts(session_id: str, text: str, context) -> bool:
+async def try_send_tts(session_id: str, text: str, context: Context) -> bool:
     """嘗試透過 TTS 發送語音。成功回傳 True，失敗回傳 False。"""
     try:
         tts_provider = get_tts_provider(session_id, context)
@@ -95,7 +99,7 @@ async def try_send_tts(session_id: str, text: str, context) -> bool:
         return False
 
 
-def get_tts_provider(session_id: str, context):
+def get_tts_provider(session_id: str, context: Context):
     """取得 TTS provider。
 
     處理 AstrBot 某些版本中 UMO 格式不相容的 ValueError，

@@ -8,75 +8,32 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
+from typing import TYPE_CHECKING
 
 from astrbot.api import logger
 
+if TYPE_CHECKING:
+    from astrbot.core.star.context import Context
+
 _LOG_TAG = "[主動訊息][語境預測]"
 
-# 預測下一次主動訊息時機的 Prompt 模板
-PREDICT_TIMING_PROMPT = """\
-你正在分析一段聊天對話，以判斷最佳的主動跟進訊息發送時機。
+# ── Prompt 模板從檔案載入 ──────────────────────────────────
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
 
-最近的對話記錄（最後幾條訊息）：
-{recent_messages}
 
-當前時間：{current_time}
+def _load_prompt(filename: str) -> str:
+    """從 core/prompts/ 載入 prompt 模板檔案。"""
+    path = _PROMPTS_DIR / filename
+    if not path.is_file():
+        raise FileNotFoundError(f"{_LOG_TAG} 找不到 prompt 檔案: {path}")
+    return path.read_text(encoding="utf-8").strip()
 
-用戶最新的訊息：「{last_message}」
-{cancelled_context}
-請根據對話語境判斷：
-1. 是否適合安排一條主動跟進訊息
-2. 如果是，應該等待多少分鐘後發送
-3. 跟進訊息應該聊什麼內容
 
-請參考以下模式：
-- 「我在看電影」→ 約 90-120 分鐘（問電影好不好看）
-- 「晚安」/「我去睡了」→ 約 420-540 分鐘（早晨問候）
-- 「我去開會了」→ 約 30-90 分鐘（關心會議情況）
-- 「在通勤」/「在路上」→ 約 20-60 分鐘（問是否到了）
-- 「吃飯」/「吃午餐」→ 約 30-60 分鐘（輕鬆跟進）
-- 「在工作」/「忙」→ 約 60-180 分鐘（稍後關心）
-- 普通閒聊、沒有明確活動 → 使用預設排程（回傳 should_schedule: false）
-
-【重要】以下情況必須回傳 should_schedule: false：
-- 用戶表示某個活動已經結束（如「吃飽了」「看完了」「到了」「開完會了」「忙完了」）
-- 用戶的訊息是對之前活動的收尾或總結，而非開始新活動
-- 剛剛才因為用戶的新訊息取消了一個排程任務（表示語境已轉移，不需要再排）
-
-你必須只回傳一個 JSON 物件，不要有其他文字：
-{{
-  "should_schedule": true/false,
-  "delay_minutes": <數字>,
-  "reason": "<簡短原因>",
-  "message_hint": "<跟進訊息應該說什麼>"
-}}
-
-如果語境沒有暗示特定的時機，請回傳 should_schedule: false。
-"""
-
-# 檢查已排定任務是否應該取消的 Prompt 模板
-CHECK_CANCEL_PROMPT = """\
-你正在檢查一個之前排定的主動訊息是否應該被取消。
-
-排定此任務的原因：「{task_reason}」
-排定的跟進提示：「{task_hint}」
-
-用戶剛剛說了：「{last_message}」
-
-請判斷用戶的新訊息是否表示活動已結束，或排定的跟進已不再需要。
-
-取消的範例：
-- 任務是「問電影好不好看」，用戶說「電影看完了」→ 取消
-- 任務是「早晨問候」，用戶在早上主動發了訊息 → 取消
-- 任務是「問是否到了」，用戶說「到了」→ 取消
-- 用戶開始了新的話題 → 取消（語境已轉移）
-
-你必須只回傳一個 JSON 物件：
-{{
-  "should_cancel": true/false,
-  "reason": "<簡短原因>"
-}}
-"""
+PREDICT_TIMING_PROMPT = _load_prompt("predict_timing.txt")
+PREDICT_TIMING_SYSTEM = _load_prompt("predict_timing_system.txt")
+CHECK_CANCEL_PROMPT = _load_prompt("check_cancel.txt")
+CHECK_CANCEL_SYSTEM = _load_prompt("check_cancel_system.txt")
 
 
 def build_recent_messages_str(history: list, max_messages: int = 10) -> str:
@@ -136,7 +93,7 @@ def _parse_json_response(text: str) -> dict | None:
 
 async def predict_proactive_timing(
     *,
-    context,
+    context: Context,
     session_id: str,
     last_message: str,
     history: list,
@@ -181,7 +138,7 @@ async def predict_proactive_timing(
         resp = await context.llm_generate(
             chat_provider_id=provider_id,
             prompt=prompt,
-            system_prompt="你是一個時機預測助手。請只回傳要求的 JSON 物件。",
+            system_prompt=PREDICT_TIMING_SYSTEM,
         )
         if not resp or not resp.completion_text:
             return None
@@ -216,7 +173,7 @@ async def predict_proactive_timing(
 
 async def check_should_cancel_task(
     *,
-    context,
+    context: Context,
     session_id: str,
     last_message: str,
     task_reason: str,
@@ -242,7 +199,7 @@ async def check_should_cancel_task(
         resp = await context.llm_generate(
             chat_provider_id=provider_id,
             prompt=prompt,
-            system_prompt="你是一個任務取消判斷助手。請只回傳要求的 JSON 物件。",
+            system_prompt=CHECK_CANCEL_SYSTEM,
         )
         if not resp or not resp.completion_text:
             return False
