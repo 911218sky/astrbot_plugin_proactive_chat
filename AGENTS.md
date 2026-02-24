@@ -60,17 +60,22 @@ AstrBot 主動訊息插件（Plus Fork），讓 Bot 能在會話沉默後主動�
 
 相關函數：`core/llm_helpers.py` 中的 `get_livingmemory_engine()`、`recall_memories_for_proactive()`。
 
-## 未回覆衰減機制
+## Unanswered Decay Mechanism
 
-每條 `schedule_rules` 時段規則可選配置 `decay_rate`（逐次概率列表）：
-- 格式：逗號分隔的 0~1 概率值，每個值對應第 N 次未回覆的觸發概率
-- 例如 `decay_rate="0.8,0.5,0.3,0.15"`：第 1 次 → 80%、第 2 次 → 50%、第 3 次 → 30%、第 4 次 → 15%
-- 填單一值如 `"0.7"` 則每次未回覆都用同一概率
-- 留空表示不衰減（100% 觸發），填 `"0"` 表示只觸發一次就停止
-- 超出列表長度時使用 `default_decay_rate`（全域預設回退概率）
-- 以上皆未配置時，回退到 `max_unanswered_times` 硬性上限
+Each `schedule_rules` time-slot rule can optionally configure `decay_rate` (a per-attempt probability list):
+- Format: comma-separated 0~1 values, each corresponding to the trigger probability for the Nth unanswered attempt
+- Example: `decay_rate="0.8,0.5,0.3,0.15"` means: 1st → 80%, 2nd → 50%, 3rd → 30%, 4th → 15%
+- A single value like `"0.7"` applies the same probability every time
+- Empty means no decay (always 100%), `"0"` means trigger only once then stop
+- When the list is exhausted, `default_decay_rate` (global decay step) continues decrementing from the last list value
+- `default_decay_rate` is a decrement step (0~1), e.g. `0.05` means subtract 5% each time:
+  - With a `decay_rate` list: continues from the last value (e.g. list ends at 0.8, step 0.05 → 0.75, 0.70, ...)
+  - Without a `decay_rate` list: starts from 1.0 and decrements (1.0, 0.95, 0.90, ...)
+  - `0` means no decay (maintain 100% or the last list probability forever)
+  - Empty means no step decay (falls back to hard limit logic)
+- If none of the above is configured, falls back to `max_unanswered_times` hard limit
 
-相關函數：`core/scheduler.py` 中的 `should_trigger_by_unanswered()`、`_resolve_decay_list()`、`_roll_probability()`。
+Related functions: `should_trigger_by_unanswered()`, `_resolve_decay_list()`, `_roll_probability()`, `_continue_decay_from()`, `_generate_step_decay_list()` in `core/scheduler.py`.
 
 ## 開發規範
 

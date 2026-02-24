@@ -56,12 +56,19 @@ def should_trigger_by_unanswered(
 
     衰減率查找順序：
     1. 當前時段匹配的 schedule_rule 中的 ``decay_rate``（逐次列表）
-    2. ``default_decay_rate``（全域預設，作為列表用盡後的回退值）
+    2. ``default_decay_rate``（全域預設遞減步長）
     3. 若以上皆未配置，回退到 ``max_unanswered_times``（硬性上限）
 
     ``decay_rate`` 格式：逗號分隔的概率列表，每個值對應第 N 次未回覆的觸發概率。
     例如 ``"0.8,0.5,0.3,0.15"``：第 1 次 → 80%、第 2 次 → 50%、第 3 次 → 30%、第 4 次 → 15%。
-    超出列表長度時使用 ``default_decay_rate``；若也未配置則回退硬性上限。
+
+    ``default_decay_rate`` 為遞減步長（0~1）：
+    - 當 ``decay_rate`` 列表用盡時，從列表最後一個值開始，每次遞減此步長。
+      例如列表為 ``"1,0.9,0.8"``、步長為 ``0.05``，則第 4 次 → 75%、第 5 次 → 70%…
+    - 當未匹配到任何規則時，從 1.0 開始每次遞減此步長。
+      例如步長 ``0.05`` → 第 1 次 100%、第 2 次 95%、第 3 次 90%…
+    - 填 ``0`` 表示不衰減（維持 100% 或列表末尾概率）。
+    - 留空表示不使用遞減衰減（回退到硬性上限邏輯）。
 
     Returns:
         (是否觸發, 原因描述)
@@ -73,16 +80,38 @@ def should_trigger_by_unanswered(
     prob_list = _resolve_decay_list(schedule_conf, timezone)
     idx = unanswered_count - 1  # 第 1 次未回覆 → index 0
 
-    if prob_list is not None and idx < len(prob_list):
-        probability = prob_list[idx]
-        return _roll_probability(probability, unanswered_count, "衰減")
-
-    # 列表用盡或未配置 → 嘗試 default_decay_rate 作為回退概率
-    default_prob = _parse_single_decay(
+    # 解析全域預設遞減步長（提前解析，後續多處使用）
+    default_step = _parse_single_decay(
         (schedule_conf.get("default_decay_rate") or "").strip()
     )
-    if default_prob is not None:
-        return _roll_probability(default_prob, unanswered_count, "全域預設衰減")
+
+    if prob_list is not None:
+        if idx < len(prob_list):
+            # 仍在 decay_rate 列表範圍內
+            probability = prob_list[idx]
+            return _roll_probability(probability, unanswered_count, "衰減")
+        # 列表用盡 → 以 default_decay_rate 步長從列表末尾值接續遞減
+        if default_step is not None:
+            last_prob = prob_list[-1]
+            if default_step <= 0.0:
+                # step=0 → 不衰減，維持列表末尾概率
+                return _roll_probability(
+                    last_prob, unanswered_count, "全域預設衰減"
+                )
+            extra = _continue_decay_from(
+                last_prob, default_step, idx - len(prob_list) + 1
+            )
+            return _roll_probability(
+                extra[-1], unanswered_count, "全域預設衰減"
+            )
+
+    # 未匹配到任何規則的 decay_rate → 用 default_decay_rate 從 1.0 開始遞減
+    if default_step is not None:
+        generated = _generate_step_decay_list(default_step, idx + 1)
+        if idx < len(generated):
+            return _roll_probability(
+                generated[idx], unanswered_count, "全域預設衰減"
+            )
 
     # 回退到硬性上限
     max_unanswered = schedule_conf.get("max_unanswered_times", 3)
@@ -170,6 +199,44 @@ def _parse_single_decay(raw: str) -> float | None:
     except (ValueError, TypeError):
         logger.warning(f"{_LOG_TAG} 解析衰減率失敗: {raw!r}，忽略。")
         return None
+
+
+def _continue_decay_from(
+    last_prob: float, step: float, extra_count: int
+) -> list[float]:
+    """
+    從 *last_prob* 開始，以 *step* 為遞減步長，生成 *extra_count* 個後續概率。
+
+    用於 decay_rate 列表用盡後，以 default_decay_rate 步長接續遞減。
+    概率下限為 0.0。
+    """
+    result: list[float] = []
+    prob = last_prob
+    for _ in range(extra_count):
+        prob -= step
+        result.append(max(0.0, round(prob, 10)))
+    return result
+
+
+def _generate_step_decay_list(step: float, min_length: int) -> list[float]:
+    """
+    根據遞減步長從 1.0 開始生成衰減概率列表。
+
+    例如 step=0.05 → [1.0, 0.95, 0.9, 0.85, ...]，直到概率 ≤ 0。
+    至少生成 *min_length* 個元素（不足時以 0.0 補齊）。
+    step=0 時視為不衰減，回傳全 1.0 列表。
+    """
+    if step <= 0.0:
+        return [1.0] * max(min_length, 1)
+    result: list[float] = []
+    prob = 1.0
+    while prob > 0.0:
+        result.append(round(prob, 10))
+        prob -= step
+    while len(result) < min_length:
+        result.append(0.0)
+    return result
+
 
 
 def _hour_in_range(current: int, start: int, end: int) -> bool:
