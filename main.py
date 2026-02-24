@@ -825,6 +825,8 @@ class ProactiveChatPlugin(star.Star):
                 current_time_str=now_str,
                 config=ctx_settings,
                 just_cancelled_reason=cancelled_reason,
+                llm_provider_id=ctx_settings.get("llm_provider_id", ""),
+                extra_prompt=ctx_settings.get("extra_prompt", ""),
             )
 
             if not prediction or not prediction.get("should_schedule"):
@@ -863,12 +865,21 @@ class ProactiveChatPlugin(star.Star):
         task_reason = pending.get("reason", "")
         task_hint = pending.get("hint", "")
 
+        # 從會話配置中取得語境感知的 LLM 平台 ID
+        session_config = get_session_config(self.config, session_id)
+        ctx_llm_id = ""
+        if session_config:
+            ctx_llm_id = session_config.get("context_aware_settings", {}).get(
+                "llm_provider_id", ""
+            )
+
         should_cancel = await check_should_cancel_task(
             context=self.context,
             session_id=session_id,
             last_message=message_text,
             task_reason=task_reason,
             task_hint=task_hint,
+            llm_provider_id=ctx_llm_id,
         )
 
         if should_cancel:
@@ -1137,15 +1148,20 @@ class ProactiveChatPlugin(star.Star):
 
             # 嘗試從 livingmemory 檢索相關記憶並注入 system_prompt（可選依賴）
             ctx_settings = session_config.get("context_aware_settings", {})
-            memory_top_k = ctx_settings.get("memory_top_k", 5)
-            memory_query = ""
-            if ctx_task:
-                memory_query = ctx_task.get("hint", "") or ctx_task.get("reason", "")
-            if not memory_query:
-                memory_query = now_str
-            memory_str = await recall_memories_for_proactive(
-                self.context, session_id, memory_query, memory_top_k=memory_top_k
-            )
+            enable_memory = ctx_settings.get("enable_memory", True)
+            memory_str = ""
+            if enable_memory:
+                memory_top_k = ctx_settings.get("memory_top_k", 5)
+                memory_query = ""
+                if ctx_task:
+                    memory_query = ctx_task.get("hint", "") or ctx_task.get(
+                        "reason", ""
+                    )
+                if not memory_query:
+                    memory_query = now_str
+                memory_str = await recall_memories_for_proactive(
+                    self.context, session_id, memory_query, memory_top_k=memory_top_k
+                )
             if memory_str:
                 system_prompt = system_prompt + "\n\n" + memory_str
                 logger.info(

@@ -74,6 +74,8 @@ APScheduler 定時觸發 check_and_chat()
 - 分時段加權隨機 — 透過 `schedule_rules` 定義不同時段的觸發間隔分佈
 - 跨天時段 — 支援如 22:00-06:00 的跨日規則
 - 語境感知排程 — LLM 根據對話內容預測最佳觸發時機（例：「晚安」→ 隔天早上問候）
+- 自訂語境分析 LLM — 可指定獨立的 LLM 平台用於語境分析，節省主模型 token
+- 語境補充提示 — 可附加自訂指示影響語境分析行為
 - 免打擾時段 — 指定時間範圍內不發送主動訊息
 
 ### 擬人行為
@@ -100,6 +102,8 @@ APScheduler 定時觸發 check_and_chat()
 | 逐次概率衰減 | `decay_rate` 從單一指數衰減改為逐次概率列表，更精細 |
 | 語境感知排程 | 新增 LLM 語境分析，根據對話內容智慧決定觸發時機 |
 | 記憶整合 | 可選整合 livingmemory 插件，主動訊息帶入長期記憶上下文 |
+| 獨立 LLM 平台 | 語境分析可指定獨立的 LLM 平台，節省主模型 token |
+| Prompt 模板外置 | 語境預測的 prompt 模板抽離至 `core/prompts/`，方便自訂 |
 | 配置精簡 | `_conf_schema.json` 從 ~2500 行縮減至 ~1200 行 |
 
 ## 🚀 安裝與使用
@@ -191,6 +195,15 @@ decay_rate: "0.8,0.5,0.3,0.15"
 
 此功能與原有的隨機排程並行運作。當用戶發新訊息時，會自動檢查已排定的語境任務是否應取消（例如用戶說「看完了」→ 取消「問電影好不好看」的排程）。
 
+### 語境感知進階設定
+
+| 設定項 | 說明 |
+| :--- | :--- |
+| `llm_provider_id` | 指定語境分析使用的 LLM 平台（WebUI 下拉選擇）。留空使用預設。建議指定較便宜的模型以節省 token |
+| `extra_prompt` | 附加到語境分析 prompt 末尾的補充指示。例如：「如果用戶提到運動，延遲設為 60-90 分鐘」 |
+| `enable_memory` | 啟用/停用 livingmemory 記憶檢索（需安裝 livingmemory 插件，未安裝時自動跳過） |
+| `memory_top_k` | 每次檢索的記憶條數（1-20），啟用記憶後可見 |
+
 ## 📁 專案結構
 
 ```
@@ -204,7 +217,8 @@ astrbot_plugin_proactive_chat_plus/
 │   ├── context_predictor.py   # 語境感知（LLM 預測時機、任務取消判斷）
 │   ├── messaging.py           # 訊息發送（裝飾鉤子、分段回覆、歷史清洗）
 │   ├── llm_helpers.py         # LLM 輔助（請求準備、記憶檢索整合、LLM 呼叫封裝）
-│   └── send.py                # 主動訊息發送（TTS / 文字 / 分段發送）
+│   ├── send.py                # 主動訊息發送（TTS / 文字 / 分段發送）
+│   └── prompts/               # LLM Prompt 模板（語境預測、任務取消判斷）
 ├── _conf_schema.json          # WebUI 配置結構定義
 ├── metadata.yaml              # 插件元資料
 ├── requirements.txt           # 依賴列表

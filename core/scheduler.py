@@ -95,23 +95,17 @@ def should_trigger_by_unanswered(
             last_prob = prob_list[-1]
             if default_step <= 0.0:
                 # step=0 → 不衰減，維持列表末尾概率
-                return _roll_probability(
-                    last_prob, unanswered_count, "全域預設衰減"
-                )
+                return _roll_probability(last_prob, unanswered_count, "全域預設衰減")
             extra = _continue_decay_from(
                 last_prob, default_step, idx - len(prob_list) + 1
             )
-            return _roll_probability(
-                extra[-1], unanswered_count, "全域預設衰減"
-            )
+            return _roll_probability(extra[-1], unanswered_count, "全域預設衰減")
 
     # 未匹配到任何規則的 decay_rate → 用 default_decay_rate 從 1.0 開始遞減
     if default_step is not None:
         generated = _generate_step_decay_list(default_step, idx + 1)
         if idx < len(generated):
-            return _roll_probability(
-                generated[idx], unanswered_count, "全域預設衰減"
-            )
+            return _roll_probability(generated[idx], unanswered_count, "全域預設衰減")
 
     # 回退到硬性上限
     max_unanswered = schedule_conf.get("max_unanswered_times", 3)
@@ -236,7 +230,6 @@ def _generate_step_decay_list(step: float, min_length: int) -> list[float]:
     while len(result) < min_length:
         result.append(0.0)
     return result
-
 
 
 def _hour_in_range(current: int, start: int, end: int) -> bool:

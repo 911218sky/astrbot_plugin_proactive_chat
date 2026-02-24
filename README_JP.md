@@ -87,9 +87,21 @@
 
 [astrbot_plugin_livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory) とのオプション統合 — 能動的メッセージ生成時に関連する長期記憶を検索し、system prompt に注入することで、よりパーソナライズされた文脈豊かな会話を実現します。
 
-- `context_aware_settings.memory_top_k` で検索数を制御（0 で無効化）
+- `context_aware_settings.enable_memory` でオン/オフ切替
+- `memory_top_k` で検索数を制御（1-20、記憶有効時に表示）
 - 完全にオプション：livingmemory 未インストールでもエラーなく動作
 - 検索クエリ優先順位：コンテキストタスクの hint/reason → 現在時刻にフォールバック
+
+### 5. コンテキスト分析用の専用 LLM プロバイダー
+
+コンテキスト認識スケジューリングで別の LLM プロバイダーを使用可能。メインモデルのトークンを節約できます：
+
+- `llm_provider_id` — WebUI のドロップダウンから利用可能な LLM プロバイダーを選択。空欄でセッションのデフォルトを使用
+- `extra_prompt` — コンテキスト分析プロンプトにカスタム指示を追加（例：「ユーザーが運動に言及した場合、遅延を 60-90 分に設定」）
+
+### 6. プロンプトテンプレートの外部化
+
+コンテキスト予測のプロンプトを `core/prompts/` に `.txt` ファイルとして抽出。Python コードを変更せずにカスタマイズ可能です。
 
 ## 🚀 インストール
 
@@ -110,6 +122,7 @@ astrbot_plugin_proactive_chat/
 │   ├── messaging.py           # メッセージ送信
 │   ├── scheduler.py           # スケジューリングロジック
 │   ├── send.py                # 能動的メッセージ送信（TTS / テキスト / 分割）
+│   ├── prompts/               # LLM プロンプトテンプレート（コンテキスト予測、タスク取消判定）
 │   └── utils.py               # ユーティリティ
 ├── main.py                    # プラグインエントリポイント
 ├── _conf_schema.json          # 設定スキーマ定義

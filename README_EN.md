@@ -87,9 +87,21 @@ Added `schedule_rules` (`template_list` type) to all `schedule_settings`, enabli
 
 Optional integration with [astrbot_plugin_livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory) — retrieves relevant long-term memories during proactive message generation and injects them into the system prompt, making conversations more personalized and contextually rich.
 
-- Controlled via `context_aware_settings.memory_top_k` (set to 0 to disable)
+- Toggle on/off via `context_aware_settings.enable_memory`
+- Control retrieval count via `memory_top_k` (1-20, visible when memory is enabled)
 - Fully optional: works without livingmemory installed, no errors or side effects
 - Query priority: context task hint/reason → current time as fallback
+
+### 5. Dedicated LLM Provider for Context Analysis
+
+Context-aware scheduling can now use a separate LLM provider, saving tokens on your primary model:
+
+- `llm_provider_id` — select from a dropdown of available LLM providers in WebUI; leave empty to use session default
+- `extra_prompt` — append custom instructions to the context analysis prompt (e.g., "If user mentions exercise, set delay to 60-90 minutes")
+
+### 6. Externalized Prompt Templates
+
+Context prediction prompts have been extracted to `core/prompts/` as `.txt` files, making them easy to customize without modifying Python code.
 
 ## 🚀 Installation
 
@@ -110,6 +122,7 @@ astrbot_plugin_proactive_chat/
 │   ├── messaging.py           # Message sending
 │   ├── scheduler.py           # Scheduling logic
 │   ├── send.py                # Proactive message dispatch (TTS / text / segmented)
+│   ├── prompts/               # LLM prompt templates (context prediction, task cancellation)
 │   └── utils.py               # Utilities
 ├── main.py                    # Plugin entry point
 ├── _conf_schema.json          # Config schema definition

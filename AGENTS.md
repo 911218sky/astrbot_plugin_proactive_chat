@@ -26,7 +26,8 @@ AstrBot 主動訊息插件（Plus Fork），讓 Bot 能在會話沉默後主動�
 │   ├── context_predictor.py # 語境感知：LLM 預測主動訊息時機、任務取消判斷
 │   ├── messaging.py         # 訊息發送：裝飾鉤子、分段回覆、歷史清洗
 │   ├── llm_helpers.py       # LLM 輔助：請求準備、記憶檢索整合、LLM 呼叫封裝
-│   └── send.py              # 主動訊息發送：TTS / 文字 / 分段發送邏輯
+│   ├── send.py              # 主動訊息發送：TTS / 文字 / 分段發送邏輯
+│   └── prompts/             # LLM Prompt 模板（語境預測、任務取消判斷）
 ├── _conf_schema.json        # WebUI 配置結構定義（AstrBot schema 格式）
 ├── metadata.yaml            # 插件元資料
 └── requirements.txt         # 依賴列表
@@ -53,7 +54,8 @@ AstrBot 主動訊息插件（Plus Fork），讓 Bot 能在會話沉默後主動�
 
 主動訊息生成時可選從 [astrbot_plugin_livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory) 檢索相關長期記憶，注入到 system_prompt 中，讓 LLM 生成更貼合用戶歷史的主動訊息。
 
-- 透過 `context_aware_settings.memory_top_k` 控制檢索數量（0 = 停用）
+- 透過 `context_aware_settings.enable_memory` 開關記憶檢索
+- 透過 `context_aware_settings.memory_top_k` 控制檢索數量（1-20）
 - 為可選依賴：未安裝 livingmemory 時自動跳過，不影響主動訊息功能
 - 檢索查詢優先使用語境任務的 hint/reason，無語境任務時使用當前時間
 - 記憶內容截斷至 200 字元，避免 prompt 過長

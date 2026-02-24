@@ -100,6 +100,8 @@ async def predict_proactive_timing(
     current_time_str: str,
     config: dict,
     just_cancelled_reason: str = "",
+    llm_provider_id: str = "",
+    extra_prompt: str = "",
 ) -> dict | None:
     """
     呼叫 LLM 預測下一次主動訊息的最佳時機。
@@ -107,6 +109,8 @@ async def predict_proactive_timing(
     Args:
         just_cancelled_reason: 若剛才因為這條訊息取消了一個語境任務，
             傳入被取消任務的原因，讓 LLM 知道語境已轉移。
+        llm_provider_id: 指定 LLM 平台 ID，留空則使用會話預設。
+        extra_prompt: 使用者自訂的補充提示，會附加到 prompt 末尾。
 
     Returns:
         包含 should_schedule、delay_minutes、reason、message_hint 的 dict，
@@ -133,8 +137,17 @@ async def predict_proactive_timing(
         cancelled_context=cancelled_context,
     )
 
+    # 附加使用者自訂的補充提示
+    if extra_prompt and extra_prompt.strip():
+        prompt += f"\n\n[補充指示]\n{extra_prompt.strip()}"
+
     try:
-        provider_id = await context.get_current_chat_provider_id(session_id)
+        # 若指定了 LLM 平台 ID 則使用，否則使用會話預設
+        provider_id = (
+            llm_provider_id.strip()
+            if llm_provider_id and llm_provider_id.strip()
+            else await context.get_current_chat_provider_id(session_id)
+        )
         resp = await context.llm_generate(
             chat_provider_id=provider_id,
             prompt=prompt,
@@ -178,9 +191,13 @@ async def check_should_cancel_task(
     last_message: str,
     task_reason: str,
     task_hint: str,
+    llm_provider_id: str = "",
 ) -> bool:
     """
     呼叫 LLM 檢查已排定的語境預測任務是否應該取消。
+
+    Args:
+        llm_provider_id: 指定 LLM 平台 ID，留空則使用會話預設。
 
     Returns:
         True 表示應該取消，False 表示保留。
@@ -195,7 +212,12 @@ async def check_should_cancel_task(
     )
 
     try:
-        provider_id = await context.get_current_chat_provider_id(session_id)
+        # 若指定了 LLM 平台 ID 則使用，否則使用會話預設
+        provider_id = (
+            llm_provider_id.strip()
+            if llm_provider_id and llm_provider_id.strip()
+            else await context.get_current_chat_provider_id(session_id)
+        )
         resp = await context.llm_generate(
             chat_provider_id=provider_id,
             prompt=prompt,
