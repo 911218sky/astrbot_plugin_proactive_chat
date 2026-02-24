@@ -143,5 +143,5 @@ ruff check .         # 確認零錯誤
 
 - Commit message 使用**英文**
 - 格式：`type: description`（如 `feat: add schedule_rules support`、`fix: resolve UMO parsing error`）
-- **禁止自動提交**：AI 代理完成程式碼修改後，**不得自動執行 `git add` / `git commit` / `git push`**，必須等待使用者明確指示後才能提交。這是為了讓使用者有機會檢視變更內容。
+- **禁止自動提交**：AI 代理**絕對不得自動執行 `git add` / `git commit` / `git push`**，除非使用者明確同意提交。即使使用者要求「幫我提交」，也必須先列出變更摘要並等待使用者確認後才能執行。
 - **版本號更新**：每次提交前，必須根據上方「版本管理」規則更新 `metadata.yaml` 中的 `version`。
