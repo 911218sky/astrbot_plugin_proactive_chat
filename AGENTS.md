@@ -107,8 +107,28 @@ ruff check .         # 確認零錯誤
 本插件無獨立測試套件，測試方式為在 AstrBot 環境中載入插件並觀察日誌輸出。
 啟動 AstrBot 後，檢查日誌中是否出現 `[主動訊息] 初始化完成。` 即表示載入成功。
 
+## 版本管理
+
+版本號位於 `metadata.yaml` 的 `version` 欄位，格式為 `vMAJOR.MINOR.PATCH`（如 `v2.1.0`）。
+
+**每次提交到 GitHub 時，必須同步更新版本號。** AI 代理應根據變更內容自動判斷版本類型：
+
+| 版本類型 | 何時使用 | 範例 |
+| :--- | :--- | :--- |
+| MAJOR（大版本） | 破壞性變更：配置格式不相容、移除功能、重大架構改動 | `v2.0.0` → `v3.0.0` |
+| MINOR（中版本） | 新增功能、新增配置項、行為變更但向下相容 | `v2.0.0` → `v2.1.0` |
+| PATCH（小版本） | Bug 修復、文件更新、效能優化、程式碼重構（不影響功能） | `v2.1.0` → `v2.1.1` |
+
+判斷原則：
+- 改了 `_conf_schema.json` 的結構（新增/刪除欄位）→ 至少 MINOR
+- 只改了 README、AGENTS.md、註解、hint 文字 → PATCH
+- 新增了 `.py` 檔案或新功能 → MINOR
+- 改了現有功能的行為邏輯 → MINOR
+- 刪除了配置項或改了配置格式導致舊配置不能用 → MAJOR
+
 ## Git 提交規範
 
 - Commit message 使用**英文**
 - 格式：`type: description`（如 `feat: add schedule_rules support`、`fix: resolve UMO parsing error`）
 - **禁止自動提交**：AI 代理完成程式碼修改後，**不得自動執行 `git add` / `git commit` / `git push`**，必須等待使用者明確指示後才能提交。這是為了讓使用者有機會檢視變更內容。
+- **版本號更新**：每次提交前，必須根據上方「版本管理」規則更新 `metadata.yaml` 中的 `version`。
