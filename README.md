@@ -116,7 +116,7 @@ APScheduler 定時觸發 check_and_chat()
 ### 配置層級
 
 ```
-├─ private_settings          # � 私聊全域配置（作為所有私聊的預設值）
+├─ private_settings          # 👤 私聊全域配置（作為所有私聊的預設值）
 ├─ group_settings            # 👥 群聊全域配置（作為所有群聊的預設值）
 ├─ private_sessions          # 👤 私聊會話列表（個別會話可覆蓋全域設定）
 └─ group_sessions            # 👥 群聊會話列表（個別會話可覆蓋全域設定）
@@ -191,7 +191,7 @@ decay_rate: "0.8,0.5,0.3,0.15"
 
 此功能與原有的隨機排程並行運作。當用戶發新訊息時，會自動檢查已排定的語境任務是否應取消（例如用戶說「看完了」→ 取消「問電影好不好看」的排程）。
 
-## � 專案結構
+## 📁 專案結構
 
 ```
 astrbot_plugin_proactive_chat_plus/

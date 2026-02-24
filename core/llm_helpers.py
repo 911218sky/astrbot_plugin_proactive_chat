@@ -1,4 +1,4 @@
-ㄒ# core/llm_helpers.py — LLM 請求準備、記憶整合、呼叫封裝
+# core/llm_helpers.py — LLM 請求準備、記憶整合、呼叫封裝
 """
 將 LLM 相關的輔助邏輯從 main.py 中抽離，包括：
 - LLM 請求上下文準備（對話歷史、system prompt）
@@ -16,12 +16,14 @@ from astrbot.api import logger
 from .utils import parse_session_id
 
 if TYPE_CHECKING:
-    from astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
+    from astrbot.core.star.context import Context
+
+    from ...astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
 
 _LOG_TAG = "[主動訊息]"
 
 
-def get_livingmemory_engine(context) -> MemoryEngine | None:
+def get_livingmemory_engine(context: Context) -> MemoryEngine | None:
     """嘗試取得 livingmemory 插件的 MemoryEngine 實例。
 
     Returns:
@@ -51,7 +53,7 @@ def get_livingmemory_engine(context) -> MemoryEngine | None:
 
 
 async def recall_memories_for_proactive(
-    context,
+    context: Context,
     session_id: str,
     query: str,
     memory_top_k: int = 5,
@@ -102,7 +104,7 @@ async def recall_memories_for_proactive(
         return ""
 
 
-async def prepare_llm_request(context, session_id: str) -> dict | None:
+async def prepare_llm_request(context: Context, session_id: str) -> dict | None:
     """準備 LLM 請求所需的上下文。
 
     Returns:
@@ -156,7 +158,7 @@ async def prepare_llm_request(context, session_id: str) -> dict | None:
         return None
 
 
-async def resolve_system_prompt(context, conversation, session_id: str) -> str:
+async def resolve_system_prompt(context: Context, conversation, session_id: str) -> str:
     """依序嘗試取得 system prompt。
 
     優先順序：對話綁定的人格 → AstrBot 預設人格。
@@ -172,7 +174,7 @@ async def resolve_system_prompt(context, conversation, session_id: str) -> str:
     return default_persona["prompt"] if default_persona else ""
 
 
-async def safe_prepare_llm_request(context, session_id: str) -> dict | None:
+async def safe_prepare_llm_request(context: Context, session_id: str) -> dict | None:
     """準備 LLM 請求，自動處理 UMO 格式相容問題。
 
     某些 AstrBot 版本的 conversation_manager 對 UMO 格式有嚴格要求，
@@ -192,7 +194,7 @@ async def safe_prepare_llm_request(context, session_id: str) -> dict | None:
 
 
 async def call_llm(
-    context,
+    context: Context,
     session_id: str,
     prompt: str,
     contexts: list,
