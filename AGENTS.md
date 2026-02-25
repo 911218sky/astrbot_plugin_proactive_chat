@@ -46,7 +46,8 @@ AstrBot 主動訊息插件（Plus Fork），讓 Bot 能在會話沉默後主動�
 - 例如用戶說「我在看電影」→ LLM 預測約 90-120 分鐘後問「電影好看嗎？」
 - 例如用戶說「晚安」→ LLM 預測約 7-9 小時後早安問候
 - 與原有的隨機排程並行運作，語境預測的任務會額外排定
-- 用戶發新訊息時會檢查已排定的語境任務是否應取消（例如用戶說「看完了」）
+- 同一會話可同時存在多個語境任務（如短期跟進 + 長期早安問候），不會互相覆蓋
+- 用戶發新訊息時會並行檢查所有已排定的語境任務是否應取消（例如用戶說「看完了」）
 
 相關函數：`core/context_predictor.py` 中的 `predict_proactive_timing()` 和 `check_should_cancel_task()`。
 
@@ -81,9 +82,6 @@ AstrBot 主動訊息插件（Plus Fork），讓 Bot 能在會話沉默後主動�
 
 ## 開發規範
 
-### AI 回覆語言
-- AI 代理與使用者對話時**一律使用英文回覆**，即使使用者以中文提問也必須用英文回答
-
 ### 語言與編碼
 - 所有程式碼註解、日誌字串使用**繁體中文**（台灣標準：群 不是 羣、為 不是 爲、啟 不是 啓）
 - `_conf_schema.json` 中的 description / hint 使用**繁體中文**
@@ -111,7 +109,7 @@ AstrBot 主動訊息插件（Plus Fork），讓 Bot 能在會話沉默後主動�
 - `_conf_schema.json` 使用 AstrBot 的 schema 格式
 - 動態列表使用 `template_list` 類型（參考 https://docs.astrbot.app/dev/star/guides/plugin-config.html）
 - Emoji 圖示需確保為完整的 Unicode 字元，避免出現亂碼 `�`
-- Prompt 佔位符：`{{current_time}}`（當前時間）、`{{unanswered_count}}`（未回覆次數）
+- Prompt 佔位符：`{{current_time}}`（當前時間）、`{{unanswered_count}}`（未回覆次數）、`{{last_reply_time}}`（使用者最後回覆時間，含經過時長）
 
 ## 程式碼品質
 

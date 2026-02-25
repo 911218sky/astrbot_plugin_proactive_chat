@@ -75,6 +75,8 @@ Added `schedule_rules` (`template_list` type) to all `schedule_settings`, enabli
 - Silence-based timed triggers
 - Auto proactive messaging (no user input needed to start)
 - Context awareness + full persona support
+- Multiple concurrent context tasks per session (short-term follow-ups don't overwrite long-term scheduled greetings)
+- Parallel context task cancellation checks
 - Dynamic emotions (unanswered counter)
 - Persistent sessions (task recovery after restart)
 - Do Not Disturb periods

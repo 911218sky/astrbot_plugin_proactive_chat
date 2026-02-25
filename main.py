@@ -815,18 +815,17 @@ class ProactiveChatPlugin(star.Star):
         背景任務：檢查待執行的語境任務並執行 LLM 預測。
 
         步驟：
-        1. 若存在待執行的語境任務，詢問 LLM 是否應該取消
+        1. 並行執行：取消檢查（所有待執行任務同時檢查）+ 取得對話歷史
         2. 根據最新訊息執行 LLM 時機預測
         3. 若預測結果建議排程，建立一次性任務
         """
         try:
-            # 步驟 1：檢查待執行的語境任務是否應該取消
-            cancelled_reason = await self._maybe_cancel_pending_context_task(
+            # 步驟 1：並行執行取消檢查與歷史取得，減少等待時間
+            cancel_coro = self._maybe_cancel_pending_context_task(
                 session_id, message_text
             )
-
-            # 步驟 2：取得對話歷史用於語境分析
-            history = await self._get_history_for_prediction(session_id)
+            history_coro = self._get_history_for_prediction(session_id)
+            cancelled_reason, history = await asyncio.gather(cancel_coro, history_coro)
 
             now_str = datetime.now(self.timezone).strftime("%Y年%m月%d日 %H:%M")
 
@@ -907,27 +906,33 @@ class ProactiveChatPlugin(star.Star):
         cancelled_reasons: list[str] = []
         to_remove: list[dict] = []
 
-        for task in task_list:
-            job_id = task.get("job_id", "")
-            task_reason = task.get("reason", "")
-            task_hint = task.get("hint", "")
-
-            should_cancel = await check_should_cancel_task(
+        # 並行檢查所有待執行任務，避免逐一等待 LLM 回應
+        async def _check_one(task: dict) -> tuple[dict, bool]:
+            return task, await check_should_cancel_task(
                 context=self.context,
                 session_id=session_id,
                 last_message=message_text,
-                task_reason=task_reason,
-                task_hint=task_hint,
+                task_reason=task.get("reason", ""),
+                task_hint=task.get("hint", ""),
                 llm_provider_id=ctx_llm_id,
             )
 
+        results = await asyncio.gather(
+            *(_check_one(t) for t in task_list), return_exceptions=True
+        )
+
+        for result in results:
+            if isinstance(result, Exception):
+                logger.warning(f"{_LOG_TAG} 取消檢查異常: {result}")
+                continue
+            task, should_cancel = result
             if should_cancel:
                 to_remove.append(task)
-                cancelled_reasons.append(task_reason)
+                cancelled_reasons.append(task.get("reason", ""))
                 logger.info(
                     f"{_LOG_TAG} 已取消 "
                     f"{get_session_log_str(session_id, None, self.session_data)} "
-                    f"的語境預測任務 ({job_id})：用戶新訊息使其不再需要。"
+                    f"的語境預測任務 ({task.get('job_id', '')})：用戶新訊息使其不再需要。"
                 )
 
         # 批次移除被取消的任務
@@ -1201,9 +1206,36 @@ class ProactiveChatPlugin(star.Star):
             # ── 步驟 5：構造 Prompt 並呼叫 LLM ──
             motivation_template = session_config.get("proactive_prompt", "")
             now_str = datetime.now(self.timezone).strftime("%Y年%m月%d日 %H:%M")
-            final_prompt = motivation_template.replace(
-                "{{unanswered_count}}", str(unanswered_count)
-            ).replace("{{current_time}}", now_str)
+
+            # 計算使用者最後回覆時間的可讀字串
+            if snapshot_last_msg > 0:
+                last_reply_dt = datetime.fromtimestamp(
+                    snapshot_last_msg, tz=self.timezone
+                )
+                elapsed_sec = int(time.time() - snapshot_last_msg)
+                elapsed_min = elapsed_sec // 60
+                if elapsed_min < 60:
+                    elapsed_str = f"{elapsed_min}分鐘"
+                else:
+                    elapsed_h, elapsed_m = divmod(elapsed_min, 60)
+                    elapsed_str = (
+                        f"{elapsed_h}小時{elapsed_m}分鐘"
+                        if elapsed_m
+                        else f"{elapsed_h}小時"
+                    )
+                last_reply_str = (
+                    f"{last_reply_dt.strftime('%Y年%m月%d日 %H:%M')}（{elapsed_str}前）"
+                )
+            else:
+                last_reply_str = "未知"
+
+            final_prompt = (
+                motivation_template.replace(
+                    "{{unanswered_count}}", str(unanswered_count)
+                )
+                .replace("{{current_time}}", now_str)
+                .replace("{{last_reply_time}}", last_reply_str)
+            )
 
             # 若本次觸發來自語境預測，將預測的原因和跟進提示注入 Prompt
             ctx_task = None
