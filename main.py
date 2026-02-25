@@ -85,6 +85,7 @@ class ProactiveChatPlugin(star.Star):
         "first_message_logged",
         "_cleanup_counter",
         "_pending_context_tasks",
+        "_ctx_task_counter",
     )
 
     def __init__(self, context: star.Context, config: AstrBotConfig) -> None:
@@ -123,8 +124,11 @@ class ProactiveChatPlugin(star.Star):
         self.first_message_logged: set[str] = set()
         # 清理計數器：每處理 10 次 after_message_sent 就清理過期的 session_temp_state
         self._cleanup_counter: int = 0
-        # 語境預測的待執行任務追蹤: { session_id: { job_id, reason, hint } }
-        self._pending_context_tasks: dict[str, dict] = {}
+        # 語境預測的待執行任務追蹤: { session_id: [ { job_id, reason, hint, ... }, ... ] }
+        # 每個會話可同時存在多個語境任務（如短期跟進 + 長期早安問候）
+        self._pending_context_tasks: dict[str, list[dict]] = {}
+        # 語境任務計數器，用於生成唯一 job_id
+        self._ctx_task_counter: int = 0
 
         logger.info(f"{_LOG_TAG} 插件實例已創建。")
 
@@ -380,23 +384,33 @@ class ProactiveChatPlugin(star.Star):
         for sid, info in self.session_data.items():
             if not isinstance(info, dict):
                 continue
-            pending = info.get("pending_context_task")
-            if not isinstance(pending, dict):
+            # 相容舊格式（單一 dict）與新格式（list[dict]）
+            raw = info.get("pending_context_tasks") or info.get("pending_context_task")
+            if raw is None:
                 continue
-            # 只恢復尚未過期的任務
-            run_at_str = pending.get("run_at", "")
-            if run_at_str:
-                try:
-                    run_at_dt = datetime.fromisoformat(run_at_str)
-                    if run_at_dt.timestamp() < now:
-                        # 任務已過期，清理
-                        info.pop("pending_context_task", None)
-                        continue
-                except (ValueError, TypeError):
-                    info.pop("pending_context_task", None)
+            task_list = raw if isinstance(raw, list) else [raw]
+            valid_tasks: list[dict] = []
+            for pending in task_list:
+                if not isinstance(pending, dict):
                     continue
-            self._pending_context_tasks[sid] = pending
-            restored += 1
+                run_at_str = pending.get("run_at", "")
+                if run_at_str:
+                    try:
+                        run_at_dt = datetime.fromisoformat(run_at_str)
+                        if run_at_dt.timestamp() < now:
+                            continue  # 任務已過期，跳過
+                    except (ValueError, TypeError):
+                        continue
+                valid_tasks.append(pending)
+                restored += 1
+            if valid_tasks:
+                self._pending_context_tasks[sid] = valid_tasks
+            # 清理舊格式的持久化 key
+            info.pop("pending_context_task", None)
+            if valid_tasks:
+                info["pending_context_tasks"] = valid_tasks
+            else:
+                info.pop("pending_context_tasks", None)
         if restored:
             logger.info(f"{_LOG_TAG} 已恢復 {restored} 個語境預測的待執行任務。")
 
@@ -873,16 +887,14 @@ class ProactiveChatPlugin(star.Star):
     ) -> str:
         """若用戶的新訊息使待執行的語境任務不再需要，則取消該任務。
 
-        Returns:
-            被取消任務的原因字串，未取消則回傳空字串。
-        """
-        pending = self._pending_context_tasks.get(session_id)
-        if not pending:
-            return ""
+        遍歷該會話所有待執行的語境任務，逐一詢問 LLM 是否應取消。
 
-        job_id = pending.get("job_id", "")
-        task_reason = pending.get("reason", "")
-        task_hint = pending.get("hint", "")
+        Returns:
+            被取消任務的原因字串（多個以分號分隔），未取消則回傳空字串。
+        """
+        task_list = self._pending_context_tasks.get(session_id)
+        if not task_list:
+            return ""
 
         # 從會話配置中取得語境感知的 LLM 平台 ID
         session_config = get_session_config(self.config, session_id)
@@ -892,35 +904,75 @@ class ProactiveChatPlugin(star.Star):
                 "llm_provider_id", ""
             )
 
-        should_cancel = await check_should_cancel_task(
-            context=self.context,
-            session_id=session_id,
-            last_message=message_text,
-            task_reason=task_reason,
-            task_hint=task_hint,
-            llm_provider_id=ctx_llm_id,
-        )
+        cancelled_reasons: list[str] = []
+        to_remove: list[dict] = []
 
-        if should_cancel:
-            await self._remove_context_predicted_task(session_id, job_id)
-            logger.info(
-                f"{_LOG_TAG} 已取消 "
-                f"{get_session_log_str(session_id, None, self.session_data)} "
-                f"的語境預測任務：用戶新訊息使其不再需要。"
+        for task in task_list:
+            job_id = task.get("job_id", "")
+            task_reason = task.get("reason", "")
+            task_hint = task.get("hint", "")
+
+            should_cancel = await check_should_cancel_task(
+                context=self.context,
+                session_id=session_id,
+                last_message=message_text,
+                task_reason=task_reason,
+                task_hint=task_hint,
+                llm_provider_id=ctx_llm_id,
             )
-            return task_reason
-        return ""
+
+            if should_cancel:
+                to_remove.append(task)
+                cancelled_reasons.append(task_reason)
+                logger.info(
+                    f"{_LOG_TAG} 已取消 "
+                    f"{get_session_log_str(session_id, None, self.session_data)} "
+                    f"的語境預測任務 ({job_id})：用戶新訊息使其不再需要。"
+                )
+
+        # 批次移除被取消的任務
+        for task in to_remove:
+            job_id = task.get("job_id", "")
+            try:
+                if self.scheduler.get_job(job_id):
+                    self.scheduler.remove_job(job_id)
+            except Exception:
+                pass
+            task_list.remove(task)
+
+        # 清理空列表
+        if not task_list:
+            self._pending_context_tasks.pop(session_id, None)
+
+        # 更新持久化
+        if to_remove:
+            async with self.data_lock:
+                sd = self.session_data.get(session_id)
+                if sd:
+                    if task_list:
+                        sd["pending_context_tasks"] = task_list
+                    else:
+                        sd.pop("pending_context_tasks", None)
+                        sd.pop("pending_context_task", None)
+                    await self._save_data()
+
+        return "; ".join(cancelled_reasons)
 
     async def _remove_context_predicted_task(
         self, session_id: str, job_id: str
     ) -> None:
-        """從本地排程器和追蹤中移除語境預測任務。"""
-        self._pending_context_tasks.pop(session_id, None)
+        """從本地排程器和追蹤中移除指定的語境預測任務。"""
+        task_list = self._pending_context_tasks.get(session_id)
+        if task_list:
+            self._pending_context_tasks[session_id] = [
+                t for t in task_list if t.get("job_id") != job_id
+            ]
+            if not self._pending_context_tasks[session_id]:
+                self._pending_context_tasks.pop(session_id, None)
 
-        ctx_job_id = job_id or f"ctx_{session_id}"
         try:
-            if self.scheduler.get_job(ctx_job_id):
-                self.scheduler.remove_job(ctx_job_id)
+            if job_id and self.scheduler.get_job(job_id):
+                self.scheduler.remove_job(job_id)
         except Exception:
             pass
 
@@ -935,26 +987,23 @@ class ProactiveChatPlugin(star.Star):
         """
         根據 LLM 預測結果建立一次性排程任務。
 
-        統一使用插件自帶的 APScheduler，觸發時走 check_and_chat 流程，
-        確保免打擾、衰減、一致性檢查等業務邏輯都能生效。
+        支援同一會話同時存在多個語境任務（如短期跟進 + 長期早安問候），
+        每個任務使用唯一的 job_id。
         """
-        # 先取消該會話已有的語境任務
-        old_pending = self._pending_context_tasks.get(session_id)
-        if old_pending:
-            await self._remove_context_predicted_task(
-                session_id, old_pending.get("job_id", "")
-            )
-
         run_at = datetime.fromtimestamp(
             time.time() + delay_minutes * 60, tz=self.timezone
         )
 
-        ctx_job_id = f"ctx_{session_id}"
+        # 生成唯一 job_id
+        self._ctx_task_counter += 1
+        ctx_job_id = f"ctx_{session_id}_{self._ctx_task_counter}"
+
         self.scheduler.add_job(
             self.check_and_chat,
             "date",
             run_date=run_at,
             args=[session_id],
+            kwargs={"ctx_job_id": ctx_job_id},
             id=ctx_job_id,
             replace_existing=True,
             misfire_grace_time=120,
@@ -969,8 +1018,8 @@ class ProactiveChatPlugin(star.Star):
             f"(+{delay_minutes}分鐘，原因: {reason})"
         )
 
-        # 追蹤待執行任務
-        self._pending_context_tasks[session_id] = {
+        # 追蹤待執行任務（追加到列表）
+        task_info = {
             "job_id": ctx_job_id,
             "reason": reason,
             "hint": hint,
@@ -978,11 +1027,14 @@ class ProactiveChatPlugin(star.Star):
             "created_at": time.time(),
             "run_at": run_at.isoformat(),
         }
+        task_list = self._pending_context_tasks.setdefault(session_id, [])
+        task_list.append(task_info)
 
         # 持久化到 session_data
         async with self.data_lock:
             sd = self.session_data.setdefault(session_id, {})
-            sd["pending_context_task"] = self._pending_context_tasks[session_id]
+            sd["pending_context_tasks"] = task_list
+            sd.pop("pending_context_task", None)  # 清理舊格式
             await self._save_data()
 
     async def _get_history_for_prediction(self, session_id: str) -> list:
@@ -1063,7 +1115,7 @@ class ProactiveChatPlugin(star.Star):
     #  狀態一致性檢查 → 發送訊息 → 收尾與重新排程。
     # ═══════════════════════════════════════════════════════════
 
-    async def check_and_chat(self, session_id: str) -> None:
+    async def check_and_chat(self, session_id: str, ctx_job_id: str = "") -> None:
         """由定時任務觸發的核心函數，完成一次完整的主動訊息流程。"""
         session_config = None
         try:
@@ -1154,7 +1206,12 @@ class ProactiveChatPlugin(star.Star):
             ).replace("{{current_time}}", now_str)
 
             # 若本次觸發來自語境預測，將預測的原因和跟進提示注入 Prompt
-            ctx_task = self._pending_context_tasks.get(session_id)
+            ctx_task = None
+            if ctx_job_id:
+                task_list = self._pending_context_tasks.get(session_id, [])
+                ctx_task = next(
+                    (t for t in task_list if t.get("job_id") == ctx_job_id), None
+                )
             if ctx_task:
                 ctx_reason = ctx_task.get("reason", "")
                 ctx_hint = ctx_task.get("hint", "")
@@ -1246,13 +1303,23 @@ class ProactiveChatPlugin(star.Star):
                 unanswered_count,
             )
 
-            # 清理語境預測任務的追蹤（任務已成功執行）
-            if session_id in self._pending_context_tasks:
-                self._pending_context_tasks.pop(session_id, None)
+            # 清理語境預測任務的追蹤（僅移除本次觸發的任務）
+            if ctx_job_id and session_id in self._pending_context_tasks:
+                task_list = self._pending_context_tasks[session_id]
+                self._pending_context_tasks[session_id] = [
+                    t for t in task_list if t.get("job_id") != ctx_job_id
+                ]
+                if not self._pending_context_tasks[session_id]:
+                    self._pending_context_tasks.pop(session_id, None)
                 async with self.data_lock:
                     sd = self.session_data.get(session_id)
                     if sd:
-                        sd.pop("pending_context_task", None)
+                        remaining = self._pending_context_tasks.get(session_id)
+                        if remaining:
+                            sd["pending_context_tasks"] = remaining
+                        else:
+                            sd.pop("pending_context_tasks", None)
+                            sd.pop("pending_context_task", None)
 
             # 群聊：清除 next_trigger_time（由沉默計時器接管後續排程）
             if is_group_session_id(session_id):
