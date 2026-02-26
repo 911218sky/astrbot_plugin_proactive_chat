@@ -740,6 +740,83 @@ class ProactiveChatPlugin(star.Star):
         except Exception as e:
             logger.error(f"{_LOG_TAG} after_message_sent 處理異常: {e}")
 
+    # ═══════════════════════════════════════════════════════════
+    #  指令處理
+    # ═══════════════════════════════════════════════════════════
+
+    @filter.command("proactive_tasks")
+    async def cmd_list_pending_tasks(self, event: AstrMessageEvent) -> None:
+        """列出當前所有待執行的主動訊息排程任務。"""
+        now = datetime.now(self.timezone)
+        lines: list[str] = [f"📋 待執行任務一覽（{now.strftime('%H:%M:%S')}）\n"]
+
+        # ── 1. APScheduler 一般排程任務 ──
+        scheduled_jobs = self.scheduler.get_jobs() if self.scheduler else []
+        regular_jobs = [
+            j for j in scheduled_jobs if not j.id.startswith("ctx_")
+        ]
+        ctx_jobs = [
+            j for j in scheduled_jobs if j.id.startswith("ctx_")
+        ]
+
+        lines.append(f"【一般排程】共 {len(regular_jobs)} 個")
+        if regular_jobs:
+            for job in regular_jobs:
+                run_time = job.next_run_time
+                time_str = run_time.strftime("%m/%d %H:%M:%S") if run_time else "未知"
+                session_config = get_session_config(self.config, job.id)
+                log_str = get_session_log_str(
+                    job.id, session_config, self.session_data
+                )
+                lines.append(f"  • {log_str} → {time_str}")
+        else:
+            lines.append("  （無）")
+
+        # ── 2. 語境預測任務 ──
+        total_ctx = sum(
+            len(tasks) for tasks in self._pending_context_tasks.values()
+        )
+        lines.append(f"\n【語境預測】共 {total_ctx} 個")
+        if self._pending_context_tasks:
+            for sid, tasks in self._pending_context_tasks.items():
+                session_config = get_session_config(self.config, sid)
+                log_str = get_session_log_str(
+                    sid, session_config, self.session_data
+                )
+                for t in tasks:
+                    run_at = t.get("run_at", "")
+                    reason = t.get("reason", "")
+                    hint = t.get("hint", "")
+                    # 嘗試格式化時間
+                    try:
+                        dt = datetime.fromisoformat(run_at)
+                        time_str = dt.strftime("%m/%d %H:%M:%S")
+                    except (ValueError, TypeError):
+                        time_str = run_at or "未知"
+                    desc = reason or hint or "無描述"
+                    lines.append(f"  • {log_str} → {time_str}")
+                    lines.append(f"    原因: {desc}")
+        else:
+            lines.append("  （無）")
+
+        # ── 3. APScheduler 中的語境 job（補充顯示未被追蹤的） ──
+        tracked_ids = {
+            t.get("job_id")
+            for tasks in self._pending_context_tasks.values()
+            for t in tasks
+        }
+        orphan_ctx = [j for j in ctx_jobs if j.id not in tracked_ids]
+        if orphan_ctx:
+            lines.append(f"\n【未追蹤的語境排程】共 {len(orphan_ctx)} 個")
+            for job in orphan_ctx:
+                run_time = job.next_run_time
+                time_str = (
+                    run_time.strftime("%m/%d %H:%M:%S") if run_time else "未知"
+                )
+                lines.append(f"  • {job.id} → {time_str}")
+
+        yield event.plain_result("\n".join(lines))
+
     def _cleanup_expired_session_states(self, now: float) -> None:
         """清理超過 1 小時未活動的群聊臨時狀態。"""
         expired = [
