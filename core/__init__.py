@@ -10,7 +10,7 @@ from .config import (
     validate_config,
 )
 from .context_predictor import (
-    check_should_cancel_task,
+    check_should_cancel_tasks_batch,
     predict_proactive_timing,
 )
 from .context_scheduling import (
@@ -68,7 +68,7 @@ __all__ = [
     "should_trigger_by_unanswered",
     # context_predictor
     "predict_proactive_timing",
-    "check_should_cancel_task",
+    "check_should_cancel_tasks_batch",
     # context_scheduling
     "handle_context_aware_scheduling",
     "maybe_cancel_pending_context_task",

@@ -5,6 +5,24 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/02/26 v2.9.0
+
+## What's Changed
+
+### 新增功能 (Feat)
+
+- **批量語境任務取消檢查**：新增 `check_should_cancel_tasks_batch()` 函數，將多個語境任務的取消判斷合併為單一 LLM 請求，大幅降低 API 呼叫次數與成本。
+- 新增 `check_cancel_batch.txt` 與 `check_cancel_batch_system.txt` prompt 模板，支援批量取消判斷。
+- 新增 `_parse_json_array_response()` 輔助函數，用於解析 LLM 回傳的 JSON 陣列。
+
+### 優化 (Opt)
+
+- **預設使用批量檢查**：`maybe_cancel_pending_context_task()` 現在預設使用批量 LLM 請求，取代原本的並行多次請求模式。
+  - 例如：5 個待檢查任務從 5 次 LLM 請求減少為 1 次
+  - 保持相同的功能，但更高效且成本更低
+
+---
+
 # 2026/02/26 v2.8.3
 
 ## What's Changed

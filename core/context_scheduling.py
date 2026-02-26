@@ -21,7 +21,10 @@ from typing import TYPE_CHECKING
 from astrbot.api import logger
 
 from .config import get_session_config
-from .context_predictor import check_should_cancel_task, predict_proactive_timing
+from .context_predictor import (
+    check_should_cancel_tasks_batch,
+    predict_proactive_timing,
+)
 from .messaging import sanitize_history_content
 from .utils import get_session_log_str
 
@@ -111,7 +114,7 @@ async def maybe_cancel_pending_context_task(
 ) -> str:
     """若用戶的新訊息使待執行的語境任務不再需要，則取消該任務。
 
-    遍歷該會話所有待執行的語境任務，逐一詢問 LLM 是否應取消。
+    使用批量 LLM 請求一次性檢查所有待執行的語境任務。
 
     Returns:
         被取消任務的原因字串（多個以分號分隔），未取消則回傳空字串。
@@ -128,36 +131,31 @@ async def maybe_cancel_pending_context_task(
             "llm_provider_id", ""
         )
 
+    # 批量檢查所有待執行任務（一次 LLM 請求）
+    cancel_map = await check_should_cancel_tasks_batch(
+        context=plugin.context,
+        session_id=session_id,
+        last_message=message_text,
+        tasks=task_list,
+        llm_provider_id=ctx_llm_id,
+    )
+
+    if not cancel_map:
+        return ""
+
     cancelled_reasons: list[str] = []
     to_remove: list[dict] = []
 
-    # 並行檢查所有待執行任務，避免逐一等待 LLM 回應
-    async def _check_one(task: dict) -> tuple[dict, bool]:
-        return task, await check_should_cancel_task(
-            context=plugin.context,
-            session_id=session_id,
-            last_message=message_text,
-            task_reason=task.get("reason", ""),
-            task_hint=task.get("hint", ""),
-            llm_provider_id=ctx_llm_id,
-        )
-
-    results = await asyncio.gather(
-        *(_check_one(t) for t in task_list), return_exceptions=True
-    )
-
-    for result in results:
-        if isinstance(result, Exception):
-            logger.warning(f"{_LOG_TAG} 取消檢查異常: {result}")
-            continue
-        task, should_cancel = result
-        if should_cancel:
+    # 處理取消結果
+    for idx, (should_cancel, reason) in cancel_map.items():
+        if should_cancel and 0 <= idx < len(task_list):
+            task = task_list[idx]
             to_remove.append(task)
             cancelled_reasons.append(task.get("reason", ""))
             logger.info(
                 f"{_LOG_TAG} 已取消 "
                 f"{get_session_log_str(session_id, None, plugin.session_data)} "
-                f"的語境預測任務 ({task.get('job_id', '')})：用戶新訊息使其不再需要。"
+                f"的語境預測任務 ({task.get('job_id', '')})：{reason}"
             )
 
     # 批次移除被取消的任務

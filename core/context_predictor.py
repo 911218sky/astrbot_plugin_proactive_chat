@@ -92,6 +92,31 @@ def _parse_json_response(text: str) -> dict | None:
     return None
 
 
+def _parse_json_array_response(text: str) -> list | None:
+    """穩健地從 LLM 回應中解析 JSON 陣列，處理 markdown 程式碼區塊。"""
+    if not text:
+        return None
+    # 移除 markdown 程式碼區塊標記
+    cleaned = re.sub(r"```(?:json)?\s*", "", text).strip().rstrip("`")
+    try:
+        result = json.loads(cleaned)
+        if isinstance(result, list):
+            return result
+        return None
+    except (json.JSONDecodeError, TypeError):
+        # 嘗試在文字中尋找 JSON 陣列
+        match = re.search(r"\[[^\[\]]*\]", cleaned, re.DOTALL)
+        if match:
+            try:
+                result = json.loads(match.group())
+                if isinstance(result, list):
+                    return result
+            except (json.JSONDecodeError, TypeError):
+                pass
+    logger.warning(f"{_LOG_TAG} 無法解析 LLM 的 JSON 陣列回應: {text[:200]}")
+    return None
+
+
 async def predict_proactive_timing(
     *,
     context: Context,
@@ -196,31 +221,39 @@ async def predict_proactive_timing(
         return None
 
 
-async def check_should_cancel_task(
+async def check_should_cancel_tasks_batch(
     *,
     context: Context,
     session_id: str,
     last_message: str,
-    task_reason: str,
-    task_hint: str,
+    tasks: list[dict],
     llm_provider_id: str = "",
-) -> bool:
+) -> dict[int, tuple[bool, str]]:
     """
-    呼叫 LLM 檢查已排定的語境預測任務是否應該取消。
+    批量呼叫 LLM 檢查多個已排定的語境預測任務是否應該取消。
 
     Args:
+        tasks: 任務列表，每個任務需包含 reason 和 hint 欄位
         llm_provider_id: 指定 LLM 平台 ID，留空則使用會話預設。
 
     Returns:
-        True 表示應該取消，False 表示保留。
+        字典，key 為任務索引，value 為 (should_cancel, reason) 元組。
+        例如：{0: (True, "活動已結束"), 1: (False, "任務仍有效")}
     """
-    if not last_message or not last_message.strip():
-        return False
+    if not last_message or not last_message.strip() or not tasks:
+        return {}
+
+    # 構建任務列表字串
+    tasks_lines = []
+    for idx, task in enumerate(tasks):
+        reason = task.get("reason", "主動跟進")
+        hint = task.get("hint", "關心用戶近況")
+        tasks_lines.append(f"{idx}. 原因：「{reason}」，提示：「{hint}」")
+    tasks_list_str = "\n".join(tasks_lines)
 
     prompt = CHECK_CANCEL_PROMPT.format(
-        task_reason=task_reason or "主動跟進",
-        task_hint=task_hint or "關心用戶近況",
         last_message=last_message.strip(),
+        tasks_list=tasks_list_str,
     )
 
     try:
@@ -236,20 +269,30 @@ async def check_should_cancel_task(
             system_prompt=CHECK_CANCEL_SYSTEM,
         )
         if not resp or not resp.completion_text:
-            return False
+            return {}
 
-        result = _parse_json_response(resp.completion_text)
-        if not result:
-            return False
+        results = _parse_json_array_response(resp.completion_text)
+        if not results:
+            return {}
 
-        should_cancel = bool(result.get("should_cancel", False))
-        if should_cancel:
-            logger.info(
-                f"{_LOG_TAG} 建議取消 {session_id} 的語境任務: "
-                f"{result.get('reason', '無')}"
-            )
-        return should_cancel
+        # 解析結果並建立索引對應
+        cancel_map: dict[int, tuple[bool, str]] = {}
+        for item in results:
+            if not isinstance(item, dict):
+                continue
+            task_idx = item.get("task_index")
+            should_cancel = bool(item.get("should_cancel", False))
+            reason = item.get("reason", "無")
+
+            if isinstance(task_idx, int) and 0 <= task_idx < len(tasks):
+                cancel_map[task_idx] = (should_cancel, reason)
+                if should_cancel:
+                    logger.info(
+                        f"{_LOG_TAG} 批量檢查建議取消 {session_id} 的任務 #{task_idx}: {reason}"
+                    )
+
+        return cancel_map
 
     except Exception as e:
-        logger.error(f"{_LOG_TAG} 取消檢查 LLM 呼叫失敗: {e}")
-        return False
+        logger.error(f"{_LOG_TAG} 批量取消檢查 LLM 呼叫失敗: {e}")
+        return {}
