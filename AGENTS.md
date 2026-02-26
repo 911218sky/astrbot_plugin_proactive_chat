@@ -155,3 +155,4 @@ ruff check .         # 確認零錯誤
 - 格式：`type: description`（如 `feat: add schedule_rules support`、`fix: resolve UMO parsing error`）
 - **禁止自動提交**：AI 代理**絕對不得自動執行 `git add` / `git commit` / `git push`**，除非使用者明確同意提交。即使使用者要求「幫我提交」，也必須先列出變更摘要並等待使用者確認後才能執行。
 - **版本號更新**：每次提交前，必須根據上方「版本管理」規則更新 `metadata.yaml` 中的 `version`。
+- **文件同步更新**：每次版本更新時，必須同步更新 `CHANGELOG.md`（新增對應版本的變更紀錄）與 `README.md`（若有功能或結構變更需反映在文件中）。
