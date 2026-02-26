@@ -124,6 +124,8 @@ astrbot_plugin_proactive_chat/
 │   ├── messaging.py           # メッセージ送信
 │   ├── scheduler.py           # スケジューリングロジック
 │   ├── send.py                # 能動的メッセージ送信（TTS / テキスト / 分割）
+│   ├── context_scheduling.py  # コンテキスト認識スケジューリング（タスク作成/取消/復元）
+│   ├── chat_executor.py       # コア実行（check_and_chat フロー、プロンプト構築、後処理）
 │   ├── prompts/               # LLM プロンプトテンプレート（コンテキスト予測、タスク取消判定）
 │   └── utils.py               # ユーティリティ
 ├── main.py                    # プラグインエントリポイント

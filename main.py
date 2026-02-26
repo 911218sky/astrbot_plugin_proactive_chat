@@ -1,16 +1,17 @@
 # 文件名: main.py
-# 版本: v2.0.0 — 模塊化重構 + schedule_rules 加權隨機調度
+# 版本: v2.0.1 — 拆分 context_scheduling / chat_executor 模組
 #
 # 本檔案為 AstrBot 主動訊息插件的入口點。
-# 負責：插件生命週期管理、事件監聽、定時任務調度、LLM 呼叫、訊息發送。
-# 業務邏輯已拆分至 core/ 子模組（utils / config / scheduler / messaging）。
+# 負責：插件生命週期管理、事件監聽、定時任務調度。
+# 業務邏輯已拆分至 core/ 子模組：
+#   utils / config / scheduler / messaging / llm_helpers / send /
+#   context_scheduling / chat_executor
 
 from __future__ import annotations
 
 import asyncio
 import json
 import time
-import traceback
 import zoneinfo
 from datetime import datetime
 
@@ -21,24 +22,15 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import astrbot.api.star as star
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.core.agent.message import (
-    AssistantMessageSegment,
-    TextPart,
-    UserMessageSegment,
-)
 from astrbot.core.config.astrbot_config import AstrBotConfig
-from astrbot.core.platform.platform import PlatformStatus
 
+from .core import chat_executor
 from .core.config import backup_configurations, get_session_config, validate_config
-from .core.context_predictor import check_should_cancel_task, predict_proactive_timing
-from .core.llm_helpers import (
-    call_llm,
-    recall_memories_for_proactive,
-    safe_prepare_llm_request,
+from .core.context_scheduling import (
+    handle_context_aware_scheduling,
+    restore_pending_context_tasks,
 )
-from .core.messaging import sanitize_history_content
-from .core.scheduler import compute_weighted_interval, should_trigger_by_unanswered
-from .core.send import send_proactive_message
+from .core.scheduler import compute_weighted_interval
 
 # ── 核心模組匯入（使用相對匯入，避免與 AstrBot 自身的 core 衝突） ──
 from .core.utils import (
@@ -213,7 +205,7 @@ class ProactiveChatPlugin(star.Star):
 
         # 恢復上次未完成的定時任務 & 設置自動觸發器
         await self._init_jobs_from_data()
-        await self._restore_pending_context_tasks()
+        restore_pending_context_tasks(self)
         await self._setup_auto_triggers_for_enabled_sessions()
         logger.info(f"{_LOG_TAG} 初始化完成。")
 
@@ -376,43 +368,6 @@ class ProactiveChatPlugin(star.Star):
                 logger.error(f"{_LOG_TAG} 恢復任務失敗: {e}")
 
         logger.info(f"{_LOG_TAG} 任務恢復完成，共恢復 {restored} 個定時任務。")
-
-    async def _restore_pending_context_tasks(self) -> None:
-        """從持久化的 session_data 中恢復語境預測的待執行任務。"""
-        restored = 0
-        now = time.time()
-        for sid, info in self.session_data.items():
-            if not isinstance(info, dict):
-                continue
-            # 相容舊格式（單一 dict）與新格式（list[dict]）
-            raw = info.get("pending_context_tasks") or info.get("pending_context_task")
-            if raw is None:
-                continue
-            task_list = raw if isinstance(raw, list) else [raw]
-            valid_tasks: list[dict] = []
-            for pending in task_list:
-                if not isinstance(pending, dict):
-                    continue
-                run_at_str = pending.get("run_at", "")
-                if run_at_str:
-                    try:
-                        run_at_dt = datetime.fromisoformat(run_at_str)
-                        if run_at_dt.timestamp() < now:
-                            continue  # 任務已過期，跳過
-                    except (ValueError, TypeError):
-                        continue
-                valid_tasks.append(pending)
-                restored += 1
-            if valid_tasks:
-                self._pending_context_tasks[sid] = valid_tasks
-            # 清理舊格式的持久化 key
-            info.pop("pending_context_task", None)
-            if valid_tasks:
-                info["pending_context_tasks"] = valid_tasks
-            else:
-                info.pop("pending_context_tasks", None)
-        if restored:
-            logger.info(f"{_LOG_TAG} 已恢復 {restored} 個語境預測的待執行任務。")
 
     # ═══════════════════════════════════════════════════════════
     #  自動觸發
@@ -638,6 +593,7 @@ class ProactiveChatPlugin(star.Star):
         4. 記錄首次訊息日誌
         5. 私聊：移除舊排程 → 立即安排下一次主動訊息
            群聊：移除舊排程 → 重設沉默倒計時 → 歸零未回覆計數
+        6. 語境感知排程（背景執行，不阻塞訊息回覆流程）
         """
         if not event.get_messages():
             return
@@ -684,6 +640,12 @@ class ProactiveChatPlugin(star.Star):
         except Exception:
             pass
 
+        # 先提取語境感知所需的資訊，再進行排程操作
+        # 語境感知排程放在 create_task 中背景執行，不阻塞訊息回覆
+        ctx_settings = session_config.get("context_aware_settings", {})
+        ctx_enabled = ctx_settings.get("enable", False)
+        message_text = event.message_str or "" if ctx_enabled else ""
+
         if is_group:
             # 群聊：重設沉默倒計時，等群組再次安靜後才排定主動訊息
             await self._reset_group_silence_timer(session_id)
@@ -696,13 +658,11 @@ class ProactiveChatPlugin(star.Star):
             # 私聊：立即安排下一次主動訊息，並歸零未回覆計數
             await self._schedule_next_chat_and_save(session_id, reset_counter=True)
 
-        # 語境感知排程：在背景執行，避免阻塞訊息處理流程
-        ctx_settings = session_config.get("context_aware_settings", {})
-        if ctx_settings.get("enable", False):
-            message_text = event.message_str or ""
+        # 語境感知排程：在背景執行，避免阻塞訊息回覆流程
+        if ctx_enabled:
             asyncio.create_task(
-                self._handle_context_aware_scheduling(
-                    session_id, message_text, ctx_settings
+                handle_context_aware_scheduling(
+                    self, session_id, message_text, ctx_settings
                 )
             )
 
@@ -863,589 +823,11 @@ class ProactiveChatPlugin(star.Star):
             logger.error(f"{_LOG_TAG} 設置沉默倒計時失敗: {e}")
 
     # ═══════════════════════════════════════════════════════════
-    #  語境感知排程
-    #
-    #  利用 LLM 根據對話語境預測最佳的主動訊息觸發時機。
-    #  使用插件自帶的 APScheduler 管理排程，觸發時走 check_and_chat
-    #  流程，確保所有業務邏輯（免打擾、衰減、一致性檢查等）生效。
-    # ═══════════════════════════════════════════════════════════
-
-    async def _handle_context_aware_scheduling(
-        self,
-        session_id: str,
-        message_text: str,
-        ctx_settings: dict,
-    ) -> None:
-        """
-        背景任務：檢查待執行的語境任務並執行 LLM 預測。
-
-        步驟：
-        1. 並行執行：取消檢查（所有待執行任務同時檢查）+ 取得對話歷史
-        2. 根據最新訊息執行 LLM 時機預測
-        3. 若預測結果建議排程，建立一次性任務
-        """
-        try:
-            # 步驟 1：並行執行取消檢查與歷史取得，減少等待時間
-            cancel_coro = self._maybe_cancel_pending_context_task(
-                session_id, message_text
-            )
-            history_coro = self._get_history_for_prediction(session_id)
-            cancelled_reason, history = await asyncio.gather(cancel_coro, history_coro)
-
-            now_str = datetime.now(self.timezone).strftime("%Y年%m月%d日 %H:%M")
-
-            # 步驟 3：呼叫 LLM 預測時機（若剛取消了任務，傳入原因讓 LLM 知道語境已轉移）
-            prediction = await predict_proactive_timing(
-                context=self.context,
-                session_id=session_id,
-                last_message=message_text,
-                history=history,
-                current_time_str=now_str,
-                config=ctx_settings,
-                just_cancelled_reason=cancelled_reason,
-                llm_provider_id=ctx_settings.get("llm_provider_id", ""),
-                extra_prompt=ctx_settings.get("extra_prompt", ""),
-            )
-
-            session_config = get_session_config(self.config, session_id)
-            log_name = get_session_log_str(
-                session_id, session_config, self.session_data
-            )
-
-            if not prediction or not prediction.get("should_schedule"):
-                logger.info(
-                    f"{_LOG_TAG} {log_name} "
-                    f"語境分析完成，LLM 判定目前不需要排程主動訊息。"
-                )
-                return
-
-            delay_minutes = prediction.get("delay_minutes", 60)
-            reason = prediction.get("reason", "")
-            hint = prediction.get("message_hint", "")
-
-            run_at = datetime.fromtimestamp(
-                time.time() + delay_minutes * 60, tz=self.timezone
-            )
-            logger.info(
-                f"{_LOG_TAG} {log_name} "
-                f"語境分析完成，LLM 判定需要排程主動訊息，"
-                f"預計觸發時間 {run_at.strftime('%Y-%m-%d %H:%M:%S')} "
-                f"(+{delay_minutes}分鐘，原因: {reason})"
-            )
-
-            # 步驟 4：建立排程任務
-            await self._create_context_predicted_task(
-                session_id=session_id,
-                delay_minutes=delay_minutes,
-                reason=reason,
-                hint=hint,
-            )
-
-        except Exception as e:
-            logger.error(f"{_LOG_TAG} 語境感知排程失敗: {e}")
-
-    async def _maybe_cancel_pending_context_task(
-        self,
-        session_id: str,
-        message_text: str,
-    ) -> str:
-        """若用戶的新訊息使待執行的語境任務不再需要，則取消該任務。
-
-        遍歷該會話所有待執行的語境任務，逐一詢問 LLM 是否應取消。
-
-        Returns:
-            被取消任務的原因字串（多個以分號分隔），未取消則回傳空字串。
-        """
-        task_list = self._pending_context_tasks.get(session_id)
-        if not task_list:
-            return ""
-
-        # 從會話配置中取得語境感知的 LLM 平台 ID
-        session_config = get_session_config(self.config, session_id)
-        ctx_llm_id = ""
-        if session_config:
-            ctx_llm_id = session_config.get("context_aware_settings", {}).get(
-                "llm_provider_id", ""
-            )
-
-        cancelled_reasons: list[str] = []
-        to_remove: list[dict] = []
-
-        # 並行檢查所有待執行任務，避免逐一等待 LLM 回應
-        async def _check_one(task: dict) -> tuple[dict, bool]:
-            return task, await check_should_cancel_task(
-                context=self.context,
-                session_id=session_id,
-                last_message=message_text,
-                task_reason=task.get("reason", ""),
-                task_hint=task.get("hint", ""),
-                llm_provider_id=ctx_llm_id,
-            )
-
-        results = await asyncio.gather(
-            *(_check_one(t) for t in task_list), return_exceptions=True
-        )
-
-        for result in results:
-            if isinstance(result, Exception):
-                logger.warning(f"{_LOG_TAG} 取消檢查異常: {result}")
-                continue
-            task, should_cancel = result
-            if should_cancel:
-                to_remove.append(task)
-                cancelled_reasons.append(task.get("reason", ""))
-                logger.info(
-                    f"{_LOG_TAG} 已取消 "
-                    f"{get_session_log_str(session_id, None, self.session_data)} "
-                    f"的語境預測任務 ({task.get('job_id', '')})：用戶新訊息使其不再需要。"
-                )
-
-        # 批次移除被取消的任務
-        for task in to_remove:
-            job_id = task.get("job_id", "")
-            try:
-                if self.scheduler.get_job(job_id):
-                    self.scheduler.remove_job(job_id)
-            except Exception:
-                pass
-            task_list.remove(task)
-
-        # 清理空列表
-        if not task_list:
-            self._pending_context_tasks.pop(session_id, None)
-
-        # 更新持久化
-        if to_remove:
-            async with self.data_lock:
-                sd = self.session_data.get(session_id)
-                if sd:
-                    if task_list:
-                        sd["pending_context_tasks"] = task_list
-                    else:
-                        sd.pop("pending_context_tasks", None)
-                        sd.pop("pending_context_task", None)
-                    await self._save_data()
-
-        return "; ".join(cancelled_reasons)
-
-    async def _remove_context_predicted_task(
-        self, session_id: str, job_id: str
-    ) -> None:
-        """從本地排程器和追蹤中移除指定的語境預測任務。"""
-        task_list = self._pending_context_tasks.get(session_id)
-        if task_list:
-            self._pending_context_tasks[session_id] = [
-                t for t in task_list if t.get("job_id") != job_id
-            ]
-            if not self._pending_context_tasks[session_id]:
-                self._pending_context_tasks.pop(session_id, None)
-
-        try:
-            if job_id and self.scheduler.get_job(job_id):
-                self.scheduler.remove_job(job_id)
-        except Exception:
-            pass
-
-    async def _create_context_predicted_task(
-        self,
-        *,
-        session_id: str,
-        delay_minutes: int,
-        reason: str,
-        hint: str,
-    ) -> None:
-        """
-        根據 LLM 預測結果建立一次性排程任務。
-
-        支援同一會話同時存在多個語境任務（如短期跟進 + 長期早安問候），
-        每個任務使用唯一的 job_id。
-        """
-        run_at = datetime.fromtimestamp(
-            time.time() + delay_minutes * 60, tz=self.timezone
-        )
-
-        # 生成唯一 job_id
-        self._ctx_task_counter += 1
-        ctx_job_id = f"ctx_{session_id}_{self._ctx_task_counter}"
-
-        self.scheduler.add_job(
-            self.check_and_chat,
-            "date",
-            run_date=run_at,
-            args=[session_id],
-            kwargs={"ctx_job_id": ctx_job_id},
-            id=ctx_job_id,
-            replace_existing=True,
-            misfire_grace_time=120,
-        )
-
-        session_config = get_session_config(self.config, session_id)
-        logger.info(
-            f"{_LOG_TAG} 已為 "
-            f"{get_session_log_str(session_id, session_config, self.session_data)} "
-            f"建立語境預測排程，"
-            f"觸發時間 {run_at.strftime('%Y-%m-%d %H:%M:%S')} "
-            f"(+{delay_minutes}分鐘，原因: {reason})"
-        )
-
-        # 追蹤待執行任務（追加到列表）
-        task_info = {
-            "job_id": ctx_job_id,
-            "reason": reason,
-            "hint": hint,
-            "delay_minutes": delay_minutes,
-            "created_at": time.time(),
-            "run_at": run_at.isoformat(),
-        }
-        task_list = self._pending_context_tasks.setdefault(session_id, [])
-        task_list.append(task_info)
-
-        # 持久化到 session_data
-        async with self.data_lock:
-            sd = self.session_data.setdefault(session_id, {})
-            sd["pending_context_tasks"] = task_list
-            sd.pop("pending_context_task", None)  # 清理舊格式
-            await self._save_data()
-
-    async def _get_history_for_prediction(self, session_id: str) -> list:
-        """取得最近的對話歷史，用於語境預測。"""
-        try:
-            conv_id = await self.context.conversation_manager.get_curr_conversation_id(
-                session_id
-            )
-            if not conv_id:
-                return []
-            conversation = await self.context.conversation_manager.get_conversation(
-                session_id, conv_id
-            )
-            if not conversation or not conversation.history:
-                return []
-            history = (
-                json.loads(conversation.history)
-                if isinstance(conversation.history, str)
-                else conversation.history
-            )
-            return sanitize_history_content(history) if history else []
-        except Exception as e:
-            logger.debug(f"{_LOG_TAG} 取得預測用歷史記錄失敗: {e}")
-            return []
-
-    async def _finalize_and_reschedule(
-        self,
-        session_id: str,
-        conv_id: str,
-        user_prompt: str,
-        assistant_response: str,
-        unanswered_count: int,
-    ) -> None:
-        """
-        主動訊息發送成功後的收尾工作。
-
-        1. 將本次對話（prompt + response）存入對話歷史
-        2. 遞增未回覆計數
-        3. 私聊：安排下一次主動訊息（群聊由沉默計時器處理）
-        4. 持久化數據
-        """
-        # 存檔對話歷史
-        try:
-            await self.context.conversation_manager.add_message_pair(
-                cid=conv_id,
-                user_message=UserMessageSegment(content=[TextPart(text=user_prompt)]),
-                assistant_message=AssistantMessageSegment(
-                    content=[TextPart(text=assistant_response)]
-                ),
-            )
-        except Exception as e:
-            logger.error(f"{_LOG_TAG} 存檔對話歷史失敗: {e}")
-
-        async with self.data_lock:
-            sd = self.session_data.setdefault(session_id, {})
-            sd["unanswered_count"] = unanswered_count + 1
-
-            # 私聊：安排下一次；群聊由沉默計時器自行處理
-            if not is_group_session_id(session_id):
-                session_config = get_session_config(self.config, session_id)
-                if session_config:
-                    schedule_conf = session_config.get("schedule_settings", {})
-                    interval = compute_weighted_interval(schedule_conf, self.timezone)
-                    run_date = self._add_scheduled_job(session_id, interval)
-                    sd["next_trigger_time"] = time.time() + interval
-                    logger.info(
-                        f"{_LOG_TAG} 已為 "
-                        f"{get_session_log_str(session_id, session_config, self.session_data)} "
-                        f"安排下一次主動訊息: {run_date.strftime('%Y-%m-%d %H:%M:%S')}。"
-                    )
-            await self._save_data()
-
-    # ═══════════════════════════════════════════════════════════
     #  核心執行：check_and_chat
     #
-    #  由 APScheduler 定時觸發，完成一次完整的主動訊息流程：
-    #  檢查條件 → 動態修正 UMO → 準備 LLM 請求 → 呼叫 LLM →
-    #  狀態一致性檢查 → 發送訊息 → 收尾與重新排程。
+    #  委派至 core.chat_executor 模組，保持 main.py 精簡。
     # ═══════════════════════════════════════════════════════════
 
     async def check_and_chat(self, session_id: str, ctx_job_id: str = "") -> None:
-        """由定時任務觸發的核心函數，完成一次完整的主動訊息流程。"""
-        session_config = None
-        try:
-            # ── 步驟 1：檢查是否允許發送 ──
-            session_config = get_session_config(self.config, session_id)
-            if not await self._is_chat_allowed(session_id, session_config):
-                # 不允許但仍需排定下一次（例如免打擾時段結束後繼續）
-                await self._schedule_next_chat_and_save(session_id)
-                return
-
-            schedule_conf = session_config.get("schedule_settings", {})
-
-            # ── 步驟 2：檢查未回覆次數（概率衰減 / 硬性上限） ──
-            async with self.data_lock:
-                unanswered_count = self.session_data.get(session_id, {}).get(
-                    "unanswered_count", 0
-                )
-                should_trigger, reason = should_trigger_by_unanswered(
-                    unanswered_count, schedule_conf, self.timezone
-                )
-                if not should_trigger:
-                    logger.info(
-                        f"{_LOG_TAG} {get_session_log_str(session_id, session_config, self.session_data)} "
-                        f"{reason}"
-                    )
-                    # 衰減跳過時仍需排定下一次（給下次機會擲骰）
-                    if "衰減" in reason:
-                        await self._schedule_next_chat_and_save(session_id)
-                    return
-                if reason:
-                    logger.info(
-                        f"{_LOG_TAG} {get_session_log_str(session_id, session_config, self.session_data)} "
-                        f"{reason}"
-                    )
-
-            # ── 步驟 3：動態修正 UMO ──
-            # 平台可能重啟導致 ID 變更，需要重新解析到存活的平台
-            parsed = parse_session_id(session_id)
-            if parsed:
-                original_platform, msg_type, target_id = parsed
-                new_session_id = resolve_full_umo(
-                    target_id,
-                    msg_type,
-                    self.context.platform_manager,
-                    self.session_data,
-                    original_platform,
-                )
-
-                # 驗證目標平台是否正在運行
-                new_parsed = parse_session_id(new_session_id)
-                if new_parsed:
-                    insts = {
-                        p.meta().id: p
-                        for p in self.context.platform_manager.get_insts()
-                        if p.meta().id
-                    }
-                    platform_inst = insts.get(new_parsed[0])
-                    if (
-                        not platform_inst
-                        or platform_inst.status != PlatformStatus.RUNNING
-                    ):
-                        # 平台未運行，延後重試
-                        await self._schedule_next_chat_and_save(session_id)
-                        return
-
-                if new_session_id != session_id:
-                    session_id = new_session_id
-
-            # ── 步驟 4：準備 LLM 請求 ──
-            request_package = await safe_prepare_llm_request(self.context, session_id)
-            if not request_package:
-                await self._schedule_next_chat_and_save(session_id)
-                return
-
-            conv_id = request_package["conv_id"]
-            history = request_package["history"]
-            system_prompt = request_package["system_prompt"]
-
-            # 記錄任務開始時的狀態快照（用於後續一致性檢查）
-            snapshot_last_msg = self.last_message_times.get(session_id, 0)
-            snapshot_unanswered = unanswered_count
-
-            # ── 步驟 5：構造 Prompt 並呼叫 LLM ──
-            motivation_template = session_config.get("proactive_prompt", "")
-            now_str = datetime.now(self.timezone).strftime("%Y年%m月%d日 %H:%M")
-
-            # 計算使用者最後回覆時間的可讀字串
-            if snapshot_last_msg > 0:
-                last_reply_dt = datetime.fromtimestamp(
-                    snapshot_last_msg, tz=self.timezone
-                )
-                elapsed_sec = int(time.time() - snapshot_last_msg)
-                elapsed_min = elapsed_sec // 60
-                if elapsed_min < 60:
-                    elapsed_str = f"{elapsed_min}分鐘"
-                else:
-                    elapsed_h, elapsed_m = divmod(elapsed_min, 60)
-                    elapsed_str = (
-                        f"{elapsed_h}小時{elapsed_m}分鐘"
-                        if elapsed_m
-                        else f"{elapsed_h}小時"
-                    )
-                last_reply_str = (
-                    f"{last_reply_dt.strftime('%Y年%m月%d日 %H:%M')}（{elapsed_str}前）"
-                )
-            else:
-                last_reply_str = "未知"
-
-            final_prompt = (
-                motivation_template.replace(
-                    "{{unanswered_count}}", str(unanswered_count)
-                )
-                .replace("{{current_time}}", now_str)
-                .replace("{{last_reply_time}}", last_reply_str)
-            )
-
-            # 若本次觸發來自語境預測，將預測的原因和跟進提示注入 Prompt
-            ctx_task = None
-            if ctx_job_id:
-                task_list = self._pending_context_tasks.get(session_id, [])
-                ctx_task = next(
-                    (t for t in task_list if t.get("job_id") == ctx_job_id), None
-                )
-            if ctx_task:
-                ctx_reason = ctx_task.get("reason", "")
-                ctx_hint = ctx_task.get("hint", "")
-                final_prompt += (
-                    f"\n\n[語境感知觸發]\n"
-                    f"這條主動訊息的排程原因：{ctx_reason}\n"
-                    f"建議的跟進話題：{ctx_hint}\n"
-                    f"請將這個語境自然地融入你的訊息中。"
-                )
-
-            # 嘗試從 livingmemory 檢索相關記憶並注入 system_prompt（可選依賴）
-            ctx_settings = session_config.get("context_aware_settings", {})
-            enable_memory = ctx_settings.get("enable_memory", True)
-            memory_str = ""
-            if enable_memory:
-                memory_top_k = ctx_settings.get("memory_top_k", 5)
-                memory_query = ""
-                if ctx_task:
-                    memory_query = ctx_task.get("hint", "") or ctx_task.get(
-                        "reason", ""
-                    )
-                if not memory_query:
-                    memory_query = now_str
-                memory_str = await recall_memories_for_proactive(
-                    self.context, session_id, memory_query, memory_top_k=memory_top_k
-                )
-            if memory_str:
-                system_prompt = system_prompt + "\n\n" + memory_str
-                logger.info(
-                    f"{_LOG_TAG} 已為 {get_session_log_str(session_id, session_config, self.session_data)} "
-                    f"注入記憶到主動訊息 system_prompt。"
-                )
-            else:
-                logger.info(
-                    f"{_LOG_TAG} {get_session_log_str(session_id, session_config, self.session_data)} "
-                    f"本次主動訊息未帶記憶（無相關記憶或 livingmemory 不可用）。"
-                )
-
-            # 清洗歷史記錄格式（確保 content 欄位一致）
-            history = sanitize_history_content(history)
-
-            # 呼叫 LLM（主要路徑 + 備用路徑）
-            llm_response = await call_llm(
-                self.context, session_id, final_prompt, history, system_prompt
-            )
-            if not llm_response or not llm_response.completion_text:
-                await self._schedule_next_chat_and_save(session_id)
-                return
-
-            response_text = llm_response.completion_text.strip()
-            # 過濾無效回應
-            if response_text == "[object Object]":
-                await self._schedule_next_chat_and_save(session_id)
-                return
-
-            # ── 步驟 6：狀態一致性檢查 ──
-            # 若在 LLM 生成期間使用者發送了新訊息，則丟棄本次回應
-            current_last_msg = self.last_message_times.get(session_id, 0)
-            current_unanswered = self.session_data.get(session_id, {}).get(
-                "unanswered_count", 0
-            )
-            if (
-                current_last_msg > snapshot_last_msg
-                or current_unanswered < snapshot_unanswered
-            ):
-                logger.info(
-                    f"{_LOG_TAG} 使用者在 LLM 生成期間發送了新訊息，丟棄本次回應。"
-                )
-                return
-
-            # ── 步驟 7：發送訊息並收尾 ──
-            def _set_bot_time(t: float) -> None:
-                self.last_bot_message_time = t
-
-            await send_proactive_message(
-                session_id=session_id,
-                text=response_text,
-                config=self.config,
-                context=self.context,
-                session_data=self.session_data,
-                reset_group_silence_cb=self._reset_group_silence_timer,
-                last_bot_message_time_setter=_set_bot_time,
-            )
-            await self._finalize_and_reschedule(
-                session_id,
-                conv_id,
-                final_prompt,
-                response_text,
-                unanswered_count,
-            )
-
-            # 清理語境預測任務的追蹤（僅移除本次觸發的任務）
-            if ctx_job_id and session_id in self._pending_context_tasks:
-                task_list = self._pending_context_tasks[session_id]
-                self._pending_context_tasks[session_id] = [
-                    t for t in task_list if t.get("job_id") != ctx_job_id
-                ]
-                if not self._pending_context_tasks[session_id]:
-                    self._pending_context_tasks.pop(session_id, None)
-                async with self.data_lock:
-                    sd = self.session_data.get(session_id)
-                    if sd:
-                        remaining = self._pending_context_tasks.get(session_id)
-                        if remaining:
-                            sd["pending_context_tasks"] = remaining
-                        else:
-                            sd.pop("pending_context_tasks", None)
-                            sd.pop("pending_context_task", None)
-
-            # 群聊：清除 next_trigger_time（由沉默計時器接管後續排程）
-            if is_group_session_id(session_id):
-                async with self.data_lock:
-                    sd = self.session_data.get(session_id)
-                    if sd and "next_trigger_time" in sd:
-                        del sd["next_trigger_time"]
-                        await self._save_data()
-
-        except Exception as e:
-            logger.error(f"{_LOG_TAG} check_and_chat 致命錯誤: {type(e).__name__}: {e}")
-            logger.debug(traceback.format_exc())
-
-            # 認證錯誤不重試（避免無限循環）
-            if "Authentication" in type(e).__name__ or "auth" in str(e).lower():
-                return
-
-            # 清理失敗的排程數據
-            try:
-                async with self.data_lock:
-                    sd = self.session_data.get(session_id)
-                    if sd and "next_trigger_time" in sd:
-                        del sd["next_trigger_time"]
-                        await self._save_data()
-            except Exception:
-                pass
-
-            # 嘗試重新排程（錯誤恢復）
-            try:
-                await self._schedule_next_chat_and_save(session_id)
-            except Exception as se:
-                logger.error(f"{_LOG_TAG} 錯誤恢復中重新調度失敗: {se}")
+        """由定時任務觸發的核心函數，委派至 core.chat_executor。"""
+        await chat_executor.check_and_chat(self, session_id, ctx_job_id)

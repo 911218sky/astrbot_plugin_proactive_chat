@@ -124,6 +124,8 @@ astrbot_plugin_proactive_chat/
 │   ├── messaging.py           # Message sending
 │   ├── scheduler.py           # Scheduling logic
 │   ├── send.py                # Proactive message dispatch (TTS / text / segmented)
+│   ├── context_scheduling.py  # Context-aware scheduling (task creation/cancellation/restore)
+│   ├── chat_executor.py       # Core execution (check_and_chat flow, prompt building, finalization)
 │   ├── prompts/               # LLM prompt templates (context prediction, task cancellation)
 │   └── utils.py               # Utilities
 ├── main.py                    # Plugin entry point

@@ -1,5 +1,9 @@
 # core — 主動訊息插件模組化核心
 
+from .chat_executor import (
+    check_and_chat,
+    finalize_and_reschedule,
+)
 from .config import (
     backup_configurations,
     get_session_config,
@@ -8,6 +12,14 @@ from .config import (
 from .context_predictor import (
     check_should_cancel_task,
     predict_proactive_timing,
+)
+from .context_scheduling import (
+    create_context_predicted_task,
+    get_history_for_prediction,
+    handle_context_aware_scheduling,
+    maybe_cancel_pending_context_task,
+    remove_context_predicted_task,
+    restore_pending_context_tasks,
 )
 from .llm_helpers import (
     call_llm,
@@ -57,6 +69,16 @@ __all__ = [
     # context_predictor
     "predict_proactive_timing",
     "check_should_cancel_task",
+    # context_scheduling
+    "handle_context_aware_scheduling",
+    "maybe_cancel_pending_context_task",
+    "remove_context_predicted_task",
+    "create_context_predicted_task",
+    "get_history_for_prediction",
+    "restore_pending_context_tasks",
+    # chat_executor
+    "check_and_chat",
+    "finalize_and_reschedule",
     # messaging
     "trigger_decorating_hooks",
     "send_chain_with_hooks",

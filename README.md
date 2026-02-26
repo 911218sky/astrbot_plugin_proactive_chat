@@ -221,6 +221,8 @@ astrbot_plugin_proactive_chat_plus/
 │   ├── messaging.py           # 訊息發送（裝飾鉤子、分段回覆、歷史清洗）
 │   ├── llm_helpers.py         # LLM 輔助（請求準備、記憶檢索整合、LLM 呼叫封裝）
 │   ├── send.py                # 主動訊息發送（TTS / 文字 / 分段發送）
+│   ├── context_scheduling.py  # 語境感知排程（LLM 預測排程、任務建立/取消/恢復）
+│   ├── chat_executor.py       # 核心執行（check_and_chat 流程、Prompt 構造、收尾）
 │   └── prompts/               # LLM Prompt 模板（語境預測、任務取消判斷）
 ├── _conf_schema.json          # WebUI 配置結構定義
 ├── metadata.yaml              # 插件元資料
