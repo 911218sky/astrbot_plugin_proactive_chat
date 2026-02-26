@@ -752,12 +752,8 @@ class ProactiveChatPlugin(star.Star):
 
         # ── 1. APScheduler 一般排程任務 ──
         scheduled_jobs = self.scheduler.get_jobs() if self.scheduler else []
-        regular_jobs = [
-            j for j in scheduled_jobs if not j.id.startswith("ctx_")
-        ]
-        ctx_jobs = [
-            j for j in scheduled_jobs if j.id.startswith("ctx_")
-        ]
+        regular_jobs = [j for j in scheduled_jobs if not j.id.startswith("ctx_")]
+        ctx_jobs = [j for j in scheduled_jobs if j.id.startswith("ctx_")]
 
         lines.append(f"【一般排程】共 {len(regular_jobs)} 個")
         if regular_jobs:
@@ -765,24 +761,18 @@ class ProactiveChatPlugin(star.Star):
                 run_time = job.next_run_time
                 time_str = run_time.strftime("%m/%d %H:%M:%S") if run_time else "未知"
                 session_config = get_session_config(self.config, job.id)
-                log_str = get_session_log_str(
-                    job.id, session_config, self.session_data
-                )
+                log_str = get_session_log_str(job.id, session_config, self.session_data)
                 lines.append(f"  • {log_str} → {time_str}")
         else:
             lines.append("  （無）")
 
         # ── 2. 語境預測任務 ──
-        total_ctx = sum(
-            len(tasks) for tasks in self._pending_context_tasks.values()
-        )
+        total_ctx = sum(len(tasks) for tasks in self._pending_context_tasks.values())
         lines.append(f"\n【語境預測】共 {total_ctx} 個")
         if self._pending_context_tasks:
             for sid, tasks in self._pending_context_tasks.items():
                 session_config = get_session_config(self.config, sid)
-                log_str = get_session_log_str(
-                    sid, session_config, self.session_data
-                )
+                log_str = get_session_log_str(sid, session_config, self.session_data)
                 for t in tasks:
                     run_at = t.get("run_at", "")
                     reason = t.get("reason", "")
@@ -810,9 +800,7 @@ class ProactiveChatPlugin(star.Star):
             lines.append(f"\n【未追蹤的語境排程】共 {len(orphan_ctx)} 個")
             for job in orphan_ctx:
                 run_time = job.next_run_time
-                time_str = (
-                    run_time.strftime("%m/%d %H:%M:%S") if run_time else "未知"
-                )
+                time_str = run_time.strftime("%m/%d %H:%M:%S") if run_time else "未知"
                 lines.append(f"  • {job.id} → {time_str}")
 
         yield event.plain_result("\n".join(lines))
