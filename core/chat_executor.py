@@ -40,12 +40,14 @@ from .utils import (
 )
 
 if TYPE_CHECKING:
-    from typing import Any
+    from ..main import ProactiveChatPlugin
 
 _LOG_TAG = "[主動訊息]"
 
 
-async def check_and_chat(plugin: Any, session_id: str, ctx_job_id: str = "") -> None:
+async def check_and_chat(
+    plugin: ProactiveChatPlugin, session_id: str, ctx_job_id: str = ""
+) -> None:
     """由定時任務觸發的核心函數，完成一次完整的主動訊息流程。"""
     session_config = None
     try:
@@ -244,7 +246,7 @@ async def check_and_chat(plugin: Any, session_id: str, ctx_job_id: str = "") -> 
 
 
 def _build_final_prompt(
-    plugin: Any,
+    plugin: ProactiveChatPlugin,
     session_id: str,
     session_config: dict,
     unanswered_count: int,
@@ -298,7 +300,7 @@ def _build_final_prompt(
 
 
 async def _inject_memory(
-    plugin: Any,
+    plugin: ProactiveChatPlugin,
     session_id: str,
     session_config: dict,
     ctx_task: dict | None,
@@ -338,7 +340,7 @@ async def _inject_memory(
 
 
 async def finalize_and_reschedule(
-    plugin: Any,
+    plugin: ProactiveChatPlugin,
     session_id: str,
     conv_id: str,
     user_prompt: str,

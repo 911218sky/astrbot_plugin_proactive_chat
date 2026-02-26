@@ -26,13 +26,13 @@ from .messaging import sanitize_history_content
 from .utils import get_session_log_str
 
 if TYPE_CHECKING:
-    from typing import Any
+    from ..main import ProactiveChatPlugin
 
 _LOG_TAG = "[主動訊息]"
 
 
 async def handle_context_aware_scheduling(
-    plugin: Any,
+    plugin: ProactiveChatPlugin,
     session_id: str,
     message_text: str,
     ctx_settings: dict,
@@ -105,7 +105,7 @@ async def handle_context_aware_scheduling(
 
 
 async def maybe_cancel_pending_context_task(
-    plugin: Any,
+    plugin: ProactiveChatPlugin,
     session_id: str,
     message_text: str,
 ) -> str:
@@ -190,7 +190,7 @@ async def maybe_cancel_pending_context_task(
 
 
 def remove_context_predicted_task(
-    plugin: Any,
+    plugin: ProactiveChatPlugin,
     session_id: str,
     job_id: str,
 ) -> None:
@@ -211,7 +211,7 @@ def remove_context_predicted_task(
 
 
 async def create_context_predicted_task(
-    plugin: Any,
+    plugin: ProactiveChatPlugin,
     *,
     session_id: str,
     delay_minutes: int,
@@ -272,7 +272,9 @@ async def create_context_predicted_task(
         await plugin._save_data()
 
 
-async def get_history_for_prediction(plugin: Any, session_id: str) -> list:
+async def get_history_for_prediction(
+    plugin: ProactiveChatPlugin, session_id: str
+) -> list:
     """取得最近的對話歷史，用於語境預測。"""
     try:
         conv_id = await plugin.context.conversation_manager.get_curr_conversation_id(
@@ -296,7 +298,7 @@ async def get_history_for_prediction(plugin: Any, session_id: str) -> list:
         return []
 
 
-def restore_pending_context_tasks(plugin: Any) -> None:
+def restore_pending_context_tasks(plugin: ProactiveChatPlugin) -> None:
     """從持久化的 session_data 中恢復語境預測的待執行任務。
 
     注意：此函數為同步函數，在 initialize() 中呼叫。

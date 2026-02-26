@@ -5,6 +5,16 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/02/26 v2.8.3
+
+## What's Changed
+
+### 重構 (Refactor)
+
+- **型別標註改進**：將 `core/chat_executor.py` 與 `core/context_scheduling.py` 中所有函數參數的型別標註從 `Any` 改為 `ProactiveChatPlugin`，提升型別安全性與 IDE 支援。
+
+---
+
 # 2026/02/26 v2.8.2
 
 ## What's Changed
