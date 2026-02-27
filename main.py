@@ -716,6 +716,15 @@ class ProactiveChatPlugin(star.Star):
     def proactive(self):
         """主動訊息管理指令組 /proactive"""
 
+    @proactive.command("help")
+    async def cmd_help(self, event: AstrMessageEvent) -> None:
+        """顯示主動訊息插件的可用指令列表。"""
+        yield event.plain_result(
+            "📖 主動訊息插件指令一覽\n\n"
+            "/proactive help — 顯示此幫助訊息\n"
+            "/proactive tasks — 列出所有待執行的排程任務"
+        )
+
     @proactive.command("tasks")
     async def cmd_list_pending_tasks(self, event: AstrMessageEvent) -> None:
         """列出當前所有待執行的主動訊息排程任務。"""

@@ -112,6 +112,13 @@ Context prediction prompts have been extracted to `core/prompts/` as `.txt` file
 3. Go to WebUI → Plugin Configuration, set target sessions and proactive message motivation
 4. Save and enjoy
 
+## 💬 Chat Commands
+
+| Command | Description |
+| :--- | :--- |
+| `/proactive help` | Show available commands |
+| `/proactive tasks` | List all pending proactive message scheduled tasks (regular + context-predicted) |
+
 ## 📂 Project Structure
 
 ```

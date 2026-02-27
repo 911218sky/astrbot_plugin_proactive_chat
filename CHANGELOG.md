@@ -5,6 +5,20 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/02/27 v2.11.0
+
+## What's Changed
+
+### 新增 (Feat)
+
+- **`/proactive help` 指令**：新增幫助子指令，顯示所有可用的主動訊息管理指令。輸入 `/proactive`（不帶子指令）時預設執行 help。
+
+### 文件 (Docs)
+
+- 三語 README（繁中 / EN / JP）新增「聊天指令」章節，列出所有可用指令。
+
+---
+
 # 2026/02/27 v2.10.3
 
 ## What's Changed
