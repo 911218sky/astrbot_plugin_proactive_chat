@@ -68,20 +68,22 @@ async def check_and_chat(
             should_trigger, reason = should_trigger_by_unanswered(
                 unanswered_count, schedule_conf, plugin.timezone
             )
-            if not should_trigger:
-                logger.info(
-                    f"{_LOG_TAG} {get_session_log_str(session_id, session_config, plugin.session_data)} "
-                    f"{reason}"
-                )
-                # 衰減跳過時仍需排定下一次（給下次機會擲骰）
-                if "衰減" in reason:
-                    await plugin._schedule_next_chat_and_save(session_id)
-                return
-            if reason:
-                logger.info(
-                    f"{_LOG_TAG} {get_session_log_str(session_id, session_config, plugin.session_data)} "
-                    f"{reason}"
-                )
+
+        # 鎖外處理判定結果（避免在鎖內呼叫 _schedule_next_chat_and_save 造成死鎖）
+        if not should_trigger:
+            logger.info(
+                f"{_LOG_TAG} {get_session_log_str(session_id, session_config, plugin.session_data)} "
+                f"{reason}"
+            )
+            # 衰減跳過時仍需排定下一次（給下次機會擲骰）
+            if "衰減" in reason:
+                await plugin._schedule_next_chat_and_save(session_id)
+            return
+        if reason:
+            logger.info(
+                f"{_LOG_TAG} {get_session_log_str(session_id, session_config, plugin.session_data)} "
+                f"{reason}"
+            )
 
         # ── 步驟 3：動態修正 UMO ──
         # 平台可能重啟導致 ID 變更，需要重新解析到存活的平台

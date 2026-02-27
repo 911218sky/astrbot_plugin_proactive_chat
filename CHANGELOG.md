@@ -5,6 +5,16 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/02/27 v2.10.1
+
+## What's Changed
+
+### 修復 (Fix)
+
+- **修復死鎖導致機器人無回應**：`check_and_chat()` 步驟 2 在持有 `data_lock` 的情況下呼叫 `_schedule_next_chat_and_save()`（內部再次取鎖），因 `asyncio.Lock` 不可重入而造成永久死鎖。將判定結果處理移至鎖外修復。
+
+---
+
 # 2026/02/27 v2.10.0
 
 ## What's Changed
