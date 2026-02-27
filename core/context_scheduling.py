@@ -13,7 +13,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -25,6 +24,7 @@ from .context_predictor import (
     check_should_cancel_tasks_batch,
     predict_proactive_timing,
 )
+from .llm_helpers import load_conversation_history
 from .messaging import sanitize_history_content
 from .utils import get_session_log_str
 
@@ -104,7 +104,10 @@ async def handle_context_aware_scheduling(
         )
 
     except Exception as e:
-        logger.error(f"{_LOG_TAG} 語境感知排程失敗: {e}")
+        logger.error(
+            f"{_LOG_TAG} handle_context_aware_scheduling 語境感知排程失敗"
+            f" | session={session_id}: {e}"
+        )
 
 
 async def maybe_cancel_pending_context_task(
@@ -164,8 +167,11 @@ async def maybe_cancel_pending_context_task(
         try:
             if plugin.scheduler.get_job(job_id):
                 plugin.scheduler.remove_job(job_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                f"{_LOG_TAG} maybe_cancel_pending_context_task 移除排程任務失敗"
+                f" | session={session_id}, job_id={job_id}: {e}"
+            )
         task_list.remove(task)
 
     # 清理空列表
@@ -204,8 +210,11 @@ def remove_context_predicted_task(
     try:
         if job_id and plugin.scheduler.get_job(job_id):
             plugin.scheduler.remove_job(job_id)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(
+            f"{_LOG_TAG} remove_context_predicted_task 移除排程任務失敗"
+            f" | session={session_id}, job_id={job_id}: {e}"
+        )
 
 
 async def create_context_predicted_task(
@@ -274,34 +283,20 @@ async def get_history_for_prediction(
     plugin: ProactiveChatPlugin, session_id: str
 ) -> list:
     """取得最近的對話歷史，用於語境預測。"""
-    try:
-        conv_id = await plugin.context.conversation_manager.get_curr_conversation_id(
-            session_id
-        )
-        if not conv_id:
-            return []
-        conversation = await plugin.context.conversation_manager.get_conversation(
-            session_id, conv_id
-        )
-        if not conversation or not conversation.history:
-            return []
-        history = (
-            json.loads(conversation.history)
-            if isinstance(conversation.history, str)
-            else conversation.history
-        )
-        return sanitize_history_content(history) if history else []
-    except Exception as e:
-        logger.debug(f"{_LOG_TAG} 取得預測用歷史記錄失敗: {e}")
-        return []
+    _, history = await load_conversation_history(plugin.context, session_id)
+    return sanitize_history_content(history) if history else []
 
 
-def restore_pending_context_tasks(plugin: ProactiveChatPlugin) -> None:
+def restore_pending_context_tasks(plugin: ProactiveChatPlugin) -> bool:
     """從持久化的 session_data 中恢復語境預測的待執行任務。
 
     注意：此函數為同步函數，在 initialize() 中呼叫。
+
+    Returns:
+        True 表示有過期任務被清理或舊格式被移除，需要持久化；False 表示無需持久化。
     """
     restored = 0
+    needs_save = False
     now = time.time()
     for sid, info in plugin.session_data.items():
         if not isinstance(info, dict):
@@ -325,13 +320,21 @@ def restore_pending_context_tasks(plugin: ProactiveChatPlugin) -> None:
                     continue
             valid_tasks.append(pending)
             restored += 1
+        # 檢查是否有任務被過濾掉（過期任務被清理）
+        if len(valid_tasks) != len(task_list):
+            needs_save = True
         if valid_tasks:
             plugin._pending_context_tasks[sid] = valid_tasks
         # 清理舊格式的持久化 key
-        info.pop("pending_context_task", None)
+        if "pending_context_task" in info:
+            info.pop("pending_context_task", None)
+            needs_save = True
         if valid_tasks:
             info["pending_context_tasks"] = valid_tasks
         else:
-            info.pop("pending_context_tasks", None)
+            if "pending_context_tasks" in info:
+                info.pop("pending_context_tasks", None)
+                needs_save = True
     if restored:
         logger.info(f"{_LOG_TAG} 已恢復 {restored} 個語境預測的待執行任務。")
+    return needs_save

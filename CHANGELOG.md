@@ -5,6 +5,44 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/02/27 v2.10.3
+
+## What's Changed
+
+### 重構 (Refactor)
+
+- **通用 JSON 解析器**：新增 `parse_llm_json()` 統一處理 LLM 回應的 JSON 解析，取代各模組中的重複邏輯。
+- **UMO 容錯包裝器**：新增 `with_umo_fallback()` / `async_with_umo_fallback()` 統一處理 UMO 格式相容問題。
+- **對話歷史載入器**：新增 `load_conversation_history()` 封裝對話歷史取得與解析流程。
+- **訊息類型常數**：新增 `MSG_TYPE_FRIEND`、`MSG_TYPE_GROUP` 等常數，取代散落各處的字串字面量。
+- **Session ID 精確比對**：新增 `_is_target_match()` 避免數字 ID 的子字串誤匹配。
+- **正則快取**：`messaging.py` 的分段正則改用 `lru_cache` 快取編譯結果。
+- **型別標註**：為所有公開函數補齊參數與回傳值型別標註。
+- **未使用變數清理**：移除 `check_and_chat` 中未使用的 `session_config` 初始化、`_deliver_and_finalize` 中未使用的 `ctx_task` 參數。
+- **錯誤處理統一**：所有 `except` 區塊補齊函數名稱與 session_id 上下文，消除裸露的 `except: pass`。
+- **持久化修正**：`restore_pending_context_tasks()` 回傳 `bool`，`initialize()` 據此決定是否持久化。
+- **匯出清單修正**：移除 `core/__init__.py` 中不存在的 `finalize_and_reschedule` 匯出。
+- `ruff format` + `ruff check` 零錯誤。
+
+---
+
+# 2026/02/27 v2.10.2
+
+## What's Changed
+
+### 重構 (Refactor)
+
+- **`chat_executor.py` 結構重構**：將巨型 `check_and_chat()` 拆分為獨立的子步驟函數，提升可讀性與可維護性：
+  - `_check_preconditions()` — 免打擾 / 衰減 / 硬性上限檢查
+  - `_resolve_session_umo()` — 動態修正 UMO（平台重啟容錯）
+  - `_prepare_and_call_llm()` — 準備請求、構造 Prompt、呼叫 LLM
+  - `_deliver_and_finalize()` — 發送訊息、存檔歷史、重新排程
+  - `_handle_fatal_error()` — 統一錯誤恢復邏輯
+- 提取 `_format_last_reply_time()`、`_find_context_task()`、`_state_changed_during_generation()` 等輔助函數。
+- 使用 `frozenset` 常數管理無效回應與認證錯誤關鍵字。
+
+---
+
 # 2026/02/27 v2.10.1
 
 ## What's Changed

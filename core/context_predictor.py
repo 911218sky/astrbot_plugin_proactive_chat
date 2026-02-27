@@ -6,13 +6,13 @@
 
 from __future__ import annotations
 
-import json
-import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from astrbot.api import logger
+
+from .utils import parse_llm_json
 
 if TYPE_CHECKING:
     from astrbot.core.star.context import Context
@@ -74,47 +74,12 @@ def build_recent_messages_str(history: list, max_messages: int = 10) -> str:
 
 def _parse_json_response(text: str) -> dict | None:
     """穩健地從 LLM 回應中解析 JSON，處理 markdown 程式碼區塊。"""
-    if not text:
-        return None
-    # 移除 markdown 程式碼區塊標記
-    cleaned = re.sub(r"```(?:json)?\s*", "", text).strip().rstrip("`")
-    try:
-        return json.loads(cleaned)
-    except (json.JSONDecodeError, TypeError):
-        # 嘗試在文字中尋找 JSON 物件
-        match = re.search(r"\{[^{}]*\}", cleaned, re.DOTALL)
-        if match:
-            try:
-                return json.loads(match.group())
-            except (json.JSONDecodeError, TypeError):
-                pass
-    logger.warning(f"{_LOG_TAG} 無法解析 LLM 的 JSON 回應: {text[:200]}")
-    return None
+    return parse_llm_json(text, expect_type=dict, log_tag=_LOG_TAG)
 
 
 def _parse_json_array_response(text: str) -> list | None:
     """穩健地從 LLM 回應中解析 JSON 陣列，處理 markdown 程式碼區塊。"""
-    if not text:
-        return None
-    # 移除 markdown 程式碼區塊標記
-    cleaned = re.sub(r"```(?:json)?\s*", "", text).strip().rstrip("`")
-    try:
-        result = json.loads(cleaned)
-        if isinstance(result, list):
-            return result
-        return None
-    except (json.JSONDecodeError, TypeError):
-        # 嘗試在文字中尋找 JSON 陣列
-        match = re.search(r"\[[^\[\]]*\]", cleaned, re.DOTALL)
-        if match:
-            try:
-                result = json.loads(match.group())
-                if isinstance(result, list):
-                    return result
-            except (json.JSONDecodeError, TypeError):
-                pass
-    logger.warning(f"{_LOG_TAG} 無法解析 LLM 的 JSON 陣列回應: {text[:200]}")
-    return None
+    return parse_llm_json(text, expect_type=list, log_tag=_LOG_TAG)
 
 
 async def predict_proactive_timing(
@@ -217,7 +182,10 @@ async def predict_proactive_timing(
         return result
 
     except Exception as e:
-        logger.error(f"{_LOG_TAG} 預測 LLM 呼叫失敗: {e}")
+        logger.error(
+            f"{_LOG_TAG} predict_proactive_timing LLM 呼叫失敗"
+            f" | session={session_id}: {e}"
+        )
         return None
 
 
@@ -294,5 +262,8 @@ async def check_should_cancel_tasks_batch(
         return cancel_map
 
     except Exception as e:
-        logger.error(f"{_LOG_TAG} 批量取消檢查 LLM 呼叫失敗: {e}")
+        logger.error(
+            f"{_LOG_TAG} check_should_cancel_tasks_batch LLM 呼叫失敗"
+            f" | session={session_id}: {e}"
+        )
         return {}

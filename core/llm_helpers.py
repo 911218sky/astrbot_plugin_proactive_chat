@@ -9,11 +9,11 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from astrbot.api import logger
 
-from .utils import parse_session_id
+from .utils import async_with_umo_fallback
 
 if TYPE_CHECKING:
     from astrbot.core.star.context import Context
@@ -104,6 +104,46 @@ async def recall_memories_for_proactive(
         return ""
 
 
+async def load_conversation_history(
+    context: Context,
+    session_id: str,
+) -> tuple[str, list]:
+    """取得當前對話的 conv_id 與已解析的歷史記錄。
+
+    僅載入既有對話，不會建立新對話。
+
+    Returns:
+        (conv_id, history)；無法取得時回傳 ("", [])。
+    """
+    try:
+        conv_id = await context.conversation_manager.get_curr_conversation_id(
+            session_id
+        )
+        if not conv_id:
+            return ("", [])
+
+        conversation = await context.conversation_manager.get_conversation(
+            session_id, conv_id
+        )
+        if not conversation or not conversation.history:
+            return (conv_id, [])
+
+        history: list = []
+        try:
+            history = (
+                json.loads(conversation.history)
+                if isinstance(conversation.history, str)
+                else conversation.history
+            )
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+        return (conv_id, history if history else [])
+    except Exception as e:
+        logger.debug(f"{_LOG_TAG} 載入對話歷史失敗 | session={session_id}: {e}")
+        return ("", [])
+
+
 async def prepare_llm_request(context: Context, session_id: str) -> dict | None:
     """準備 LLM 請求所需的上下文。
 
@@ -112,10 +152,9 @@ async def prepare_llm_request(context: Context, session_id: str) -> dict | None:
         若無法取得則回傳 None。
     """
     try:
-        conv_id = await context.conversation_manager.get_curr_conversation_id(
-            session_id
-        )
+        conv_id, history = await load_conversation_history(context, session_id)
         if not conv_id:
+            # 嘗試建立新對話
             try:
                 conv_id = await context.conversation_manager.new_conversation(
                     session_id
@@ -123,25 +162,19 @@ async def prepare_llm_request(context: Context, session_id: str) -> dict | None:
             except ValueError:
                 raise
             except Exception as e:
-                logger.error(f"{_LOG_TAG} 創建新對話失敗: {e}")
+                logger.error(
+                    f"{_LOG_TAG} prepare_llm_request 創建新對話失敗"
+                    f" | session={session_id}: {e}"
+                )
                 return None
         if not conv_id:
             return None
 
+        # 若 load_conversation_history 回傳了 conv_id 但 history 為空，
+        # 仍需取得 conversation 以解析 system_prompt
         conversation = await context.conversation_manager.get_conversation(
             session_id, conv_id
         )
-
-        history: list = []
-        if conversation and conversation.history:
-            try:
-                history = (
-                    json.loads(conversation.history)
-                    if isinstance(conversation.history, str)
-                    else conversation.history
-                )
-            except (json.JSONDecodeError, TypeError):
-                pass
 
         system_prompt = await resolve_system_prompt(context, conversation, session_id)
         if not system_prompt:
@@ -154,11 +187,16 @@ async def prepare_llm_request(context: Context, session_id: str) -> dict | None:
             "system_prompt": system_prompt,
         }
     except Exception as e:
-        logger.warning(f"{_LOG_TAG} 獲取上下文或人格失敗: {e}")
+        logger.warning(
+            f"{_LOG_TAG} prepare_llm_request 獲取上下文或人格失敗"
+            f" | session={session_id}: {e}"
+        )
         return None
 
 
-async def resolve_system_prompt(context: Context, conversation, session_id: str) -> str:
+async def resolve_system_prompt(
+    context: Context, conversation: Any, session_id: str
+) -> str:
     """依序嘗試取得 system prompt。
 
     優先順序：對話綁定的人格 → AstrBot 預設人格。
@@ -180,17 +218,10 @@ async def safe_prepare_llm_request(context: Context, session_id: str) -> dict | 
     某些 AstrBot 版本的 conversation_manager 對 UMO 格式有嚴格要求，
     若首次呼叫失敗且為 ValueError，會嘗試用標準三段式格式重試。
     """
-    try:
-        return await prepare_llm_request(context, session_id)
-    except ValueError as e:
-        if "too many values" not in str(e) and "expected 3" not in str(e):
-            raise
-        parsed = parse_session_id(session_id)
-        if parsed:
-            return await prepare_llm_request(
-                context, f"{parsed[0]}:{parsed[1]}:{parsed[2]}"
-            )
-        raise
+    return await async_with_umo_fallback(
+        lambda sid: prepare_llm_request(context, sid),
+        session_id,
+    )
 
 
 async def call_llm(
@@ -199,7 +230,7 @@ async def call_llm(
     prompt: str,
     contexts: list,
     system_prompt: str,
-):
+) -> Any:
     """呼叫 LLM 生成回應。
 
     主要路徑：透過 ``llm_generate`` API。
@@ -214,7 +245,9 @@ async def call_llm(
             system_prompt=system_prompt,
         )
     except Exception as llm_err:
-        logger.error(f"{_LOG_TAG} LLM 調用失敗: {llm_err}")
+        logger.error(
+            f"{_LOG_TAG} call_llm LLM 調用失敗 | session={session_id}: {llm_err}"
+        )
         try:
             provider = context.get_using_provider(umo=session_id)
             if provider:
@@ -223,6 +256,9 @@ async def call_llm(
                     contexts=contexts,
                     system_prompt=system_prompt,
                 )
-        except Exception:
-            pass
+        except Exception as fallback_err:
+            logger.debug(
+                f"{_LOG_TAG} call_llm 備用路徑也失敗"
+                f" | session={session_id}: {fallback_err}"
+            )
         return None

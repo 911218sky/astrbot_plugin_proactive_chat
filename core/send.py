@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 
@@ -17,9 +18,10 @@ from astrbot.core.message.message_event_result import MessageChain
 
 from .config import get_session_config
 from .messaging import calc_segment_interval, send_chain_with_hooks, split_text
-from .utils import is_group_session_id, parse_session_id
+from .utils import is_group_session_id, with_umo_fallback
 
 if TYPE_CHECKING:
+    from astrbot.core.config.astrbot_config import AstrBotConfig
     from astrbot.core.star.context import Context
 
 _LOG_TAG = "[主動訊息]"
@@ -29,7 +31,7 @@ async def send_proactive_message(
     *,
     session_id: str,
     text: str,
-    config,
+    config: AstrBotConfig,
     context: Context,
     session_data: dict,
     reset_group_silence_cb: Callable[[str], Awaitable[None]] | None = None,
@@ -77,8 +79,6 @@ async def send_proactive_message(
         if reset_group_silence_cb:
             await reset_group_silence_cb(session_id)
         if last_bot_message_time_setter:
-            import time
-
             last_bot_message_time_setter(time.time())
 
 
@@ -95,7 +95,9 @@ async def try_send_tts(session_id: str, text: str, context: Context) -> bool:
         await asyncio.sleep(0.5)
         return True
     except Exception as e:
-        logger.error(f"{_LOG_TAG} TTS 流程異常: {e}")
+        logger.error(
+            f"{_LOG_TAG} try_send_tts TTS 流程異常 | session={session_id}: {e}"
+        )
         return False
 
 
@@ -106,13 +108,9 @@ def get_tts_provider(session_id: str, context: Context):
     自動回退為標準三段式格式重試。
     """
     try:
-        return context.get_using_tts_provider(umo=session_id)
-    except ValueError as e:
-        if "too many values" not in str(e) and "expected 3" not in str(e):
-            raise
-        parsed = parse_session_id(session_id)
-        if parsed:
-            return context.get_using_tts_provider(
-                umo=f"{parsed[0]}:{parsed[1]}:{parsed[2]}"
-            )
+        return with_umo_fallback(
+            lambda sid: context.get_using_tts_provider(umo=sid),
+            session_id,
+        )
+    except ValueError:
         return None

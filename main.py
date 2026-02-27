@@ -34,6 +34,9 @@ from .core.scheduler import compute_weighted_interval
 
 # ── 核心模組匯入（使用相對匯入，避免與 AstrBot 自身的 core 衝突） ──
 from .core.utils import (
+    MSG_TYPE_FRIEND,
+    MSG_TYPE_GROUP,
+    MSG_TYPE_KEYWORD_FRIEND,
     get_session_log_str,
     is_group_session_id,
     is_quiet_time,
@@ -205,7 +208,9 @@ class ProactiveChatPlugin(star.Star):
 
         # 恢復上次未完成的定時任務 & 設置自動觸發器
         await self._init_jobs_from_data()
-        restore_pending_context_tasks(self)
+        if restore_pending_context_tasks(self):
+            async with self.data_lock:
+                await self._save_data()
         await self._setup_auto_triggers_for_enabled_sessions()
         logger.info(f"{_LOG_TAG} 初始化完成。")
 
@@ -478,7 +483,7 @@ class ProactiveChatPlugin(star.Star):
         Returns:
             1 表示成功設置，0 表示跳過。
         """
-        type_desc = "私聊" if "Friend" in message_type else "群聊"
+        type_desc = "私聊" if MSG_TYPE_KEYWORD_FRIEND in message_type else "群聊"
         log_str = f"{type_desc} {target_id}" + (
             f" ({session_name})" if session_name else ""
         )
@@ -532,8 +537,8 @@ class ProactiveChatPlugin(star.Star):
 
         # 1) 個性化會話配置（private_sessions / group_sessions）
         for sessions_key, msg_type in (
-            ("private_sessions", "FriendMessage"),
-            ("group_sessions", "GroupMessage"),
+            ("private_sessions", MSG_TYPE_FRIEND),
+            ("group_sessions", MSG_TYPE_GROUP),
         ):
             for sc in self.config.get(sessions_key, []):
                 tid = sc.get("session_id")
@@ -548,8 +553,8 @@ class ProactiveChatPlugin(star.Star):
 
         # 2) 全域設定中的 session_list
         for settings_key, msg_type, sessions_key in (
-            ("private_settings", "FriendMessage", "private_sessions"),
-            ("group_settings", "GroupMessage", "group_sessions"),
+            ("private_settings", MSG_TYPE_FRIEND, "private_sessions"),
+            ("group_settings", MSG_TYPE_GROUP, "group_sessions"),
         ):
             settings = self.config.get(settings_key, {})
             sl = settings.get("session_list", [])
@@ -637,8 +642,11 @@ class ProactiveChatPlugin(star.Star):
         # 移除現有的定時任務（使用者回覆後需要重新計算間隔）
         try:
             self.scheduler.remove_job(session_id)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(
+                f"{_LOG_TAG} _handle_message 移除舊排程任務失敗"
+                f" | session={session_id}: {e}"
+            )
 
         # 先提取語境感知所需的資訊，再進行排程操作
         # 語境感知排程放在 create_task 中背景執行，不阻塞訊息回覆

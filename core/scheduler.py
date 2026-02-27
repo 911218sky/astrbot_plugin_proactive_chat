@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import random
+import zoneinfo
 from datetime import datetime
 
 from astrbot.api import logger
@@ -11,7 +12,9 @@ from astrbot.api import logger
 _LOG_TAG = "[主動訊息]"
 
 
-def compute_weighted_interval(schedule_conf: dict, timezone=None) -> int:
+def compute_weighted_interval(
+    schedule_conf: dict, timezone: zoneinfo.ZoneInfo | None = None
+) -> int:
     """
     根據 ``schedule_settings`` 計算下一次觸發間隔（秒）。
 
@@ -49,7 +52,7 @@ def compute_weighted_interval(schedule_conf: dict, timezone=None) -> int:
 def should_trigger_by_unanswered(
     unanswered_count: int,
     schedule_conf: dict,
-    timezone=None,
+    timezone: zoneinfo.ZoneInfo | None = None,
 ) -> tuple[bool, str]:
     """
     根據未回覆次數與衰減率，判斷是否應觸發主動訊息。
@@ -136,7 +139,9 @@ def _roll_probability(
     )
 
 
-def _resolve_decay_list(schedule_conf: dict, timezone=None) -> list[float] | None:
+def _resolve_decay_list(
+    schedule_conf: dict, timezone: zoneinfo.ZoneInfo | None = None
+) -> list[float] | None:
     """
     解析當前生效的逐次衰減概率列表。
 

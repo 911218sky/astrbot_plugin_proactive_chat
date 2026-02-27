@@ -3,19 +3,34 @@
 
 from __future__ import annotations
 
+import json
+import re
 import zoneinfo
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, TypeVar
 
 if TYPE_CHECKING:
     from astrbot.core.platform.platform import Platform
 
+from astrbot.api import logger
 from astrbot.core.platform.platform import PlatformStatus
 
 # ── 常數 ──────────────────────────────────────────────────
 
 _FRIEND_KEYWORDS = frozenset(("Friend", "Private"))
 _LOG_TAG = "[主動訊息]"
+
+# 訊息類型常數
+MSG_TYPE_FRIEND = "FriendMessage"
+MSG_TYPE_GROUP = "GroupMessage"
+MSG_TYPE_KEYWORD_FRIEND = "Friend"
+MSG_TYPE_KEYWORD_GROUP = "Group"
+
+# JSON 解析用預編譯正則
+_RE_MD_CODE_BLOCK = re.compile(r"```(?:json)?\s*")
+_RE_JSON_OBJECT = re.compile(r"\{[^{}]*\}", re.DOTALL)
+_RE_JSON_ARRAY = re.compile(r"\[[^\[\]]*\]", re.DOTALL)
 
 
 # ── 時間工具 ──────────────────────────────────────────────
@@ -34,6 +49,101 @@ def is_quiet_time(quiet_hours_str: str, tz: zoneinfo.ZoneInfo | None) -> bool:
     return hour >= start_h or hour < end_h
 
 
+# ── JSON 解析 ─────────────────────────────────────────────
+
+
+def parse_llm_json(
+    text: str,
+    *,
+    expect_type: type[dict] | type[list] | None = None,
+    log_tag: str = _LOG_TAG,
+) -> dict | list | None:
+    """從 LLM 回應文字中穩健地解析 JSON。
+
+    處理 markdown 程式碼區塊、fallback 正則搜尋。
+    *expect_type* 為 ``dict`` 時只接受物件，為 ``list`` 時只接受陣列，
+    為 ``None`` 時接受任意 JSON 值。
+    """
+    if not text:
+        return None
+
+    # 移除 markdown 程式碼區塊標記
+    cleaned = _RE_MD_CODE_BLOCK.sub("", text).strip().rstrip("`")
+
+    # 嘗試直接解析完整文字
+    try:
+        result = json.loads(cleaned)
+        if expect_type is not None and not isinstance(result, expect_type):
+            # 型別不符，不直接回傳，繼續嘗試 fallback
+            raise json.JSONDecodeError("type mismatch", cleaned, 0)
+        return result
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Fallback：以正則搜尋文字中的 JSON 片段
+    patterns: list[re.Pattern[str]] = []
+    if expect_type is dict or expect_type is None:
+        patterns.append(_RE_JSON_OBJECT)
+    if expect_type is list or expect_type is None:
+        patterns.append(_RE_JSON_ARRAY)
+
+    for pat in patterns:
+        match = pat.search(cleaned)
+        if match:
+            try:
+                result = json.loads(match.group())
+                if expect_type is not None and not isinstance(result, expect_type):
+                    continue
+                return result
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+    label = "JSON 陣列" if expect_type is list else "JSON"
+    logger.warning(f"{log_tag} 無法解析 LLM 的 {label} 回應: {text[:200]}")
+    return None
+
+
+# ── UMO 容錯包裝器 ────────────────────────────────────────
+
+_T = TypeVar("_T")
+
+
+def with_umo_fallback(
+    fn: Callable[..., _T],
+    session_id: str,
+    *args: Any,
+    **kwargs: Any,
+) -> _T:
+    """包裝同步函數，自動處理 UMO ValueError 並以標準三段式格式重試。"""
+    try:
+        return fn(session_id, *args, **kwargs)
+    except ValueError as exc:
+        if "too many values" not in str(exc) and "expected 3" not in str(exc):
+            raise
+        parsed = parse_session_id(session_id)
+        if parsed is None:
+            raise
+        return fn(f"{parsed[0]}:{parsed[1]}:{parsed[2]}", *args, **kwargs)
+
+
+async def async_with_umo_fallback(
+    fn: Callable[..., Awaitable[_T]],
+    session_id: str,
+    *args: Any,
+    **kwargs: Any,
+) -> _T:
+    """包裝非同步函數，自動處理 UMO ValueError 並以標準三段式格式重試。"""
+    try:
+        return await fn(session_id, *args, **kwargs)
+    except ValueError as exc:
+        if "too many values" not in str(exc) and "expected 3" not in str(exc):
+            raise
+        parsed = parse_session_id(session_id)
+        if parsed is None:
+            raise
+        return await fn(f"{parsed[0]}:{parsed[1]}:{parsed[2]}", *args, **kwargs)
+
+
 # ── UMO 解析 ─────────────────────────────────────────────
 
 
@@ -50,7 +160,7 @@ def parse_session_id(session_id: str) -> tuple[str, str, str] | None:
     if len(parts) >= 3:
         return parts[0], parts[1], parts[2]
     if len(parts) == 2:
-        return parts[0], "FriendMessage", parts[1]
+        return parts[0], MSG_TYPE_FRIEND, parts[1]
     return None
 
 
@@ -97,7 +207,7 @@ def get_session_log_str(
 def resolve_full_umo(
     target_id: str,
     msg_type: str,
-    platform_manager,
+    platform_manager: Any,
     session_data: dict,
     preferred_platform: str | None = None,
 ) -> str:
@@ -107,7 +217,11 @@ def resolve_full_umo(
     優先使用 *preferred_platform*；其次從已知 session_data 中查找；
     最後回退到任意運行中的平台。
     """
-    type_keyword = "Friend" if is_private_session(msg_type) else "Group"
+    type_keyword = (
+        MSG_TYPE_KEYWORD_FRIEND
+        if is_private_session(msg_type)
+        else MSG_TYPE_KEYWORD_GROUP
+    )
 
     # 建立活躍平台索引（排除 webchat）
     active: dict[str, Platform] = {}

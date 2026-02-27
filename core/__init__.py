@@ -2,7 +2,6 @@
 
 from .chat_executor import (
     check_and_chat,
-    finalize_and_reschedule,
 )
 from .config import (
     backup_configurations,
@@ -24,6 +23,7 @@ from .context_scheduling import (
 from .llm_helpers import (
     call_llm,
     get_livingmemory_engine,
+    load_conversation_history,
     prepare_llm_request,
     recall_memories_for_proactive,
     resolve_system_prompt,
@@ -43,22 +43,36 @@ from .send import (
     try_send_tts,
 )
 from .utils import (
+    MSG_TYPE_FRIEND,
+    MSG_TYPE_GROUP,
+    MSG_TYPE_KEYWORD_FRIEND,
+    MSG_TYPE_KEYWORD_GROUP,
+    async_with_umo_fallback,
     get_session_log_str,
     is_group_session_id,
     is_private_session,
     is_quiet_time,
+    parse_llm_json,
     parse_session_id,
     resolve_full_umo,
+    with_umo_fallback,
 )
 
 __all__ = [
     # utils
     "is_quiet_time",
     "parse_session_id",
+    "parse_llm_json",
+    "with_umo_fallback",
+    "async_with_umo_fallback",
     "get_session_log_str",
     "resolve_full_umo",
     "is_private_session",
     "is_group_session_id",
+    "MSG_TYPE_FRIEND",
+    "MSG_TYPE_GROUP",
+    "MSG_TYPE_KEYWORD_FRIEND",
+    "MSG_TYPE_KEYWORD_GROUP",
     # config
     "validate_config",
     "get_session_config",
@@ -78,7 +92,6 @@ __all__ = [
     "restore_pending_context_tasks",
     # chat_executor
     "check_and_chat",
-    "finalize_and_reschedule",
     # messaging
     "trigger_decorating_hooks",
     "send_chain_with_hooks",
@@ -88,6 +101,7 @@ __all__ = [
     # llm_helpers
     "get_livingmemory_engine",
     "recall_memories_for_proactive",
+    "load_conversation_history",
     "prepare_llm_request",
     "resolve_system_prompt",
     "safe_prepare_llm_request",

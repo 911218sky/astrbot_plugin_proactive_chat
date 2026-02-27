@@ -3,10 +3,12 @@
 
 from __future__ import annotations
 
+import functools
 import math
 import random
 import re
 import traceback
+from typing import TYPE_CHECKING
 
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent
@@ -25,7 +27,10 @@ try:
 except ImportError:
     from astrbot.core.platform.message_session import MessageSession as MS
 
-from .utils import parse_session_id
+from .utils import MSG_TYPE_KEYWORD_GROUP, parse_session_id
+
+if TYPE_CHECKING:
+    from astrbot.core.star.context import Context
 
 _LOG_TAG = "[主動訊息]"
 
@@ -39,7 +44,7 @@ _DEFAULT_SPLIT_RE = re.compile(r".*?[。？！~…\n]+|.+$")
 async def trigger_decorating_hooks(
     session_id: str,
     chain: list,
-    context,
+    context: Context,
     session_data: dict,
 ) -> list:
     """觸發 ``OnDecoratingResultEvent``，讓其他插件有機會處理訊息。"""
@@ -60,7 +65,7 @@ async def trigger_decorating_hooks(
         return chain
 
     # 構建模擬事件
-    is_group = "Group" in msg_type_str
+    is_group = MSG_TYPE_KEYWORD_GROUP in msg_type_str
     msg_obj = AstrBotMessage()
     msg_obj.type = MessageType.GROUP_MESSAGE if is_group else MessageType.FRIEND_MESSAGE
     if is_group:
@@ -109,7 +114,7 @@ async def trigger_decorating_hooks(
 async def send_chain_with_hooks(
     session_id: str,
     components: list,
-    context,
+    context: Context,
     session_data: dict,
 ) -> None:
     """經裝飾鉤子處理後，透過指定平台發送訊息鏈。"""
@@ -128,7 +133,7 @@ async def send_chain_with_hooks(
     p_id, m_type_str, t_id = parsed
     m_type = (
         MessageType.GROUP_MESSAGE
-        if "Group" in m_type_str
+        if MSG_TYPE_KEYWORD_GROUP in m_type_str
         else MessageType.FRIEND_MESSAGE
     )
 
@@ -160,18 +165,29 @@ async def send_chain_with_hooks(
 # ── 文本分段 ─────────────────────────────────────────────
 
 
+@functools.lru_cache(maxsize=32)
+def _compile_split_regex(pattern: str) -> re.Pattern[str] | None:
+    """快取編譯使用者自訂的分段正則。無效模式回傳 None。"""
+    try:
+        return re.compile(pattern)
+    except re.error as e:
+        logger.warning(f"{_LOG_TAG} 分段正則錯誤: {e}，回退整段發送。")
+        return None
+
+
 def split_text(text: str, settings: dict) -> list[str]:
     """根據配置將文本分段。"""
     mode = settings.get("split_mode", "regex")
 
     if mode == "regex":
         pattern_str = settings.get("regex", "")
-        try:
-            pat = re.compile(pattern_str) if pattern_str else _DEFAULT_SPLIT_RE
-            segments = pat.findall(text)
-        except re.error as e:
-            logger.warning(f"{_LOG_TAG} 分段正則錯誤: {e}，回退整段發送。")
-            return [text]
+        if pattern_str:
+            pat = _compile_split_regex(pattern_str)
+            if pat is None:
+                return [text]  # 無效正則，回退整段
+        else:
+            pat = _DEFAULT_SPLIT_RE
+        segments = pat.findall(text)
         return [s.strip() for s in segments if s.strip()] or [text]
 
     # words 模式

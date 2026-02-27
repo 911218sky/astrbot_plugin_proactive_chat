@@ -58,7 +58,7 @@ async def validate_config(config: AstrBotConfig) -> None:
 
 def get_session_config(config: AstrBotConfig, session_id: str) -> dict | None:
     """根據會話 ID 取得對應配置（個性化優先，全域兜底）。"""
-    from .utils import is_private_session, parse_session_id
+    from .utils import MSG_TYPE_KEYWORD_GROUP, is_private_session, parse_session_id
 
     parsed = parse_session_id(session_id)
     if not parsed:
@@ -74,7 +74,7 @@ def get_session_config(config: AstrBotConfig, session_id: str) -> dict | None:
             settings_key="private_settings",
             session_type="private",
         )
-    if "Group" in msg_type:
+    if MSG_TYPE_KEYWORD_GROUP in msg_type:
         return _match_session(
             config,
             target_id,
@@ -83,6 +83,18 @@ def get_session_config(config: AstrBotConfig, session_id: str) -> dict | None:
             session_type="group",
         )
     return None
+
+
+def _is_target_match(target_id: str, config_id: str) -> bool:
+    """精確比對 target_id 與配置中的 session_id。
+
+    支援完全匹配或以分隔符 ':' 為邊界的尾部匹配，
+    避免 '123' 誤匹配 '4123'。
+    """
+    if target_id == config_id:
+        return True
+    # 帶分隔符的尾部匹配：確保 config_id 前面是 ':'
+    return target_id.endswith(f":{config_id}")
 
 
 def _match_session(
@@ -97,7 +109,7 @@ def _match_session(
     # 1) 個性化配置
     for sc in config.get(sessions_key, ()):
         cid = str(sc.get("session_id", ""))
-        if cid and (target_id == cid or target_id.endswith(f":{cid}")):
+        if cid and _is_target_match(target_id, cid):
             if not sc.get("enable", False):
                 return None
             out = sc.copy()
