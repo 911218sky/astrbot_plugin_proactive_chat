@@ -5,6 +5,16 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/02/27 v2.10.0
+
+## What's Changed
+
+### 重構 (Refactor)
+
+- **指令組化**：將 `/proactive_tasks` 改為指令組模式 `/proactive tasks`，方便後續擴充更多子指令。
+
+---
+
 # 2026/02/26 v2.9.0
 
 ## What's Changed

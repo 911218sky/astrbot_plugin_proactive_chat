@@ -701,10 +701,14 @@ class ProactiveChatPlugin(star.Star):
             logger.error(f"{_LOG_TAG} after_message_sent 處理異常: {e}")
 
     # ═══════════════════════════════════════════════════════════
-    #  指令處理
+    #  指令處理（指令組 /proactive）
     # ═══════════════════════════════════════════════════════════
 
-    @filter.command("proactive_tasks")
+    @filter.command_group("proactive")
+    def proactive(self):
+        """主動訊息管理指令組 /proactive"""
+
+    @proactive.command("tasks")
     async def cmd_list_pending_tasks(self, event: AstrMessageEvent) -> None:
         """列出當前所有待執行的主動訊息排程任務。"""
         now = datetime.now(self.timezone)
