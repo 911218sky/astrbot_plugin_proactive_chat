@@ -5,6 +5,16 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/02/27 v2.11.1
+
+## What's Changed
+
+### 文件 (Docs)
+
+- 將 Telegram 平台支援狀態從「理論支援（未測試）」更新為「完整支援」。
+
+---
+
 # 2026/02/27 v2.11.0
 
 ## What's Changed

@@ -148,7 +148,7 @@ astrbot_plugin_proactive_chat/
 | Platform | Status |
 | :--- | :--- |
 | QQ Personal (aiocqhttp) | ✅ Fully supported |
-| Telegram | ❓ Theoretically supported |
+| Telegram | ✅ Fully supported |
 | Feishu | ❓ Theoretically supported |
 
 ## 📄 License

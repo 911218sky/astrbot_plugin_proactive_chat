@@ -148,7 +148,7 @@ astrbot_plugin_proactive_chat/
 | プラットフォーム | 対応状況 |
 | :--- | :--- |
 | QQ 個人 (aiocqhttp) | ✅ 完全対応 |
-| Telegram | ❓ 理論上対応 |
+| Telegram | ✅ 完全対応 |
 | 飛書 | ❓ 理論上対応 |
 
 ## 📄 ライセンス

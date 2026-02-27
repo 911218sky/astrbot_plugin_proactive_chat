@@ -245,7 +245,7 @@ astrbot_plugin_proactive_chat_plus/
 | 平台 | 支援情況 |
 | :--- | :--- |
 | QQ 個人號 (aiocqhttp) | ✅ 完整支援 |
-| Telegram | ❓ 理論支援（未測試） |
+| Telegram | ✅ 完整支援 |
 | 飛書 | ❓ 理論支援（未測試） |
 
 ## 📄 授權
