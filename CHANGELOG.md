@@ -5,6 +5,21 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/03/08 v2.11.2
+
+## What's Changed
+
+### 修復 (Fix)
+
+- **語境感知效能優化**：修復語境感知功能導致主要 AI 回覆延遲的效能問題。
+  - 在 `handle_context_aware_scheduling()` 開頭加入可配置的延遲（預設 0.5 秒），確保語境分析在主要 AI 回覆啟動後才執行，避免資源競爭。
+  - 優化 `check_should_cancel_tasks_batch()` 的快速路徑，無待執行任務時立即回傳，避免不必要的 LLM 請求。
+
+### 新增 (Feat)
+
+- **新增配置項 `analysis_delay_seconds`**：在 `context_aware_settings` 中新增 `analysis_delay_seconds` 配置項（預設 0.5 秒），允許使用者根據自己的 LLM API 速度調整延遲時間。較慢的 LLM API 建議設為 1.0 秒以上。
+---
+
 # 2026/02/27 v2.11.1
 
 ## What's Changed

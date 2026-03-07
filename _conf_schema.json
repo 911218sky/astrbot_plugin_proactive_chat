@@ -176,53 +176,97 @@
                         "_special": "select_provider",
                         "default": "",
                         "hint": "指定語境分析使用的 LLM 平台。留空使用預設。建議指定較便宜的模型以節省 token",
-                        "condition": { "enable": true }
+                        "condition": {
+                            "enable": true
+                        }
                     },
                     "extra_prompt": {
                         "description": "📝 語境分析補充提示",
                         "type": "string",
                         "default": "",
                         "hint": "額外附加到語境分析 prompt 末尾的補充指示。例如：「如果用戶提到運動，延遲設為 60-90 分鐘」「不要對日常問候排程」。留空表示不附加",
-                        "condition": { "enable": true }
+                        "condition": {
+                            "enable": true
+                        }
                     },
                     "min_delay_minutes": {
                         "description": "⏱️ 最小延遲（分鐘）",
                         "type": "int",
                         "default": 5,
                         "hint": "LLM 預測的延遲時間下限，防止過於頻繁",
-                        "condition": { "enable": true },
-                        "slider": { "min": 1, "max": 120, "step": 1 }
+                        "condition": {
+                            "enable": true
+                        },
+                        "slider": {
+                            "min": 1,
+                            "max": 120,
+                            "step": 1
+                        }
                     },
                     "max_delay_minutes": {
                         "description": "⏱️ 最大延遲（分鐘）",
                         "type": "int",
                         "default": 720,
                         "hint": "LLM 預測的延遲時間上限",
-                        "condition": { "enable": true },
-                        "slider": { "min": 30, "max": 1440, "step": 10 }
+                        "condition": {
+                            "enable": true
+                        },
+                        "slider": {
+                            "min": 30,
+                            "max": 1440,
+                            "step": 10
+                        }
                     },
                     "max_context_messages": {
                         "description": "📝 預測用歷史訊息數",
                         "type": "int",
                         "default": 10,
                         "hint": "傳給 LLM 進行語境分析的最近訊息數量，越多越準確但消耗更多 token。填 -1 表示不限制（全部帶上）",
-                        "condition": { "enable": true },
-                        "slider": { "min": -1, "max": 30, "step": 1 }
+                        "condition": {
+                            "enable": true
+                        },
+                        "slider": {
+                            "min": -1,
+                            "max": 30,
+                            "step": 1
+                        }
                     },
                     "enable_memory": {
                         "description": "🧠 啟用 livingmemory 記憶檢索",
                         "type": "bool",
                         "default": true,
                         "hint": "開啟後，主動訊息生成時會從 livingmemory 檢索相關記憶注入 prompt。需要安裝 astrbot_plugin_livingmemory 插件才會生效，未安裝時自動跳過",
-                        "condition": { "enable": true }
+                        "condition": {
+                            "enable": true
+                        }
                     },
                     "memory_top_k": {
                         "description": "🧠 記憶檢索數量",
                         "type": "int",
                         "default": 5,
                         "hint": "每次主動訊息生成時檢索的相關記憶條數。數量越多上下文越豐富，但消耗更多 token",
-                        "condition": { "enable_memory": true },
-                        "slider": { "min": 1, "max": 20, "step": 1 }
+                        "condition": {
+                            "enable_memory": true
+                        },
+                        "slider": {
+                            "min": 1,
+                            "max": 20,
+                            "step": 1
+                        }
+                    },
+                    "analysis_delay_seconds": {
+                        "description": "⏱️ 語境分析延遲（秒）",
+                        "type": "float",
+                        "default": 0.5,
+                        "hint": "語境感知分析的延遲時間（秒），避免與主要 AI 回覆競爭資源。設為 0 表示立即執行，建議保持 0.3-1.0 秒以確保主要 AI 回覆不受影響",
+                        "condition": {
+                            "enable": true
+                        },
+                        "slider": {
+                            "min": 0.0,
+                            "max": 3.0,
+                            "step": 0.1
+                        }
                     }
                 }
             },
@@ -506,53 +550,97 @@
                         "_special": "select_provider",
                         "default": "",
                         "hint": "指定語境分析使用的 LLM 平台。留空使用預設。建議指定較便宜的模型以節省 token",
-                        "condition": { "enable": true }
+                        "condition": {
+                            "enable": true
+                        }
                     },
                     "extra_prompt": {
                         "description": "📝 語境分析補充提示",
                         "type": "string",
                         "default": "",
                         "hint": "額外附加到語境分析 prompt 末尾的補充指示。例如：「如果用戶提到運動，延遲設為 60-90 分鐘」「不要對日常問候排程」。留空表示不附加",
-                        "condition": { "enable": true }
+                        "condition": {
+                            "enable": true
+                        }
                     },
                     "min_delay_minutes": {
                         "description": "⏱️ 最小延遲（分鐘）",
                         "type": "int",
                         "default": 5,
                         "hint": "LLM 預測的延遲時間下限，防止過於頻繁",
-                        "condition": { "enable": true },
-                        "slider": { "min": 1, "max": 120, "step": 1 }
+                        "condition": {
+                            "enable": true
+                        },
+                        "slider": {
+                            "min": 1,
+                            "max": 120,
+                            "step": 1
+                        }
                     },
                     "max_delay_minutes": {
                         "description": "⏱️ 最大延遲（分鐘）",
                         "type": "int",
                         "default": 720,
                         "hint": "LLM 預測的延遲時間上限",
-                        "condition": { "enable": true },
-                        "slider": { "min": 30, "max": 1440, "step": 10 }
+                        "condition": {
+                            "enable": true
+                        },
+                        "slider": {
+                            "min": 30,
+                            "max": 1440,
+                            "step": 10
+                        }
                     },
                     "max_context_messages": {
                         "description": "📝 預測用歷史訊息數",
                         "type": "int",
                         "default": 10,
                         "hint": "傳給 LLM 進行語境分析的最近訊息數量，越多越準確但消耗更多 token。填 -1 表示不限制（全部帶上）",
-                        "condition": { "enable": true },
-                        "slider": { "min": -1, "max": 30, "step": 1 }
+                        "condition": {
+                            "enable": true
+                        },
+                        "slider": {
+                            "min": -1,
+                            "max": 30,
+                            "step": 1
+                        }
                     },
                     "enable_memory": {
                         "description": "🧠 啟用 livingmemory 記憶檢索",
                         "type": "bool",
                         "default": true,
                         "hint": "開啟後，主動訊息生成時會從 livingmemory 檢索相關記憶注入 prompt。需要安裝 astrbot_plugin_livingmemory 插件才會生效，未安裝時自動跳過",
-                        "condition": { "enable": true }
+                        "condition": {
+                            "enable": true
+                        }
                     },
                     "memory_top_k": {
                         "description": "🧠 記憶檢索數量",
                         "type": "int",
                         "default": 5,
                         "hint": "每次主動訊息生成時檢索的相關記憶條數。數量越多上下文越豐富，但消耗更多 token",
-                        "condition": { "enable_memory": true },
-                        "slider": { "min": 1, "max": 20, "step": 1 }
+                        "condition": {
+                            "enable_memory": true
+                        },
+                        "slider": {
+                            "min": 1,
+                            "max": 20,
+                            "step": 1
+                        }
+                    },
+                    "analysis_delay_seconds": {
+                        "description": "⏱️ 語境分析延遲（秒）",
+                        "type": "float",
+                        "default": 0.5,
+                        "hint": "語境感知分析的延遲時間（秒），避免與主要 AI 回覆競爭資源。設為 0 表示立即執行，建議保持 0.3-1.0 秒以確保主要 AI 回覆不受影響",
+                        "condition": {
+                            "enable": true
+                        },
+                        "slider": {
+                            "min": 0.0,
+                            "max": 3.0,
+                            "step": 0.1
+                        }
                     }
                 }
             },
@@ -835,53 +923,97 @@
                                 "_special": "select_provider",
                                 "default": "",
                                 "hint": "指定語境分析使用的 LLM 平台。留空使用預設。建議指定較便宜的模型以節省 token",
-                                "condition": { "enable": true }
+                                "condition": {
+                                    "enable": true
+                                }
                             },
                             "extra_prompt": {
                                 "description": "📝 語境分析補充提示",
                                 "type": "string",
                                 "default": "",
                                 "hint": "額外附加到語境分析 prompt 末尾的補充指示。例如：「如果用戶提到運動，延遲設為 60-90 分鐘」「不要對日常問候排程」。留空表示不附加",
-                                "condition": { "enable": true }
+                                "condition": {
+                                    "enable": true
+                                }
                             },
                             "min_delay_minutes": {
                                 "description": "⏱️ 最小延遲（分鐘）",
                                 "type": "int",
                                 "default": 5,
                                 "hint": "LLM 預測的延遲時間下限，防止過於頻繁",
-                                "condition": { "enable": true },
-                                "slider": { "min": 1, "max": 120, "step": 1 }
+                                "condition": {
+                                    "enable": true
+                                },
+                                "slider": {
+                                    "min": 1,
+                                    "max": 120,
+                                    "step": 1
+                                }
                             },
                             "max_delay_minutes": {
                                 "description": "⏱️ 最大延遲（分鐘）",
                                 "type": "int",
                                 "default": 720,
                                 "hint": "LLM 預測的延遲時間上限",
-                                "condition": { "enable": true },
-                                "slider": { "min": 30, "max": 1440, "step": 10 }
+                                "condition": {
+                                    "enable": true
+                                },
+                                "slider": {
+                                    "min": 30,
+                                    "max": 1440,
+                                    "step": 10
+                                }
                             },
                             "max_context_messages": {
                                 "description": "📝 預測用歷史訊息數",
                                 "type": "int",
                                 "default": 10,
                                 "hint": "傳給 LLM 進行語境分析的最近訊息數量，越多越準確但消耗更多 token。填 -1 表示不限制（全部帶上）",
-                                "condition": { "enable": true },
-                                "slider": { "min": -1, "max": 30, "step": 1 }
+                                "condition": {
+                                    "enable": true
+                                },
+                                "slider": {
+                                    "min": -1,
+                                    "max": 30,
+                                    "step": 1
+                                }
                             },
                             "enable_memory": {
                                 "description": "🧠 啟用 livingmemory 記憶檢索",
                                 "type": "bool",
                                 "default": true,
                                 "hint": "開啟後，主動訊息生成時會從 livingmemory 檢索相關記憶注入 prompt。需要安裝 astrbot_plugin_livingmemory 插件才會生效，未安裝時自動跳過",
-                                "condition": { "enable": true }
+                                "condition": {
+                                    "enable": true
+                                }
                             },
                             "memory_top_k": {
                                 "description": "🧠 記憶檢索數量",
                                 "type": "int",
                                 "default": 5,
                                 "hint": "每次主動訊息生成時檢索的相關記憶條數。數量越多上下文越豐富，但消耗更多 token",
-                                "condition": { "enable_memory": true },
-                                "slider": { "min": 1, "max": 20, "step": 1 }
+                                "condition": {
+                                    "enable_memory": true
+                                },
+                                "slider": {
+                                    "min": 1,
+                                    "max": 20,
+                                    "step": 1
+                                }
+                            },
+                            "analysis_delay_seconds": {
+                                "description": "⏱️ 語境分析延遲（秒）",
+                                "type": "float",
+                                "default": 0.5,
+                                "hint": "語境感知分析的延遲時間（秒），避免與主要 AI 回覆競爭資源。設為 0 表示立即執行，建議保持 0.3-1.0 秒以確保主要 AI 回覆不受影響",
+                                "condition": {
+                                    "enable": true
+                                },
+                                "slider": {
+                                    "min": 0.0,
+                                    "max": 3.0,
+                                    "step": 0.1
+                                }
                             }
                         }
                     },
@@ -1177,53 +1309,97 @@
                                 "_special": "select_provider",
                                 "default": "",
                                 "hint": "指定語境分析使用的 LLM 平台。留空使用預設。建議指定較便宜的模型以節省 token",
-                                "condition": { "enable": true }
+                                "condition": {
+                                    "enable": true
+                                }
                             },
                             "extra_prompt": {
                                 "description": "📝 語境分析補充提示",
                                 "type": "string",
                                 "default": "",
                                 "hint": "額外附加到語境分析 prompt 末尾的補充指示。例如：「如果用戶提到運動，延遲設為 60-90 分鐘」「不要對日常問候排程」。留空表示不附加",
-                                "condition": { "enable": true }
+                                "condition": {
+                                    "enable": true
+                                }
                             },
                             "min_delay_minutes": {
                                 "description": "⏱️ 最小延遲（分鐘）",
                                 "type": "int",
                                 "default": 5,
                                 "hint": "LLM 預測的延遲時間下限，防止過於頻繁",
-                                "condition": { "enable": true },
-                                "slider": { "min": 1, "max": 120, "step": 1 }
+                                "condition": {
+                                    "enable": true
+                                },
+                                "slider": {
+                                    "min": 1,
+                                    "max": 120,
+                                    "step": 1
+                                }
                             },
                             "max_delay_minutes": {
                                 "description": "⏱️ 最大延遲（分鐘）",
                                 "type": "int",
                                 "default": 720,
                                 "hint": "LLM 預測的延遲時間上限",
-                                "condition": { "enable": true },
-                                "slider": { "min": 30, "max": 1440, "step": 10 }
+                                "condition": {
+                                    "enable": true
+                                },
+                                "slider": {
+                                    "min": 30,
+                                    "max": 1440,
+                                    "step": 10
+                                }
                             },
                             "max_context_messages": {
                                 "description": "📝 預測用歷史訊息數",
                                 "type": "int",
                                 "default": 10,
                                 "hint": "傳給 LLM 進行語境分析的最近訊息數量，越多越準確但消耗更多 token。填 -1 表示不限制（全部帶上）",
-                                "condition": { "enable": true },
-                                "slider": { "min": -1, "max": 30, "step": 1 }
+                                "condition": {
+                                    "enable": true
+                                },
+                                "slider": {
+                                    "min": -1,
+                                    "max": 30,
+                                    "step": 1
+                                }
                             },
                             "enable_memory": {
                                 "description": "🧠 啟用 livingmemory 記憶檢索",
                                 "type": "bool",
                                 "default": true,
                                 "hint": "開啟後，主動訊息生成時會從 livingmemory 檢索相關記憶注入 prompt。需要安裝 astrbot_plugin_livingmemory 插件才會生效，未安裝時自動跳過",
-                                "condition": { "enable": true }
+                                "condition": {
+                                    "enable": true
+                                }
                             },
                             "memory_top_k": {
                                 "description": "🧠 記憶檢索數量",
                                 "type": "int",
                                 "default": 5,
                                 "hint": "每次主動訊息生成時檢索的相關記憶條數。數量越多上下文越豐富，但消耗更多 token",
-                                "condition": { "enable_memory": true },
-                                "slider": { "min": 1, "max": 20, "step": 1 }
+                                "condition": {
+                                    "enable_memory": true
+                                },
+                                "slider": {
+                                    "min": 1,
+                                    "max": 20,
+                                    "step": 1
+                                }
+                            },
+                            "analysis_delay_seconds": {
+                                "description": "⏱️ 語境分析延遲（秒）",
+                                "type": "float",
+                                "default": 0.5,
+                                "hint": "語境感知分析的延遲時間（秒），避免與主要 AI 回覆競爭資源。設為 0 表示立即執行，建議保持 0.3-1.0 秒以確保主要 AI 回覆不受影響",
+                                "condition": {
+                                    "enable": true
+                                },
+                                "slider": {
+                                    "min": 0.0,
+                                    "max": 3.0,
+                                    "step": 0.1
+                                }
                             }
                         }
                     },

@@ -44,11 +44,17 @@ async def handle_context_aware_scheduling(
     背景任務：檢查待執行的語境任務並執行 LLM 預測。
 
     步驟：
+    0. 延遲執行，確保主要 AI 回覆已啟動（避免資源競爭）
     1. 並行執行：取消檢查（所有待執行任務同時檢查）+ 取得對話歷史
     2. 根據最新訊息執行 LLM 時機預測
     3. 若預測結果建議排程，建立一次性任務
     """
     try:
+        # 步驟 0：延遲執行，讓主要 AI 回覆有足夠時間啟動
+        # 從會話配置中取得延遲時間（預設 0.5 秒）
+        analysis_delay = ctx_settings.get("analysis_delay_seconds", 0.5)
+        if analysis_delay > 0:
+            await asyncio.sleep(analysis_delay)
         # 步驟 1：並行執行取消檢查與歷史取得，減少等待時間
         cancel_coro = maybe_cancel_pending_context_task(
             plugin, session_id, message_text

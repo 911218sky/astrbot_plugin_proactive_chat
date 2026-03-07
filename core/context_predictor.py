@@ -208,6 +208,7 @@ async def check_should_cancel_tasks_batch(
         字典，key 為任務索引，value 為 (should_cancel, reason) 元組。
         例如：{0: (True, "活動已結束"), 1: (False, "任務仍有效")}
     """
+    # 快速路徑：無待執行任務時立即回傳，避免不必要的 LLM 請求
     if not last_message or not last_message.strip() or not tasks:
         return {}
 
