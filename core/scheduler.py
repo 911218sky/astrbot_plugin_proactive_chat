@@ -355,7 +355,8 @@ def _pick_from_weights(weights_str: str) -> int | None:
     """
     解析 ``interval_weights`` 並加權隨機選取間隔（回傳秒數）。
 
-    格式: ``"20-30:0.2,30-50:0.5,50-90:0.3"``
+    格式: ``"20-30:0.2,30-50:0.5,50-90:0.3"`` （預設分鐘）
+    或: ``"30s-60s:0.3,2m-5m:0.5"`` （支援 s=秒, m=分鐘）
     """
     try:
         buckets: list[tuple[float, float, float]] = []
@@ -365,9 +366,19 @@ def _pick_from_weights(weights_str: str) -> int | None:
                 continue
             range_str, w_str = part.split(":")
             lo_s, hi_s = range_str.split("-")
-            lo, hi, w = float(lo_s), float(hi_s), float(w_str)
-            if w > 0 and hi > lo:
-                buckets.append((lo, hi, w))
+
+            # 解析數值和單位
+            lo, lo_unit = _parse_time_value(lo_s.strip())
+            hi, hi_unit = _parse_time_value(hi_s.strip())
+            w = float(w_str)
+
+            # 統一轉換為秒
+            lo_seconds = _to_seconds(lo, lo_unit)
+            hi_seconds = _to_seconds(hi, hi_unit)
+
+            if w > 0 and hi_seconds > lo_seconds:
+                buckets.append((lo_seconds, hi_seconds, w))
+
         if not buckets:
             return None
 
@@ -377,10 +388,51 @@ def _pick_from_weights(weights_str: str) -> int | None:
         for lo, hi, w in buckets:
             acc += w
             if r <= acc:
-                return int(random.uniform(lo, hi) * 60)
+                return int(random.uniform(lo, hi))
         # 兜底
         lo, hi, _ = buckets[-1]
-        return int(random.uniform(lo, hi) * 60)
+        return int(random.uniform(lo, hi))
     except Exception as e:
         logger.warning(f"{_LOG_TAG} 解析 interval_weights 失敗: {e}，回退全域間隔。")
         return None
+
+
+def _parse_time_value(value_str: str) -> tuple[float, str]:
+    """
+    解析時間值和單位。
+
+    範例:
+        "30" -> (30.0, "m")  # 預設分鐘
+        "30s" -> (30.0, "s")
+        "2m" -> (2.0, "m")
+        "0.5" -> (0.5, "m")
+
+    回傳: (數值, 單位)，單位為 "s" 或 "m"
+    """
+    value_str = value_str.strip()
+    if value_str.endswith("s"):
+        return (float(value_str[:-1]), "s")
+    elif value_str.endswith("m"):
+        return (float(value_str[:-1]), "m")
+    else:
+        # 預設為分鐘（向下相容）
+        return (float(value_str), "m")
+
+
+def _to_seconds(value: float, unit: str) -> float:
+    """
+    將時間值轉換為秒。
+
+    參數:
+        value: 時間數值
+        unit: 單位 ("s" 或 "m")
+
+    回傳: 秒數
+    """
+    if unit == "s":
+        return value
+    elif unit == "m":
+        return value * 60
+    else:
+        # 預設為分鐘
+        return value * 60

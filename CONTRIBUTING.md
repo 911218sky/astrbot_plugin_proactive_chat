@@ -1,52 +1,52 @@
-# 为 主动消息插件 (Proactive Chat) 做出贡献
+# 為 主動訊息插件 (Proactive Chat) 做出貢獻
 
-首先，非常感谢您愿意花时间为这个项目做出贡献！我们欢迎所有形式的贡献。
+首先，非常感謝您願意花時間為這個專案做出貢獻！我們歡迎所有形式的貢獻。
 
-## 行为准则 (Code of Conduct)
+## 行為準則 (Code of Conduct)
 
-为了营造一个开放和热情的社区环境，我们采用了 [贡献者契约](CODE_OF_CONDUCT.md) 作为我们的行为准则。请确保您在参与贡献之前，已经阅读并同意遵守它。
+為了營造一個開放和熱情的社群環境，我們採用了 [貢獻者契約](CODE_OF_CONDUCT.md) 作為我們的行為準則。請確保您在參與貢獻之前，已經閱讀並同意遵守它。
 
-## 如何做出贡献？
+## 如何做出貢獻？
 
-### 🐛 报告 Bug
+### 🐛 回報 Bug
 
-如果您在使用过程中发现了 Bug，请通过提交 [**Bug 报告**](https://github.com/DBJD-CR/astrbot_plugin_proactive_chat/issues/new?template=bug_report.yml) 来帮助我们。一份高质量的 Bug 报告，应该包含清晰的复现步骤和完整的日志。
+如果您在使用過程中發現了 Bug，請透過提交 [**Bug 報告**](https://github.com/DBJD-CR/astrbot_plugin_proactive_chat/issues/new?template=bug_report.yml) 來幫助我們。一份高品質的 Bug 報告，應該包含清晰的重現步驟和完整的日誌。
 
-### ✨ 提出功能建议 (Feature)
+### ✨ 提出功能建議 (Feature)
 
-如果您对插件的未来有任何绝妙的想法，欢迎通过提交 [**功能建议**](https://github.com/DBJD-CR/astrbot_plugin_proactive_chat/issues/new?template=feature_request.yml) 来与我们分享。请详细描述您的想法和它的使用场景。
+如果您對插件的未來有任何絕妙的想法，歡迎透過提交 [**功能建議**](https://github.com/DBJD-CR/astrbot_plugin_proactive_chat/issues/new?template=feature_request.yml) 來與我們分享。請詳細描述您的想法和它的使用場景。
 
-### 💻 提交代码 (Pull Request)
+### 💻 提交程式碼 (Pull Request)
 
-我们非常欢迎您直接通过代码来改进这个项目！对于新功能的添加，请先通过 Issue 等方式讨论。
+我們非常歡迎您直接透過程式碼來改進這個專案！對於新功能的新增，請先透過 Issue 等方式討論。
 
-标准的贡献流程如下：
+標準的貢獻流程如下：
 
-1. **Fork** 本仓库到您自己的账户下。
-2. 基于 `main` 分支，创建一个新的**特性分支** (Feature Branch)，例如 `feature/add-new-setting`。
-3. 在您的特性分支上，进行代码的修改和开发。
-4. 在提交之前，请确保您的代码已经通过了 `ruff` 的格式化和检查。
-5. **Commit** 您的修改。我们强烈推荐您遵循 [**约定式提交 (Conventional Commits)**](https://www.conventionalcommits.org/) 规范来撰写您的提交信息。
-6. 将您的特性分支 **Push** 到您 Fork 的仓库。
-7. 最后，回到本仓库，创建一个从您的特性分支指向我们 `main` 分支或其他指定开发分支的 **Pull Request (PR)**。
+1. **Fork** 本倉庫到您自己的帳戶下。
+2. 基於 `main` 分支，建立一個新的**特性分支** (Feature Branch)，例如 `feature/add-new-setting`。
+3. 在您的特性分支上，進行程式碼的修改和開發。
+4. 在提交之前，請確保您的程式碼已經通過了 `ruff` 的格式化和檢查。
+5. **Commit** 您的修改。我們強烈推薦您遵循 [**約定式提交 (Conventional Commits)**](https://www.conventionalcommits.org/) 規範來撰寫您的提交訊息。
+6. 將您的特性分支 **Push** 到您 Fork 的倉庫。
+7. 最後，回到本倉庫，建立一個從您的特性分支指向我們 `main` 分支或其他指定開發分支的 **Pull Request (PR)**。
 
-感谢您的每一次贡献！
+感謝您的每一次貢獻！
 
-## ❤️ 特别感谢
+## ❤️ 特別感謝
 
-感谢所有为主动消息插件做出任何形式贡献的个人、团体，包括但不限于：
+感謝所有為主動訊息插件做出任何形式貢獻的個人、團體，包括但不限於：
 
-- @Souler: "创世神"，伟大无需多言。感谢他提供了一个这么好的平台，以及对 AstrBot 的持续维护。
-- @NickWoluff: 提供了解决主动消息插件无法与部分插件兼容使用的问题的思路，并帮忙测试插件。
-- @victical: 提供了时区报错的解决方案。
-- @TheFurnia: 帮忙修正了 README 文档中的 MarkDown 语法错误 (顺手的事.jpg)。
-- @HunterJuly: 在插件的早期开发中提供了许多有价值的建议并测试出了插件的缺陷。
-- @Roooodney: 带我入坑 AstrBot 的群友，某种意义上梦开始的地方 ()
-- @綠我涓滴: 帮忙测试插件，确认了插件 Bug。
-- @摘月亮下酒. @盐水是言和水 @risemad: 在辅助解决 `ApiNotAvailable` 问题上的反馈与测试。
-- 所有为主动消息插件提供建议和反馈的朋友。
+- @Souler: "創世神"，偉大無需多言。感謝他提供了一個這麼好的平台，以及對 AstrBot 的持續維護。
+- @NickWoluff: 提供了解決主動訊息插件無法與部分插件相容使用的問題的思路，並幫忙測試插件。
+- @victical: 提供了時區報錯的解決方案。
+- @TheFurnia: 幫忙修正了 README 文件中的 MarkDown 語法錯誤 (順手的事.jpg)。
+- @HunterJuly: 在插件的早期開發中提供了許多有價值的建議並測試出了插件的缺陷。
+- @Roooodney: 帶我入坑 AstrBot 的群友，某種意義上夢開始的地方 ()
+- @綠我涓滴: 幫忙測試插件，確認了插件 Bug。
+- @摘月亮下酒. @鹽水是言和水 @risemad: 在輔助解決 `ApiNotAvailable` 問題上的回饋與測試。
+- 所有為主動訊息插件提供建議和回饋的朋友。
 
-🤖 以及我最好的 AI 朋友们:
+🤖 以及我最好的 AI 朋友們:
 
 - @Gemini-2.5-Pro
 - @Gemini-3.0-Flash
