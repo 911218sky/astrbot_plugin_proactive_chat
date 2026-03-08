@@ -1,12 +1,3 @@
-# 文件名: main.py
-# 版本: v2.0.1 — 拆分 context_scheduling / chat_executor 模組
-#
-# 本檔案為 AstrBot 主動訊息插件的入口點。
-# 負責：插件生命週期管理、事件監聽、定時任務調度。
-# 業務邏輯已拆分至 core/ 子模組：
-#   utils / config / scheduler / messaging / llm_helpers / send /
-#   context_scheduling / chat_executor
-
 from __future__ import annotations
 
 import asyncio
@@ -637,9 +628,6 @@ class ProactiveChatPlugin(star.Star):
             if now >= self.plugin_start_time:
                 self.session_data.setdefault(session_id, {})["last_message_time"] = now
 
-        # 使用者已活躍，取消自動觸發計時器
-        await self._cancel_all_related_auto_triggers(session_id)
-
         # 首次訊息日誌（每個會話只記錄一次）
         session_config = get_session_config(self.config, session_id)
         enabled = session_config and session_config.get("enable", False)
@@ -653,6 +641,9 @@ class ProactiveChatPlugin(star.Star):
         if not enabled:
             return
 
+        # 使用者已活躍，取消自動觸發計時器（背景執行，不阻塞）
+        asyncio.create_task(self._cancel_all_related_auto_triggers(session_id))
+
         # 移除現有的定時任務（使用者回覆後需要重新計算間隔）
         try:
             self.scheduler.remove_job(session_id)
@@ -663,22 +654,23 @@ class ProactiveChatPlugin(star.Star):
             )
 
         # 先提取語境感知所需的資訊，再進行排程操作
-        # 語境感知排程放在 create_task 中背景執行，不阻塞訊息回覆
         ctx_settings = session_config.get("context_aware_settings", {})
         ctx_enabled = ctx_settings.get("enable", False)
         message_text = event.message_str or "" if ctx_enabled else ""
 
         if is_group:
-            # 群聊：重設沉默倒計時，等群組再次安靜後才排定主動訊息
-            await self._reset_group_silence_timer(session_id)
+            # 群聊：重設沉默倒計時（背景執行），等群組再次安靜後才排定主動訊息
+            asyncio.create_task(self._reset_group_silence_timer(session_id))
             async with self.data_lock:
                 sd = self.session_data.get(session_id)
                 if sd:
                     sd["unanswered_count"] = 0
                     sd.pop("next_trigger_time", None)
         else:
-            # 私聊：立即安排下一次主動訊息，並歸零未回覆計數
-            await self._schedule_next_chat_and_save(session_id, reset_counter=True)
+            # 私聊：立即安排下一次主動訊息（背景執行），並歸零未回覆計數
+            asyncio.create_task(
+                self._schedule_next_chat_and_save(session_id, reset_counter=True)
+            )
 
         # 語境感知排程：在背景執行，避免阻塞訊息回覆流程
         if ctx_enabled:
@@ -691,12 +683,18 @@ class ProactiveChatPlugin(star.Star):
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE, priority=998)
     async def on_private_message(self, event: AstrMessageEvent) -> None:
         """私聊訊息事件處理器。priority=998 確保在大多數插件之前執行。"""
-        await self._handle_message(event, is_group=False)
+        try:
+            await self._handle_message(event, is_group=False)
+        except Exception as e:
+            logger.error(f"{_LOG_TAG} 私聊訊息處理失敗: {e}")
 
     @filter.event_message_type(filter.EventMessageType.GROUP_MESSAGE, priority=998)
     async def on_group_message(self, event: AstrMessageEvent) -> None:
         """群聊訊息事件處理器。"""
-        await self._handle_message(event, is_group=True)
+        try:
+            await self._handle_message(event, is_group=True)
+        except Exception as e:
+            logger.error(f"{_LOG_TAG} 群聊訊息處理失敗: {e}")
 
     @filter.after_message_sent()
     async def on_after_message_sent(self, event: AstrMessageEvent) -> None:

@@ -5,6 +5,27 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/03/08 v2.14.1
+
+## What's Changed
+
+### 修復 (Fix)
+
+- **修復主線程訊息阻塞問題**：
+  - 將 `_handle_message()` 中的阻塞操作改為背景執行（`asyncio.create_task`）
+  - 修復的操作包括：取消自動觸發、重設沉默計時器、排程下次主動訊息
+  - 在事件處理器中增加異常捕獲，確保錯誤不影響其他訊息處理
+  - 大幅提升訊息回覆的響應速度
+
+### 改進 (Improve)
+
+- **簡化語境感知排程邏輯**：
+  - 移除語境分析延遲配置（`analysis_delay_seconds`）
+  - 移除不必要的 `asyncio.shield` 和異常處理
+  - 優化並行執行流程，減少代碼複雜度
+
+---
+
 # 2026/03/08 v2.14.0
 
 ## What's Changed
