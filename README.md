@@ -62,57 +62,52 @@ APScheduler 定時觸發 check_and_chat()
 
 ```mermaid
 flowchart TB
-    Start([用戶發送訊息])
-    HandleMsg[處理訊息事件<br/>_handle_message]
-    RecordTime[記錄時間戳<br/>重置未回覆計數]
-    CheckType{訊息類型?}
+    Start([用戶發送訊息　　　　　])
+    HandleMsg["處理訊息事件　　　　　"]
+    RecordTime["記錄時間戳　　　　　　<br/>重置未回覆計數　　　　"]
+    CheckType{"訊息類型　　　　　"}
     
-    %% 私聊分支
-    SchedulePrivate[立即排定下次主動訊息<br/>加權隨機間隔]
-    CheckContext{語境感知<br/>已啟用?}
+    SchedulePrivate["立即排定下次主動訊息　"]
+    CheckContext{"語境感知　　　　　<br/>已啟用　　　　　"}
     
-    ParallelStart[並行執行]
-    Task1[取得歷史訊息]
-    Task2[檢查現有語境任務]
-    CancelCheck{需要<br/>取消?}
-    CancelTask[取消語境任務]
+    ParallelStart["並行執行　　　　　　"]
+    Task1["取得歷史訊息　　　　　"]
+    Task2["檢查現有語境任務　　　"]
+    CancelCheck{"需要取消　　　　　"}
+    CancelTask["取消語境任務　　　　　"]
     
-    PredictContext[LLM 分析語境]
-    PredictResult{預測結果}
-    CreateTask[建立語境任務<br/>設定時間與提示]
-    SaveTask[持久化到 JSON]
+    PredictContext["LLM 分析語境　　　　"]
+    PredictResult{"預測結果　　　　　"}
+    CreateTask["建立語境任務　　　　　"]
+    SaveTask["持久化到 JSON　　　　"]
     
-    %% 群聊分支
-    ResetTimer[重置沉默計時器]
-    WaitSilence[等待沉默達標<br/>N 分鐘無訊息]
-    ScheduleGroup[排定群聊主動訊息]
+    ResetTimer["重置沉默計時器　　　　"]
+    WaitSilence["等待沉默達標　　　　　"]
+    ScheduleGroup["排定群聊主動訊息　　"]
     
-    %% 執行階段
-    Trigger([APScheduler 觸發<br/>check_and_chat])
-    CheckDND{免打擾<br/>時段?}
-    CheckDecay{衰減<br/>判定?}
-    CheckPlatform{平台<br/>存活?}
+    Trigger(["APScheduler 觸發　　"])
+    CheckDND{"免打擾時段　　　　　"}
+    CheckDecay{"衰減判定　　　　　"}
+    CheckPlatform{"平台存活　　　　　"}
     
-    BuildPrompt[構造 Prompt<br/>時間/計數/語境]
-    CheckMemory{記憶整合<br/>已啟用?}
-    RecallMemory[檢索 livingmemory]
-    InjectMemory[注入記憶內容]
-    CallLLM[呼叫 LLM]
-    StateCheck{狀態檢查<br/>用戶發新訊息?}
+    BuildPrompt["構造 Prompt　　　　　"]
+    CheckMemory{"記憶整合　　　　　"}
+    RecallMemory["檢索 livingmemory　　"]
+    InjectMemory["注入記憶內容　　　　　"]
+    CallLLM["呼叫 LLM　　　　　　"]
+    StateCheck{"狀態檢查　　　　　"}
     
-    SendMsg[發送訊息<br/>TTS + 分段回覆]
-    IncCount[遞增未回覆計數]
-    ScheduleNext[排定下一次]
-    CheckContextTask{語境任務?}
-    RemoveTask[移除已完成任務]
+    SendMsg["發送訊息　　　　　　"]
+    IncCount["遞增未回覆計數　　　　"]
+    ScheduleNext["排定下一次　　　　　　"]
+    CheckContextTask{"語境任務　　　　　"}
+    RemoveTask["移除已完成任務　　　　"]
     
-    %% 結束狀態
-    SkipReschedule[跳過並重新排程]
-    DelayRetry[延後重試]
-    Abort[中止發送]
-    End([結束])
+    SkipReschedule["跳過並重新排程　　　"]
+    DelayRetry["延後重試　　　　　　"]
+    Abort["中止發送　　　　　　"]
+    End(["結束　　　　　　　　"])
     
-    %% 連接
     Start --> HandleMsg --> RecordTime --> CheckType
     
     CheckType -->|私聊| SchedulePrivate --> CheckContext
@@ -148,7 +143,6 @@ flowchart TB
     CheckContextTask -->|是| RemoveTask --> End
     CheckContextTask -->|否| End
     
-    %% 樣式
     classDef startEnd fill:#4caf50,stroke:#2e7d32,stroke-width:3px,color:#fff
     classDef process fill:#2196f3,stroke:#1565c0,stroke-width:2px,color:#fff
     classDef decision fill:#ff9800,stroke:#e65100,stroke-width:2px,color:#fff
@@ -170,28 +164,28 @@ flowchart TB
 stateDiagram-v2
     direction LR
     
-    [*] --> 待建立: 用戶發送訊息
-    待建立 --> 分析中: 呼叫 LLM 分析語境
+    [*] --> 待建立　　: 用戶發送訊息
+    待建立　　 --> 分析中　　: 呼叫 LLM 分析語境
     
-    分析中 --> 已排程: 需要排程
-    分析中 --> [*]: 不需排程
+    分析中　　 --> 已排程　　: 需要排程
+    分析中　　 --> [*]: 不需排程
     
-    已排程 --> 執行中: 時間到達
-    已排程 --> 已取消: LLM 判定應取消
+    已排程　　 --> 執行中　　: 時間到達
+    已排程　　 --> 已取消　　: LLM 判定應取消
     
-    執行中 --> 已完成: 訊息發送成功
-    執行中 --> 已中止: 狀態檢查失敗
+    執行中　　 --> 已完成　　: 訊息發送成功
+    執行中　　 --> 已中止　　: 狀態檢查失敗
     
-    已完成 --> [*]
-    已取消 --> [*]
-    已中止 --> [*]
+    已完成　　 --> [*]
+    已取消　　 --> [*]
+    已中止　　 --> [*]
     
-    note right of 已排程
+    note right of 已排程　　
         多任務並存
         同一會話可同時有多個語境任務
     end note
     
-    note right of 已取消
+    note right of 已取消　　
         智慧取消機制
         用戶每次發訊息時並行檢查
     end note
@@ -203,60 +197,60 @@ stateDiagram-v2
 sequenceDiagram
     autonumber
     
-    participant User as 用戶
-    participant Plugin as 插件
-    participant Scheduler as 排程器
-    participant LLM as LLM
-    participant Memory as 記憶庫
+    participant User as 用戶　　　　
+    participant Plugin as 插件　　　　
+    participant Scheduler as 排程器　　　
+    participant LLM as LLM　　　　
+    participant Memory as 記憶庫　　　
     
     rect rgb(232, 245, 233)
         Note over User,Plugin: 階段 1: 訊息接收與任務取消檢查
-        User->>Plugin: 發送訊息
-        Plugin->>Plugin: 記錄時間、重置計數
+        User->>Plugin: 發送訊息　　　　　　
+        Plugin->>Plugin: 記錄時間、重置計數　
         
         par 並行執行
-            Plugin->>Plugin: 取得最近 10 條歷史
+            Plugin->>Plugin: 取得最近 10 條歷史　
         and
             Plugin->>LLM: 檢查現有語境任務是否應取消
-            LLM-->>Plugin: 回傳取消判定結果
-            Plugin->>Scheduler: 取消不再相關的任務
+            LLM-->>Plugin: 回傳取消判定結果　　
+            Plugin->>Scheduler: 取消不再相關的任務　
         end
     end
     
     rect rgb(227, 242, 253)
         Note over Plugin,LLM: 階段 2: 語境預測與任務建立
-        Plugin->>LLM: 分析語境並預測時機
+        Plugin->>LLM: 分析語境並預測時機　
         Note over LLM: 分析對話內容<br/>預測最佳跟進時間
-        LLM-->>Plugin: 回傳預測結果
-        Plugin->>Plugin: 建立語境任務
+        LLM-->>Plugin: 回傳預測結果　　　　
+        Plugin->>Plugin: 建立語境任務　　　　
         Plugin->>Plugin: 儲存到 context_tasks.json
         Plugin->>Scheduler: 排定 APScheduler 任務
     end
     
     rect rgb(255, 243, 224)
         Note over Scheduler,LLM: 階段 3: 任務觸發與執行
-        Scheduler->>Plugin: 時間到達觸發
-        Plugin->>Plugin: 免打擾檢查
-        Plugin->>Plugin: 衰減概率判定
-        Plugin->>Plugin: 平台存活檢查
+        Scheduler->>Plugin: 時間到達觸發　　　　
+        Plugin->>Plugin: 免打擾檢查　　　　　
+        Plugin->>Plugin: 衰減概率判定　　　　
+        Plugin->>Plugin: 平台存活檢查　　　　
         
         alt 記憶整合已啟用
-            Plugin->>Memory: 檢索相關記憶
-            Memory-->>Plugin: 回傳記憶片段
+            Plugin->>Memory: 檢索相關記憶　　　　
+            Memory-->>Plugin: 回傳記憶片段　　　　
             Plugin->>Plugin: 注入記憶到 system_prompt
         end
         
         Plugin->>LLM: 呼叫 LLM 生成主動訊息
-        LLM-->>Plugin: 回傳生成內容
+        LLM-->>Plugin: 回傳生成內容　　　　
         
-        Plugin->>Plugin: 狀態一致性檢查
+        Plugin->>Plugin: 狀態一致性檢查　　　
         alt 用戶已發新訊息
-            Plugin->>Plugin: 中止發送
+            Plugin->>Plugin: 中止發送　　　　　　
         else 狀態一致
-            Plugin->>User: 發送主動訊息
-            Plugin->>Plugin: 遞增未回覆計數
+            Plugin->>User: 發送主動訊息　　　　
+            Plugin->>Plugin: 遞增未回覆計數　　　
             Plugin->>Plugin: 從 JSON 移除已完成任務
-            Plugin->>Scheduler: 排定下一次
+            Plugin->>Scheduler: 排定下一次　　　　　
         end
     end
 ```
