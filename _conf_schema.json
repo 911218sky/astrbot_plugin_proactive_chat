@@ -107,6 +107,17 @@
                                             "step": 1
                                         }
                                     },
+                                    "start_minute": {
+                                        "description": "🕐 開始時間（分）",
+                                        "type": "int",
+                                        "default": 0,
+                                        "hint": "時段開始的分鐘數（0-59）",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 59,
+                                            "step": 1
+                                        }
+                                    },
                                     "end_hour": {
                                         "description": "🕐 結束時間（時）",
                                         "type": "int",
@@ -115,6 +126,17 @@
                                         "slider": {
                                             "min": 0,
                                             "max": 24,
+                                            "step": 1
+                                        }
+                                    },
+                                    "end_minute": {
+                                        "description": "🕐 結束時間（分）",
+                                        "type": "int",
+                                        "default": 0,
+                                        "hint": "時段結束的分鐘數（0-59）。當 end_hour 為 24 時此欄位無效",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 59,
                                             "step": 1
                                         }
                                     },
@@ -129,6 +151,47 @@
                                         "type": "string",
                                         "default": "0.8,0.5,0.3,0.15",
                                         "hint": "逗號分隔的概率列表，每個值（0~1）對應第 N 次未回覆的觸發概率。例如填「0.8,0.5,0.3,0.15」表示：第 1 次 → 80%、第 2 次 → 50%、第 3 次 → 30%、第 4 次 → 15%。超出列表長度時，以下方全域預設衰減遞減步長從列表末尾值接續遞減。填單一值如「0.7」則每次未回覆都用同一概率。留空表示不衰減（100% 觸發），填「0」表示只觸發一次就停止"
+                                    },
+                                    "max_unanswered_times": {
+                                        "description": "⛔ 此時段最大未回覆次數上限",
+                                        "type": "int",
+                                        "default": 0,
+                                        "hint": "此時段專屬的最大未回覆次數上限。填 0 表示使用上方全域設定。當配置了此值且大於 0 時，將覆蓋全域的 max_unanswered_times 設定",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 20,
+                                            "step": 1
+                                        }
+                                    },
+                                    "unanswered_reset_mode": {
+                                        "description": "🔄 未回覆計數模式",
+                                        "type": "string",
+                                        "default": "inherit",
+                                        "options": [
+                                            "inherit",
+                                            "reset",
+                                            "custom"
+                                        ],
+                                        "labels": [
+                                            "繼承上一時段",
+                                            "重新計數",
+                                            "自訂起始值"
+                                        ],
+                                        "hint": "切換到此時段時的未回覆計數處理方式。「繼承」：延續上一時段的計數；「重新計數」：從 0 開始；「自訂起始值」：從下方指定的數字開始累加"
+                                    },
+                                    "unanswered_start_count": {
+                                        "description": "🔢 自訂起始計數值",
+                                        "type": "int",
+                                        "default": 0,
+                                        "hint": "當「未回覆計數模式」選擇「自訂起始值」時，從此數字開始累加。例如填 2 表示進入此時段時未回覆計數從 2 開始",
+                                        "condition": {
+                                            "unanswered_reset_mode": "custom"
+                                        },
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 20,
+                                            "step": 1
+                                        }
                                     }
                                 }
                             }
@@ -481,6 +544,17 @@
                                             "step": 1
                                         }
                                     },
+                                    "start_minute": {
+                                        "description": "🕐 開始時間（分）",
+                                        "type": "int",
+                                        "default": 0,
+                                        "hint": "時段開始的分鐘數（0-59）",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 59,
+                                            "step": 1
+                                        }
+                                    },
                                     "end_hour": {
                                         "description": "🕐 結束時間（時）",
                                         "type": "int",
@@ -489,6 +563,17 @@
                                         "slider": {
                                             "min": 0,
                                             "max": 24,
+                                            "step": 1
+                                        }
+                                    },
+                                    "end_minute": {
+                                        "description": "🕐 結束時間（分）",
+                                        "type": "int",
+                                        "default": 0,
+                                        "hint": "時段結束的分鐘數（0-59）。當 end_hour 為 24 時此欄位無效",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 59,
                                             "step": 1
                                         }
                                     },
@@ -503,6 +588,47 @@
                                         "type": "string",
                                         "default": "0.8,0.5,0.3,0.15",
                                         "hint": "逗號分隔的概率列表，每個值（0~1）對應第 N 次未回覆的觸發概率。例如填「0.8,0.5,0.3,0.15」表示：第 1 次 → 80%、第 2 次 → 50%、第 3 次 → 30%、第 4 次 → 15%。超出列表長度時，以下方全域預設衰減遞減步長從列表末尾值接續遞減。填單一值如「0.7」則每次未回覆都用同一概率。留空表示不衰減（100% 觸發），填「0」表示只觸發一次就停止"
+                                    },
+                                    "max_unanswered_times": {
+                                        "description": "⛔ 此時段最大未回覆次數上限",
+                                        "type": "int",
+                                        "default": 0,
+                                        "hint": "此時段專屬的最大未回覆次數上限。填 0 表示使用上方全域設定。當配置了此值且大於 0 時，將覆蓋全域的 max_unanswered_times 設定",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 20,
+                                            "step": 1
+                                        }
+                                    },
+                                    "unanswered_reset_mode": {
+                                        "description": "🔄 未回覆計數模式",
+                                        "type": "string",
+                                        "default": "inherit",
+                                        "options": [
+                                            "inherit",
+                                            "reset",
+                                            "custom"
+                                        ],
+                                        "labels": [
+                                            "繼承上一時段",
+                                            "重新計數",
+                                            "自訂起始值"
+                                        ],
+                                        "hint": "切換到此時段時的未回覆計數處理方式。「繼承」：延續上一時段的計數；「重新計數」：從 0 開始；「自訂起始值」：從下方指定的數字開始累加"
+                                    },
+                                    "unanswered_start_count": {
+                                        "description": "🔢 自訂起始計數值",
+                                        "type": "int",
+                                        "default": 0,
+                                        "hint": "當「未回覆計數模式」選擇「自訂起始值」時，從此數字開始累加。例如填 2 表示進入此時段時未回覆計數從 2 開始",
+                                        "condition": {
+                                            "unanswered_reset_mode": "custom"
+                                        },
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 20,
+                                            "step": 1
+                                        }
                                     }
                                 }
                             }
@@ -854,6 +980,17 @@
                                                     "step": 1
                                                 }
                                             },
+                                            "start_minute": {
+                                                "description": "🕐 開始時間（分）",
+                                                "type": "int",
+                                                "default": 0,
+                                                "hint": "時段開始的分鐘數（0-59）",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 59,
+                                                    "step": 1
+                                                }
+                                            },
                                             "end_hour": {
                                                 "description": "🕐 結束時間（時）",
                                                 "type": "int",
@@ -862,6 +999,17 @@
                                                 "slider": {
                                                     "min": 0,
                                                     "max": 24,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "end_minute": {
+                                                "description": "🕐 結束時間（分）",
+                                                "type": "int",
+                                                "default": 0,
+                                                "hint": "時段結束的分鐘數（0-59）。當 end_hour 為 24 時此欄位無效",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 59,
                                                     "step": 1
                                                 }
                                             },
@@ -876,6 +1024,47 @@
                                                 "type": "string",
                                                 "default": "0.8,0.5,0.3,0.15",
                                                 "hint": "逗號分隔的概率列表，每個值（0~1）對應第 N 次未回覆的觸發概率。例如填「0.8,0.5,0.3,0.15」表示：第 1 次 → 80%、第 2 次 → 50%、第 3 次 → 30%、第 4 次 → 15%。超出列表長度時，以下方全域預設衰減遞減步長從列表末尾值接續遞減。填單一值如「0.7」則每次未回覆都用同一概率。留空表示不衰減（100% 觸發），填「0」表示只觸發一次就停止"
+                                            },
+                                            "max_unanswered_times": {
+                                                "description": "⛔ 此時段最大未回覆次數上限",
+                                                "type": "int",
+                                                "default": 0,
+                                                "hint": "此時段專屬的最大未回覆次數上限。填 0 表示使用上方全域設定。當配置了此值且大於 0 時，將覆蓋全域的 max_unanswered_times 設定",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 20,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "unanswered_reset_mode": {
+                                                "description": "🔄 未回覆計數模式",
+                                                "type": "string",
+                                                "default": "inherit",
+                                                "options": [
+                                                    "inherit",
+                                                    "reset",
+                                                    "custom"
+                                                ],
+                                                "labels": [
+                                                    "繼承上一時段",
+                                                    "重新計數",
+                                                    "自訂起始值"
+                                                ],
+                                                "hint": "切換到此時段時的未回覆計數處理方式。「繼承」：延續上一時段的計數；「重新計數」：從 0 開始；「自訂起始值」：從下方指定的數字開始累加"
+                                            },
+                                            "unanswered_start_count": {
+                                                "description": "🔢 自訂起始計數值",
+                                                "type": "int",
+                                                "default": 0,
+                                                "hint": "當「未回覆計數模式」選擇「自訂起始值」時，從此數字開始累加。例如填 2 表示進入此時段時未回覆計數從 2 開始",
+                                                "condition": {
+                                                    "unanswered_reset_mode": "custom"
+                                                },
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 20,
+                                                    "step": 1
+                                                }
                                             }
                                         }
                                     }
@@ -1240,6 +1429,17 @@
                                                     "step": 1
                                                 }
                                             },
+                                            "start_minute": {
+                                                "description": "🕐 開始時間（分）",
+                                                "type": "int",
+                                                "default": 0,
+                                                "hint": "時段開始的分鐘數（0-59）",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 59,
+                                                    "step": 1
+                                                }
+                                            },
                                             "end_hour": {
                                                 "description": "🕐 結束時間（時）",
                                                 "type": "int",
@@ -1248,6 +1448,17 @@
                                                 "slider": {
                                                     "min": 0,
                                                     "max": 24,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "end_minute": {
+                                                "description": "🕐 結束時間（分）",
+                                                "type": "int",
+                                                "default": 0,
+                                                "hint": "時段結束的分鐘數（0-59）。當 end_hour 為 24 時此欄位無效",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 59,
                                                     "step": 1
                                                 }
                                             },
@@ -1262,6 +1473,47 @@
                                                 "type": "string",
                                                 "default": "0.8,0.5,0.3,0.15",
                                                 "hint": "逗號分隔的概率列表，每個值（0~1）對應第 N 次未回覆的觸發概率。例如填「0.8,0.5,0.3,0.15」表示：第 1 次 → 80%、第 2 次 → 50%、第 3 次 → 30%、第 4 次 → 15%。超出列表長度時，以下方全域預設衰減遞減步長從列表末尾值接續遞減。填單一值如「0.7」則每次未回覆都用同一概率。留空表示不衰減（100% 觸發），填「0」表示只觸發一次就停止"
+                                            },
+                                            "max_unanswered_times": {
+                                                "description": "⛔ 此時段最大未回覆次數上限",
+                                                "type": "int",
+                                                "default": 0,
+                                                "hint": "此時段專屬的最大未回覆次數上限。填 0 表示使用上方全域設定。當配置了此值且大於 0 時，將覆蓋全域的 max_unanswered_times 設定",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 20,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "unanswered_reset_mode": {
+                                                "description": "🔄 未回覆計數模式",
+                                                "type": "string",
+                                                "default": "inherit",
+                                                "options": [
+                                                    "inherit",
+                                                    "reset",
+                                                    "custom"
+                                                ],
+                                                "labels": [
+                                                    "繼承上一時段",
+                                                    "重新計數",
+                                                    "自訂起始值"
+                                                ],
+                                                "hint": "切換到此時段時的未回覆計數處理方式。「繼承」：延續上一時段的計數；「重新計數」：從 0 開始；「自訂起始值」：從下方指定的數字開始累加"
+                                            },
+                                            "unanswered_start_count": {
+                                                "description": "🔢 自訂起始計數值",
+                                                "type": "int",
+                                                "default": 0,
+                                                "hint": "當「未回覆計數模式」選擇「自訂起始值」時，從此數字開始累加。例如填 2 表示進入此時段時未回覆計數從 2 開始",
+                                                "condition": {
+                                                    "unanswered_reset_mode": "custom"
+                                                },
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 20,
+                                                    "step": 1
+                                                }
                                             }
                                         }
                                     }

@@ -20,24 +20,32 @@ def compute_weighted_interval(
 
     優先匹配 ``schedule_rules`` 中的時段規則並加權隨機；
     未匹配時回退到全域 min/max 均勻隨機。
+    支援分鐘級別的時段匹配。
     """
     now = datetime.now(timezone) if timezone else datetime.now()
-    hour = now.hour
+    current_hour = now.hour
+    current_minute = now.minute
 
     for rule in schedule_conf.get("schedule_rules", ()):
         if not isinstance(rule, dict):
             continue
         start_h = rule.get("start_hour", 0)
+        start_m = rule.get("start_minute", 0)
         end_h = rule.get("end_hour", 24)
-        if not _hour_in_range(hour, start_h, end_h):
+        end_m = rule.get("end_minute", 0)
+
+        if not _time_in_range(
+            current_hour, current_minute, start_h, start_m, end_h, end_m
+        ):
             continue
+
         weights_str = (rule.get("interval_weights") or "").strip()
         if not weights_str:
             break  # 規則匹配但 weights 為空 → 回退全域
         interval = _pick_from_weights(weights_str)
         if interval is not None:
             logger.debug(
-                f"{_LOG_TAG} 命中時段規則 {start_h}-{end_h}，"
+                f"{_LOG_TAG} 命中時段規則 {start_h:02d}:{start_m:02d}-{end_h:02d}:{end_m:02d}，"
                 f"加權隨機間隔: {interval // 60} 分鐘。"
             )
             return interval
@@ -62,6 +70,9 @@ def should_trigger_by_unanswered(
     2. ``default_decay_rate``（全域預設遞減步長）
     3. 若以上皆未配置，回退到 ``max_unanswered_times``（硬性上限）
 
+    時段專屬上限：
+    - 若當前時段規則配置了 ``max_unanswered_times`` 且大於 0，將覆蓋全域設定
+
     ``decay_rate`` 格式：逗號分隔的概率列表，每個值對應第 N 次未回覆的觸發概率。
     例如 ``"0.8,0.5,0.3,0.15"``：第 1 次 → 80%、第 2 次 → 50%、第 3 次 → 30%、第 4 次 → 15%。
 
@@ -79,8 +90,8 @@ def should_trigger_by_unanswered(
     if unanswered_count <= 0:
         return True, ""
 
-    # 嘗試從當前時段的排程規則取得逐次概率列表
-    prob_list = _resolve_decay_list(schedule_conf, timezone)
+    # 嘗試從當前時段的排程規則取得逐次概率列表和時段專屬上限
+    prob_list, matched_rule = _resolve_decay_list_and_rule(schedule_conf, timezone)
     idx = unanswered_count - 1  # 第 1 次未回覆 → index 0
 
     # 解析全域預設遞減步長（提前解析，後續多處使用）
@@ -110,13 +121,45 @@ def should_trigger_by_unanswered(
         if idx < len(generated):
             return _roll_probability(generated[idx], unanswered_count, "全域預設衰減")
 
-    # 回退到硬性上限
+    # 回退到硬性上限（優先使用時段專屬上限）
     max_unanswered = schedule_conf.get("max_unanswered_times", 3)
+    if matched_rule:
+        rule_max = matched_rule.get("max_unanswered_times", 0)
+        if rule_max > 0:
+            max_unanswered = rule_max
+            logger.debug(f"{_LOG_TAG} 使用時段專屬上限: {max_unanswered} 次")
+
     if max_unanswered > 0 and unanswered_count >= max_unanswered:
         return False, (
             f"硬性上限：未回覆 {unanswered_count} 次，已達上限 {max_unanswered}，暫停"
         )
     return True, ""
+
+
+def get_time_slot_reset_count(
+    schedule_conf: dict, timezone: zoneinfo.ZoneInfo | None = None
+) -> int | None:
+    """
+    取得當前時段的未回覆計數重置值。
+
+    根據時段規則的 ``unanswered_reset_mode`` 決定：
+    - ``"inherit"``（繼承）：回傳 None，表示不重置
+    - ``"reset"``（重新計數）：回傳 0
+    - ``"custom"``（自訂起始值）：回傳 ``unanswered_start_count`` 的值
+
+    Returns:
+        重置後的計數值，None 表示不重置（繼承上一時段）
+    """
+    _, matched_rule = _resolve_decay_list_and_rule(schedule_conf, timezone)
+    if not matched_rule:
+        return None
+
+    reset_mode = matched_rule.get("unanswered_reset_mode", "inherit")
+    if reset_mode == "reset":
+        return 0
+    if reset_mode == "custom":
+        return max(0, int(matched_rule.get("unanswered_start_count", 0)))
+    return None  # inherit
 
 
 def _roll_probability(
@@ -147,23 +190,50 @@ def _resolve_decay_list(
 
     優先從匹配的時段規則取得，回傳 None 表示未配置。
     注意：此函數不處理 ``default_decay_rate``，由呼叫端自行回退。
+
+    已棄用：請使用 _resolve_decay_list_and_rule 以同時取得匹配的規則。
+    """
+    result, _ = _resolve_decay_list_and_rule(schedule_conf, timezone)
+    return result
+
+
+def _resolve_decay_list_and_rule(
+    schedule_conf: dict, timezone: zoneinfo.ZoneInfo | None = None
+) -> tuple[list[float] | None, dict | None]:
+    """
+    解析當前生效的逐次衰減概率列表，並回傳匹配的規則。
+
+    優先從匹配的時段規則取得，回傳 (None, None) 表示未配置。
+    注意：此函數不處理 ``default_decay_rate``，由呼叫端自行回退。
+    支援分鐘級別的時段匹配。
+
+    Returns:
+        (decay_list, matched_rule)
     """
     now = datetime.now(timezone) if timezone else datetime.now()
-    hour = now.hour
+    current_hour = now.hour
+    current_minute = now.minute
 
     for rule in schedule_conf.get("schedule_rules", ()):
         if not isinstance(rule, dict):
             continue
         start_h = rule.get("start_hour", 0)
+        start_m = rule.get("start_minute", 0)
         end_h = rule.get("end_hour", 24)
-        if not _hour_in_range(hour, start_h, end_h):
+        end_m = rule.get("end_minute", 0)
+
+        if not _time_in_range(
+            current_hour, current_minute, start_h, start_m, end_h, end_m
+        ):
             continue
+
         raw = (rule.get("decay_rate") or "").strip()
         if raw:
-            return _parse_decay_list(raw)
-        break  # 規則匹配但未設定 decay_rate → 回傳 None
+            return _parse_decay_list(raw), rule
+        # 規則匹配但未設定 decay_rate → 回傳 None, rule
+        return None, rule
 
-    return None
+    return None, None
 
 
 def _parse_decay_list(raw: str) -> list[float] | None:
@@ -237,8 +307,45 @@ def _generate_step_decay_list(step: float, min_length: int) -> list[float]:
     return result
 
 
+def _time_in_range(
+    current_hour: int,
+    current_minute: int,
+    start_hour: int,
+    start_minute: int,
+    end_hour: int,
+    end_minute: int,
+) -> bool:
+    """判斷當前時間是否在指定時段內，支援跨日和分鐘級別精度。
+
+    Args:
+        current_hour: 當前小時（0-23）
+        current_minute: 當前分鐘（0-59）
+        start_hour: 開始小時（0-23）
+        start_minute: 開始分鐘（0-59）
+        end_hour: 結束小時（0-24）
+        end_minute: 結束分鐘（0-59）
+
+    Returns:
+        當前時間是否在 [start, end) 區間內
+    """
+    # 將時間轉換為分鐘數（從午夜 00:00 開始計算）
+    current_total = current_hour * 60 + current_minute
+    start_total = start_hour * 60 + start_minute
+    # end_hour 可能為 24（表示午夜），需特殊處理
+    end_total = (end_hour * 60 + end_minute) if end_hour < 24 else 24 * 60
+
+    if start_total <= end_total:
+        # 不跨日：例如 08:30 到 23:45
+        return start_total <= current_total < end_total
+    # 跨日：例如 22:30 到 06:15
+    return current_total >= start_total or current_total < end_total
+
+
 def _hour_in_range(current: int, start: int, end: int) -> bool:
-    """判斷 *current* 是否在 ``[start, end)``，支援跨日。"""
+    """判斷 *current* 是否在 ``[start, end)``，支援跨日。
+
+    已棄用：請使用 _time_in_range 以支援分鐘級別精度。
+    """
     if start <= end:
         return start <= current < end
     return current >= start or current < end

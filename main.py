@@ -290,17 +290,31 @@ class ProactiveChatPlugin(star.Star):
         schedule_conf = session_config.get("schedule_settings", {})
 
         async with self.data_lock:
+            sd = self.session_data.setdefault(session_id, {})
+
             if reset_counter:
-                self.session_data.setdefault(session_id, {})["unanswered_count"] = 0
+                sd["unanswered_count"] = 0
+            else:
+                # 檢查當前時段是否需要重置未回覆計數
+                from .core.scheduler import get_time_slot_reset_count
+
+                reset_count = get_time_slot_reset_count(schedule_conf, self.timezone)
+                if reset_count is not None:
+                    old_count = sd.get("unanswered_count", 0)
+                    sd["unanswered_count"] = reset_count
+                    if old_count != reset_count:
+                        logger.info(
+                            f"{_LOG_TAG} 時段切換：未回覆計數從 {old_count} "
+                            f"{'重置為' if reset_count == 0 else '調整為'} {reset_count}"
+                        )
 
             # 計算加權隨機間隔
             interval = compute_weighted_interval(schedule_conf, self.timezone)
             run_date = self._add_scheduled_job(session_id, interval)
 
             # 持久化下次觸發時間（供重啟後恢復）
-            self.session_data.setdefault(session_id, {})["next_trigger_time"] = (
-                time.time() + interval
-            )
+            sd["next_trigger_time"] = time.time() + interval
+
             logger.info(
                 f"{_LOG_TAG} 已為 {get_session_log_str(session_id, session_config, self.session_data)} "
                 f"安排下一次主動訊息，時間：{run_date.strftime('%Y-%m-%d %H:%M:%S')}。"
