@@ -5,6 +5,19 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/03/09 v2.14.2
+
+## What's Changed
+
+### 改進 (Improve)
+
+- **優化 README 流程圖**：
+  - 簡化主流程圖為橫向佈局，移除冗餘節點
+  - 語境任務生命週期圖改用 flowchart 格式
+  - 為所有流程圖節點添加顏色配置，提升可讀性
+
+---
+
 # 2026/03/08 v2.14.1
 
 ## What's Changed
