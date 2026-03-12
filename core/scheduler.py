@@ -13,7 +13,9 @@ _LOG_TAG = "[主動訊息]"
 
 
 def compute_weighted_interval(
-    schedule_conf: dict, timezone: zoneinfo.ZoneInfo | None = None
+    schedule_conf: dict,
+    timezone: zoneinfo.ZoneInfo | None = None,
+    unanswered_count: int = 0,
 ) -> int:
     """
     根據 ``schedule_settings`` 計算下一次觸發間隔（秒）。
@@ -21,6 +23,13 @@ def compute_weighted_interval(
     優先匹配 ``schedule_rules`` 中的時段規則並加權隨機；
     未匹配時回退到全域 min/max 均勻隨機。
     支援分鐘級別的時段匹配。
+
+    參數:
+        schedule_conf: 排程配置字典
+        timezone: 時區資訊
+        unanswered_count: 當前未回覆次數（從 0 開始）
+
+    回傳: 下一次觸發間隔（秒）
     """
     now = datetime.now(timezone) if timezone else datetime.now()
     current_hour = now.hour
@@ -42,11 +51,11 @@ def compute_weighted_interval(
         weights_str = (rule.get("interval_weights") or "").strip()
         if not weights_str:
             break  # 規則匹配但 weights 為空 → 回退全域
-        interval = _pick_from_weights(weights_str)
+        interval = _pick_from_weights(weights_str, unanswered_count)
         if interval is not None:
             logger.debug(
                 f"{_LOG_TAG} 命中時段規則 {start_h:02d}:{start_m:02d}-{end_h:02d}:{end_m:02d}，"
-                f"加權隨機間隔: {interval // 60} 分鐘。"
+                f"加權隨機間隔: {interval // 60} 分鐘（未回覆次數: {unanswered_count + 1}）。"
             )
             return interval
         break  # 解析失敗 → 回退全域
@@ -351,12 +360,19 @@ def _hour_in_range(current: int, start: int, end: int) -> bool:
     return current >= start or current < end
 
 
-def _pick_from_weights(weights_str: str) -> int | None:
+def _pick_from_weights(weights_str: str, unanswered_count: int = 0) -> int | None:
     """
     解析 ``interval_weights`` 並加權隨機選取間隔（回傳秒數）。
 
     格式: ``"20-30:0.2,30-50:0.5,50-90:0.3"`` （預設分鐘）
     或: ``"30s-60s:0.3,2m-5m:0.5"`` （支援 s=秒, m=分鐘）
+    或: ``"5-20:0.6@1-3,20-60:0.2@4+"`` （支援觸發條件：@N 表示第 N 次，@N-M 表示第 N 到 M 次，@N+ 表示第 N 次及以後）
+
+    參數:
+        weights_str: 權重配置字串
+        unanswered_count: 當前未回覆次數（從 0 開始）
+
+    回傳: 隨機選取的間隔秒數，解析失敗時回傳 None
     """
     try:
         buckets: list[tuple[float, float, float]] = []
@@ -364,7 +380,19 @@ def _pick_from_weights(weights_str: str) -> int | None:
             part = part.strip()
             if not part:
                 continue
-            range_str, w_str = part.split(":")
+
+            # 檢查是否有觸發條件（@符號）
+            if "@" in part:
+                weight_part, condition_part = part.split("@", 1)
+                # 檢查當前未回覆次數是否符合條件
+                if not _match_trigger_condition(
+                    unanswered_count, condition_part.strip()
+                ):
+                    continue  # 不符合條件，跳過此權重配置
+            else:
+                weight_part = part
+
+            range_str, w_str = weight_part.split(":")
             lo_s, hi_s = range_str.split("-")
 
             # 解析數值和單位
@@ -436,3 +464,48 @@ def _to_seconds(value: float, unit: str) -> float:
     else:
         # 預設為分鐘
         return value * 60
+
+
+def _match_trigger_condition(unanswered_count: int, condition: str) -> bool:
+    """
+    檢查未回覆次數是否符合觸發條件。
+
+    支援格式:
+        - "N": 只在第 N 次時觸發（如 "1" 表示第 1 次）
+        - "N-M": 在第 N 到 M 次時觸發（如 "1-3" 表示第 1、2、3 次）
+        - "N+": 在第 N 次及以後觸發（如 "4+" 表示第 4 次及以後）
+
+    參數:
+        unanswered_count: 當前未回覆次數（從 0 開始，第 1 次未回覆時為 0）
+        condition: 觸發條件字串
+
+    回傳: 是否符合條件
+    """
+    try:
+        condition = condition.strip()
+
+        # 格式: "N+" 表示第 N 次及以後
+        if condition.endswith("+"):
+            min_count = int(condition[:-1])
+            # 注意：unanswered_count 從 0 開始，所以第 1 次未回覆時 unanswered_count=0
+            # 條件 "1+" 表示第 1 次及以後，即 unanswered_count >= 0
+            # 條件 "4+" 表示第 4 次及以後，即 unanswered_count >= 3
+            return unanswered_count >= (min_count - 1)
+
+        # 格式: "N-M" 表示第 N 到 M 次
+        if "-" in condition:
+            start_str, end_str = condition.split("-", 1)
+            start = int(start_str)
+            end = int(end_str)
+            # 第 1 次對應 unanswered_count=0，第 M 次對應 unanswered_count=M-1
+            return (start - 1) <= unanswered_count <= (end - 1)
+
+        # 格式: "N" 表示只在第 N 次
+        exact = int(condition)
+        return unanswered_count == (exact - 1)
+
+    except (ValueError, IndexError) as e:
+        logger.warning(
+            f"{_LOG_TAG} 解析觸發條件失敗: {condition}，錯誤: {e}，預設為符合條件。"
+        )
+        return True  # 解析失敗時預設為符合條件，避免影響正常運作

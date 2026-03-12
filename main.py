@@ -300,7 +300,10 @@ class ProactiveChatPlugin(star.Star):
                         )
 
             # 計算加權隨機間隔
-            interval = compute_weighted_interval(schedule_conf, self.timezone)
+            unanswered_count = sd.get("unanswered_count", 0)
+            interval = compute_weighted_interval(
+                schedule_conf, self.timezone, unanswered_count
+            )
             run_date = self._add_scheduled_job(session_id, interval)
 
             # 持久化下次觸發時間（供重啟後恢復）
@@ -450,7 +453,10 @@ class ProactiveChatPlugin(star.Star):
                     time.time() - self.plugin_start_time >= auto_minutes * 60
                 ):
                     schedule_conf = cfg.get("schedule_settings", {})
-                    interval = compute_weighted_interval(schedule_conf, self.timezone)
+                    # 自動觸發時未回覆次數為 0
+                    interval = compute_weighted_interval(
+                        schedule_conf, self.timezone, 0
+                    )
                     run_date = self._add_scheduled_job(captured_sid, interval)
                     logger.info(
                         f"{_LOG_TAG} {get_session_log_str(captured_sid, cfg, self.session_data)} "

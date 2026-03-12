@@ -357,7 +357,10 @@ async def _update_unanswered_and_reschedule(
         # 私聊：安排下一次；群聊由沉默計時器自行處理
         if not is_group_session_id(session_id):
             schedule_conf = session_config.get("schedule_settings", {})
-            interval = compute_weighted_interval(schedule_conf, plugin.timezone)
+            # 使用更新後的未回覆次數
+            interval = compute_weighted_interval(
+                schedule_conf, plugin.timezone, unanswered_count
+            )
             run_date = plugin._add_scheduled_job(session_id, interval)
             sd["next_trigger_time"] = time.time() + interval
             logger.info(
