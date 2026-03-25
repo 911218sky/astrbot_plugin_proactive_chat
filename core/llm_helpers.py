@@ -12,6 +12,8 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from astrbot.api import logger
+from astrbot.core.agent.context.truncator import ContextTruncator
+from astrbot.core.agent.message import Message
 
 from .utils import async_with_umo_fallback
 
@@ -222,6 +224,79 @@ async def safe_prepare_llm_request(context: Context, session_id: str) -> dict | 
         lambda sid: prepare_llm_request(context, sid),
         session_id,
     )
+
+
+async def truncate_history_for_proactive_llm(
+    context: Context, session_id: str, history: list
+) -> list:
+    """在傳送歷史紀錄至 LLM 前裁剪主動訊息對話內容。
+
+    讓主動訊息插件遵循 AstrBot 的上下文壓縮設定（尤其是對話「最大輪數」的規則）。
+    """
+    if not history:
+        return history
+
+    try:
+        astrbot_cfg = context.get_config(umo=session_id)
+        provider_settings = astrbot_cfg.get("provider_settings", {}) or {}
+
+        max_context_length = provider_settings.get("max_context_length", -1)
+        if max_context_length == -1 or max_context_length is None:
+            return history
+
+        try:
+            max_context_length = int(max_context_length)
+        except (TypeError, ValueError):
+            return history
+
+        if max_context_length <= 0:
+            return history
+
+        dequeue_context_length = provider_settings.get("dequeue_context_length", 1)
+        try:
+            dequeue_context_length = int(dequeue_context_length)
+        except (TypeError, ValueError):
+            dequeue_context_length = 1
+
+        dequeue_context_length = min(
+            max(1, dequeue_context_length), max_context_length - 1
+        )
+        if dequeue_context_length <= 0:
+            dequeue_context_length = 1
+
+        truncator = ContextTruncator()
+
+        messages: list[Message] = []
+        for item in history:
+            if not isinstance(item, dict):
+                continue
+            try:
+                messages.append(Message.model_validate(item))
+            except Exception as e:
+                logger.debug(
+                    f"{_LOG_TAG} skip invalid history item for truncation: {e}"
+                )
+
+        if not messages:
+            return history
+
+        truncated_messages = truncator.truncate_by_turns(
+            messages,
+            keep_most_recent_turns=max_context_length,
+            drop_turns=dequeue_context_length,
+        )
+
+        if len(truncated_messages) != len(messages):
+            logger.debug(
+                f"{_LOG_TAG} proactive history truncated: "
+                f"{len(messages)} -> {len(truncated_messages)} "
+                f"(keep_turns={max_context_length}, drop_turns={dequeue_context_length})"
+            )
+
+        return [m.model_dump() for m in truncated_messages]
+    except Exception as e:
+        logger.debug(f"{_LOG_TAG} truncate_history_for_proactive_llm failed: {e}")
+        return history
 
 
 async def call_llm(

@@ -31,6 +31,7 @@ from .llm_helpers import (
     call_llm,
     recall_memories_for_proactive,
     safe_prepare_llm_request,
+    truncate_history_for_proactive_llm,
 )
 from .messaging import sanitize_history_content
 from .scheduler import compute_weighted_interval, should_trigger_by_unanswered
@@ -239,6 +240,11 @@ async def _prepare_and_call_llm(
 
     # 清洗歷史記錄格式（確保 content 欄位一致）
     history = sanitize_history_content(history)
+
+    # 主動回覆需要自行截斷 history，減少上下文長度，避免 LLM 記憶體不足
+    history = await truncate_history_for_proactive_llm(
+        plugin.context, session_id, history
+    )
 
     # 呼叫 LLM
     llm_response = await call_llm(

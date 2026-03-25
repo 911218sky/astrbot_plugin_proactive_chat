@@ -215,3 +215,6 @@ data/
 
 # Kiro
 .kiro/
+
+# Cursor workspace rules and settings
+.cursor/

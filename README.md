@@ -23,300 +23,88 @@
 
 ---
 
-一個為 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 設計的主動訊息插件。Bot 會在會話沉默後，以加權隨機間隔主動發起具有上下文感知、符合人設且包含動態情緒的對話。支援私聊與群聊，所有配置皆可透過 WebUI 操作。
+一個為 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 設計的主動訊息插件。  
+Bot 會在會話沉默後主動開話題，並可依時段、語境、未回覆次數動態調整策略。
+
+## 🚀 快速上手
+
+1. 下載本倉庫 `.zip`，在 AstrBot WebUI 選擇「從檔案安裝」
+2. 進入插件配置，先設定一個目標會話（私聊或群聊）
+3. 填入 `proactive_prompt`（你希望 Bot 主動聊什麼）
+4. 設定排程（建議先用預設值），儲存後開始運作
+
+> 想先驗證是否正常：啟動後觀察日誌是否出現主動訊息排程建立與觸發記錄。
+
+## ✨ 你會得到什麼
+
+- **主動開話題**：不只被動回覆，會在沉默後主動聊天
+- **私聊 / 群聊分離**：兩種場景可獨立配置策略
+- **更像真人**：未回覆時自動衰減、分段發送、可搭配 TTS
+- **語境感知**：可根據用戶訊息推測最佳跟進時間
+- **可持久化**：重啟後可恢復排程狀態
+- **可擴充記憶**：可選整合 [livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory)
 
 ## 🔄 運作流程
 
-```
-用戶發送訊息
-    │
-    ├─ 私聊 ──→ 立即排定下一次主動訊息（加權隨機間隔）
-    │              │
-    │              ├─ 語境感知開啟？──→ LLM 分析語境，額外排定一個預測任務
-    │              │                    （例：「我在看電影」→ 90 分鐘後問好不好看）
-    │              │
-    │              └─ 等待觸發...
-    │
-    └─ 群聊 ──→ 等待群組沉默 N 分鐘
-                   │
-                   └─ 沉默達標 → 排定主動訊息
-                                    │
-                                    └─ 等待觸發...
-
-APScheduler 定時觸發 check_and_chat()
-    │
-    ├─ 免打擾時段？ ──→ 跳過，排定下一次
-    ├─ 未回覆衰減判定 ──→ 概率不通過？跳過，排定下一次
-    ├─ 平台是否存活？ ──→ 未運行？延後重試
-    │
-    └─ 通過所有檢查
-         │
-         ├─ 構造 Prompt（注入時間、未回覆次數、語境提示）
-         ├─ 呼叫 LLM 生成回應
-         ├─ 狀態一致性檢查（LLM 生成期間用戶是否發了新訊息）
-         ├─ 發送訊息（支援 TTS + 分段回覆）
-         └─ 遞增未回覆計數，排定下一次
+```mermaid
+flowchart TD
+    A[用戶發送訊息] --> B{私聊或群聊}
+    B -->|私聊| C[立即排程下一次主動訊息]
+    B -->|群聊| D[等待群組沉默達標後排程]
+    C --> E[定時觸發 check_and_chat]
+    D --> E
+    E --> F{條件檢查}
+    F -->|免打擾/衰減未通過| G[略過並重排]
+    F -->|通過| H[組 Prompt + 呼叫 LLM]
+    H --> I[發送訊息]
+    I --> J[更新未回覆次數並重排]
 ```
 
-### 完整流程圖
+### 語境任務流程
 
 ```mermaid
 flowchart LR
-    Start([用戶發送訊息])
-    Record[記錄時間戳<br/>重置未回覆計數]
-    CheckType{訊息<br/>類型}
-    
-    %% 私聊流程
-    SchedulePrivate[排定下次<br/>主動訊息]
-    CheckContext{語境感知<br/>啟用?}
-    ContextPredict[LLM 分析語境<br/>建立語境任務]
-    
-    %% 群聊流程
-    WaitSilence[等待<br/>沉默達標]
-    ScheduleGroup[排定群聊<br/>主動訊息]
-    
-    %% 主動訊息執行
-    Trigger([定時觸發])
-    CheckConditions{檢查條件<br/>免打擾/衰減/平台}
-    BuildPrompt[構造<br/>Prompt]
-    CheckMemory{記憶整合<br/>啟用?}
-    RecallMemory[檢索<br/>livingmemory]
-    CallLLM[呼叫<br/>LLM]
-    SendMsg[發送<br/>訊息]
-    ScheduleNext[排定<br/>下一次]
-    End([結束])
-    
-    %% 連接
-    Start --> Record --> CheckType
-    CheckType -->|私聊| SchedulePrivate --> CheckContext
-    CheckContext -->|是| ContextPredict --> Trigger
-    CheckContext -->|否| Trigger
-    CheckType -->|群聊| WaitSilence --> ScheduleGroup --> Trigger
-    
-    Trigger --> CheckConditions
-    CheckConditions -->|不通過| End
-    CheckConditions -->|通過| BuildPrompt --> CheckMemory
-    CheckMemory -->|是| RecallMemory --> CallLLM
-    CheckMemory -->|否| CallLLM
-    CallLLM --> SendMsg --> ScheduleNext --> End
-    
-    %% 樣式
-    classDef startEnd fill:#4caf50,stroke:#2e7d32,stroke-width:3px,color:#fff
-    classDef process fill:#2196f3,stroke:#1565c0,stroke-width:2px,color:#fff
-    classDef decision fill:#ff9800,stroke:#e65100,stroke-width:2px,color:#fff
-    classDef context fill:#9c27b0,stroke:#6a1b9a,stroke-width:2px,color:#fff
-    
-    class Start,End startEnd
-    class Record,SchedulePrivate,WaitSilence,ScheduleGroup,BuildPrompt,SendMsg,ScheduleNext process
-    class CheckType,CheckContext,CheckConditions,CheckMemory decision
-    class ContextPredict,RecallMemory,CallLLM context
+    A[用戶新訊息] --> B[LLM 分析語境]
+    B -->|不需要跟進| C[結束]
+    B -->|需要跟進| D[建立語境任務]
+    D --> E{到時間 or 用戶有新互動}
+    E -->|到時間| F[執行主動訊息]
+    E -->|判定已不需要| G[取消任務]
 ```
 
-### 語境任務生命週期
+## ⚙️ 配置說明（先看這幾個）
 
-```mermaid
-flowchart LR
-    Start([開始])
-    待建立[待建立]
-    分析中[分析中]
-    已排程[已排程]
-    執行中[執行中]
-    已完成[已完成]
-    已取消[已取消]
-    已中止[已中止]
-    End([結束])
-    
-    Start -->|用戶發送訊息| 待建立
-    待建立 -->|呼叫 LLM 分析語境| 分析中
-    
-    分析中 -->|需要排程| 已排程
-    分析中 -->|不需排程| End
-    
-    已排程 -->|時間到達| 執行中
-    已排程 -->|LLM 判定應取消| 已取消
-    
-    執行中 -->|訊息發送成功| 已完成
-    執行中 -->|狀態檢查失敗| 已中止
-    
-    已完成 --> End
-    已取消 --> End
-    已中止 --> End
-    
-    Note1["📝 多任務並存<br/>同一會話可同時有<br/>多個語境任務"]
-    Note2["🔍 智慧取消機制<br/>用戶每次發訊息時<br/>並行檢查"]
-    
-    已排程 -.-> Note1
-    已取消 -.-> Note2
-    
-    classDef startEnd fill:#4caf50,stroke:#2e7d32,stroke-width:3px,color:#fff
-    classDef pending fill:#2196f3,stroke:#1565c0,stroke-width:2px,color:#fff
-    classDef processing fill:#9c27b0,stroke:#6a1b9a,stroke-width:2px,color:#fff
-    classDef scheduled fill:#ff9800,stroke:#e65100,stroke-width:2px,color:#fff
-    classDef success fill:#4caf50,stroke:#2e7d32,stroke-width:2px,color:#fff
-    classDef cancelled fill:#757575,stroke:#424242,stroke-width:2px,color:#fff
-    classDef failed fill:#f44336,stroke:#c62828,stroke-width:2px,color:#fff
-    classDef note fill:#fff9c4,stroke:#f57f17,stroke-width:1px,color:#000
-    
-    class Start,End startEnd
-    class 待建立 pending
-    class 分析中,執行中 processing
-    class 已排程 scheduled
-    class 已完成 success
-    class 已取消 cancelled
-    class 已中止 failed
-    class Note1,Note2 note
-```
+### 1) 必填核心
 
-## ✨ 功能特色
-
-### 核心功能
-
-- 多會話支援 — 私聊 + 群聊完全隔離，各自獨立配置
-- 全域配置 + 個性化配置 — 全域設定作為預設，個別會話可覆蓋
-- 動態會話管理 — 使用 `template_list`，不限會話數量，WebUI 自由新增/刪除
-- 持久化 — 重啟後自動恢復排程任務，不遺失狀態
-- 自動觸發 — 插件啟動後若會話無訊息，可自動建立首次排程
-- 記憶整合 — 可選整合 [livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory) 插件，主動訊息生成時檢索長期記憶，讓對話更貼合用戶歷史
-
-### 智慧排程
-
-- 分時段加權隨機 — 透過 `schedule_rules` 定義不同時段的觸發間隔分佈
-- 跨天時段 — 支援如 22:00-06:00 的跨日規則
-- 語境感知排程 — LLM 根據對話內容預測最佳觸發時機（例：「晚安」→ 隔天早上問候）
-- 自訂語境分析 LLM — 可指定獨立的 LLM 平台用於語境分析，節省主模型 token
-- 語境補充提示 — 可附加自訂指示影響語境分析行為
-- 免打擾時段 — 指定時間範圍內不發送主動訊息
-
-### 擬人行為
-
-- 未回覆概率衰減 — 對方不回就逐次降低觸發概率，避免騷擾
-- 分段回覆 — 長文切分為多條短訊息，模擬真人打字節奏
-- 動態情緒 — Prompt 中注入未回覆次數，讓 LLM 自然調整語氣
-- TTS 語音 — 可選將文字轉為語音發送
-
-## 🙏 致謝原作者
-
-本專案基於 [DBJD-CR/astrbot_plugin_proactive_chat](https://github.com/DBJD-CR/astrbot_plugin_proactive_chat) 修改而來，感謝原作者 **DBJD-CR** 及其協作者的出色工作。
-
-> 如果你喜歡這個插件的核心理念，請務必去原倉庫給一顆 ⭐ Star。
-
-### 相較原專案的改進
-
-| 改進項目 | 說明 |
+| 配置項 | 用途 |
 | :--- | :--- |
-| 模組化重構 | 原本 2500+ 行的 `main.py` 拆分為 `core/` 子模組，職責清晰 |
-| 效能優化 | `__slots__`、合併事件處理、減少重複查詢、預編譯正則 |
-| 動態會話管理 | 從固定 5 個槽位改為 `template_list`，不限數量 |
-| 分時段排程 | 新增 `schedule_rules`，不同時段可設定不同的間隔分佈 |
-| 逐次概率衰減 | `decay_rate` 從單一指數衰減改為逐次概率列表，更精細 |
-| 語境感知排程 | 新增 LLM 語境分析，根據對話內容智慧決定觸發時機 |
-| 多語境任務並存 | 同一會話可同時存在多個語境任務，短期跟進不會覆蓋長期早安問候 |
-| 並行取消檢查 | 語境任務取消檢查與歷史取得並行執行，減少延遲 |
-| 記憶整合 | 可選整合 livingmemory 插件，主動訊息帶入長期記憶上下文 |
-| 獨立 LLM 平台 | 語境分析可指定獨立的 LLM 平台，節省主模型 token |
-| Prompt 模板外置 | 語境預測的 prompt 模板抽離至 `core/prompts/`，方便自訂 |
-| 配置精簡 | `_conf_schema.json` 從 ~2500 行縮減至 ~1200 行 |
+| `enable` | 啟用或停用該會話 |
+| `proactive_prompt` | 決定主動聊天風格與動機 |
+| `schedule_settings` | 控制多久觸發、是否衰減、免打擾時段 |
 
-## 🚀 安裝與使用
+### 2) 進階能力
 
-1. 從本倉庫下載 `.zip`，在 AstrBot WebUI 中選擇「從檔案安裝」
-2. 核心依賴 `APScheduler` 和 `aiofiles` 通常已包含在 AstrBot 中
-3. 進入 WebUI → 插件配置，設定目標會話和主動訊息動機
-4. 儲存配置後即可開始使用
-
-## ⚙️ 配置說明
-
-所有配置皆可透過 AstrBot WebUI 操作，以下為主要配置結構：
-
-### 配置層級
-
-```
-├─ private_settings          # 👤 私聊全域配置（作為所有私聊的預設值）
-├─ group_settings            # 👥 群聊全域配置（作為所有群聊的預設值）
-├─ private_sessions          # 👤 私聊會話列表（個別會話可覆蓋全域設定）
-└─ group_sessions            # 👥 群聊會話列表（個別會話可覆蓋全域設定）
-```
-
-每個會話配置（無論全域或個別）都包含以下子項：
-
-| 配置區塊 | 說明 |
+| 配置項 | 用途 |
 | :--- | :--- |
-| `enable` | 是否啟用此會話的主動訊息 |
-| `auto_trigger_settings` | 插件啟動後自動觸發的設定 |
-| `proactive_prompt` | 主動訊息的動機 Prompt（指導 LLM 如何發起對話） |
-| `schedule_settings` | 排程相關：間隔、免打擾、衰減、分時段規則 |
-| `tts_settings` | TTS 語音合成設定 |
-| `context_aware_settings` | 語境感知排程設定 |
-| `segmented_reply_settings` | 分段回覆設定 |
+| `context_aware_settings` | 依語境預測跟進時機 |
+| `segmented_reply_settings` | 長訊息切段發送 |
+| `tts_settings` | 啟用語音輸出 |
 
-### Prompt 佔位符
+### 3) Prompt 佔位符
 
-在 `proactive_prompt` 中可使用以下佔位符：
-
-| 佔位符 | 說明 | 範例值 |
-| :--- | :--- | :--- |
-| `{{current_time}}` | 當前時間 | `2025年06月15日 14:30` |
-| `{{unanswered_count}}` | Bot 連續未被回覆的次數 | `2` |
-| `{{last_reply_time}}` | 使用者最後回覆的時間（含經過時長） | `2025年06月15日 12:00（2小時30分鐘前）` |
-
-### schedule_rules 分時段排程
-
-在 `schedule_settings` 中可新增多條時段規則，每條規則定義該時段的觸發間隔分佈與衰減策略：
-
-```
-start_hour: 8
-end_hour: 24
-interval_weights: "30-60:0.3,60-120:0.4,120-240:0.2,240-480:0.1"
-decay_rate: "0.8,0.5,0.3,0.15"
-```
-
-上述範例表示在 08:00-24:00 時段內：
-
-- `interval_weights`（觸發間隔）：30% 機率等 30-60 分鐘、40% 等 60-120 分鐘、20% 等 120-240 分鐘、10% 等 240-480 分鐘
-- `decay_rate`（未回覆衰減）：第 1 次未回覆 → 80% 觸發、第 2 次 → 50%、第 3 次 → 30%、第 4 次 → 15%
-
-兩者的關係：`interval_weights` 決定「等多久」，`decay_rate` 決定「要不要發」。
-
-### 未回覆衰減機制
-
-`decay_rate` 是逗號分隔的概率列表，每個值對應第 N 次未回覆時的觸發概率：
-
-| `decay_rate` 值 | 效果 |
+| 佔位符 | 說明 |
 | :--- | :--- |
-| `""` (留空) | 不衰減，每次都 100% 觸發 |
-| `"0.8,0.5,0.3,0.15"` | 逐次遞減：80% → 50% → 30% → 15% |
-| `"0.7"` | 每次未回覆都用 70% 概率 |
-| `"0"` | 只觸發一次就停止 |
+| `{{current_time}}` | 當前時間 |
+| `{{unanswered_count}}` | 連續未被回覆次數 |
+| `{{last_reply_time}}` | 使用者上次回覆時間（含經過時長） |
 
-衰減率解析優先順序：
-1. 當前匹配的 `schedule_rules` 中的 `decay_rate` 列表
-2. `default_decay_rate`（列表用盡後的回退概率）
-3. 以上皆未配置 → 回退到 `max_unanswered_times` 硬性上限
+### 4) `schedule_rules` 一句話理解
 
-### 語境感知排程
+- `interval_weights`：決定「等多久再發」
+- `decay_rate`：決定「這次要不要發」
+- 兩者一起用，就能做出更自然的主動聊天節奏
 
-啟用 `context_aware_settings` 後，每次用戶發訊息時 LLM 會分析對話語境，預測最佳的跟進時機：
-
-| 用戶訊息 | LLM 預測行為 |
-| :--- | :--- |
-| 「我在看電影」 | 約 90-120 分鐘後問「電影好看嗎？」 |
-| 「晚安」 | 約 7-9 小時後早安問候 |
-| 「我去開會了」 | 約 30-90 分鐘後關心會議情況 |
-| 「在通勤」 | 約 20-60 分鐘後問是否到了 |
-| 普通閒聊 | 不額外排程，使用原有隨機排程 |
-
-此功能與原有的隨機排程並行運作，且同一會話可同時存在多個語境任務（例如短期跟進 + 長期早安問候不會互相覆蓋）。當用戶發新訊息時，會自動並行檢查所有已排定的語境任務是否應取消（例如用戶說「看完了」→ 取消「問電影好不好看」的排程）。
-
-### 語境感知進階設定
-
-| 設定項 | 說明 |
-| :--- | :--- |
-| `llm_provider_id` | 指定語境分析使用的 LLM 平台（WebUI 下拉選擇）。留空使用預設。建議指定較便宜的模型以節省 token |
-| `extra_prompt` | 附加到語境分析 prompt 末尾的補充指示。例如：「如果用戶提到運動，延遲設為 60-90 分鐘」 |
-| `enable_memory` | 啟用/停用 livingmemory 記憶檢索（需安裝 livingmemory 插件，未安裝時自動跳過） |
-| `memory_top_k` | 每次檢索的記憶條數（1-20），啟用記憶後可見 |
-
-## � 聊天指令
+## 💬 聊天指令
 
 在聊天中輸入以下指令即可與插件互動：
 
@@ -324,6 +112,15 @@ decay_rate: "0.8,0.5,0.3,0.15"
 | :--- | :--- |
 | `/proactive help` | 顯示可用指令列表 |
 | `/proactive tasks` | 列出當前所有待執行的主動訊息排程任務（含一般排程、語境預測任務） |
+
+## 📁 配置結構（概念）
+
+```
+├─ private_settings    # 私聊全域預設
+├─ group_settings      # 群聊全域預設
+├─ private_sessions    # 私聊個別覆蓋
+└─ group_sessions      # 群聊個別覆蓋
+```
 
 ## 📁 專案結構
 
@@ -348,6 +145,10 @@ astrbot_plugin_proactive_chat_plus/
 ├── CHANGELOG.md               # 更新日誌
 └── LICENSE                    # AGPL-3.0
 ```
+
+## 🙏 致謝原作者
+
+本專案基於 [DBJD-CR/astrbot_plugin_proactive_chat](https://github.com/DBJD-CR/astrbot_plugin_proactive_chat) 修改，感謝原作者與協作者。
 
 ## 🌐 平台適配
 

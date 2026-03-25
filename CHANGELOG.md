@@ -5,6 +5,32 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/03/25 v2.16.0
+
+## What's Changed
+
+### 新增 (Feat)
+
+- **主動訊息歷史對話裁剪**：
+  - `core/llm_helpers.py` 新增 `truncate_history_for_proactive_llm()`，在主動訊息送入 LLM 前先裁剪 history
+  - 讀取 AstrBot `provider_settings.max_context_length` 與 `dequeue_context_length`，以對話輪數規則裁剪上下文
+  - 透過 `ContextTruncator` 與 `Message.model_validate()` 保持與 AstrBot 既有上下文處理邏輯一致
+
+### 改進 (Improve)
+
+- **主動訊息執行流程優化**：
+  - `core/chat_executor.py` 在 `_prepare_and_call_llm()` 中整合歷史紀錄裁剪步驟
+  - 歷史清洗後再進行裁剪，降低主動訊息場景的上下文過長與記憶體壓力
+
+### 文件 (Docs)
+
+- **README 與 AGENTS 文件優化**：
+  - `README.md` 新增「版本資訊」、「最近更新」與「維護者更新流程」章節
+  - 修正聊天指令章節標題的顯示異常字元
+  - `AGENTS.md` 新增「文件維護重點」與「版本更新標準流程」，明確規範版本與文件同步更新步驟
+
+---
+
 # 2026/03/12 v2.15.0
 
 ## What's Changed
