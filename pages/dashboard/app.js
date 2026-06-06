@@ -70,6 +70,53 @@
     showToast._timer = setTimeout(() => el.classList.remove("visible"), 2600);
   }
 
+  function readTheme() {
+    try {
+      const bridge = window.AstrBotPluginPage;
+      if (bridge && typeof bridge.getContext === "function") {
+        const ctx = bridge.getContext();
+        if (ctx && typeof ctx.isDark === "boolean") return ctx.isDark ? "dark" : "light";
+      }
+    } catch (_) {}
+    try {
+      const stored = localStorage.getItem("proactive_chat_theme");
+      if (stored) return stored;
+    } catch (_) {}
+    return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+      ? "dark"
+      : "light";
+  }
+
+  function applyTheme(theme) {
+    document.documentElement.setAttribute("data-theme", theme);
+    const darkIcon = byId("theme-icon-dark");
+    const lightIcon = byId("theme-icon-light");
+    if (darkIcon && lightIcon) {
+      darkIcon.classList.toggle("hidden", theme === "light");
+      lightIcon.classList.toggle("hidden", theme === "dark");
+    }
+  }
+
+  function toggleTheme() {
+    const current = document.documentElement.getAttribute("data-theme") || "light";
+    const next = current === "light" ? "dark" : "light";
+    applyTheme(next);
+    try {
+      localStorage.setItem("proactive_chat_theme", next);
+    } catch (_) {}
+  }
+
+  function listenBridgeTheme() {
+    try {
+      const bridge = window.AstrBotPluginPage;
+      if (!bridge || typeof bridge.onContext !== "function") return;
+      bridge.onContext((ctx) => {
+        if (!ctx || typeof ctx.isDark !== "boolean") return;
+        applyTheme(ctx.isDark ? "dark" : "light");
+      });
+    } catch (_) {}
+  }
+
   function askConfirm(message, title) {
     const dialog = byId("confirm-dialog");
     const titleEl = byId("confirm-title");
@@ -144,6 +191,17 @@
     return `${minutes} 分`;
   }
 
+  function taskTone(type) {
+    if (type === "context" || type === "context_orphan") return "tone-context";
+    if (type === "auto_trigger" || type === "group_idle") return "tone-waiting";
+    return "tone-regular";
+  }
+
+  function isEditingDescription() {
+    const active = document.activeElement;
+    return Boolean(active && active.matches && active.matches(".description-edit"));
+  }
+
   function searchableText(task) {
     return [
       task.title,
@@ -197,8 +255,10 @@
     byId("metric-context").textContent = summary.context_count || 0;
     byId("metric-timers").textContent =
       (summary.auto_trigger_count || 0) + (summary.group_idle_count || 0);
+    const pill = byId("scheduler-pill");
+    pill.textContent = summary.scheduler_running ? "運行中" : "未運行";
+    pill.classList.toggle("is-off", !summary.scheduler_running);
     byId("subtitle").textContent = [
-      summary.scheduler_running ? "排程器運行中" : "排程器未運行",
       `時區：${summary.timezone || "local"}`,
       `更新：${summary.generated_at || ""}`,
     ].join(" · ");
@@ -207,8 +267,9 @@
   function renderTasks() {
     const body = byId("task-body");
     const tasks = filteredTasks();
+    byId("result-count").textContent = `${tasks.length} / ${state.tasks.length} 個任務`;
     if (!tasks.length) {
-      body.innerHTML = '<tr><td colspan="7" class="empty">沒有符合條件的任務</td></tr>';
+      body.innerHTML = '<tr><td colspan="6" class="table-empty">沒有符合條件的任務</td></tr>';
       return;
     }
 
@@ -216,11 +277,12 @@
       .map((task) => {
         const typeLabel = TYPE_LABELS[task.type] || task.type || "未知";
         const enabled = task.enabled ? "已啟用" : "未啟用";
-        const messageType = task.message_type ? ` · ${escapeHtml(task.message_type)}` : "";
-        const target = task.target_id ? ` · ${escapeHtml(task.target_id)}` : "";
+        const messageType = task.message_type ? escapeHtml(task.message_type) : "未知類型";
+        const target = task.target_id ? escapeHtml(task.target_id) : "";
         const detail = task.detail || (task.extra && task.extra.hint) || "";
         const canDelete = ["regular", "context", "context_orphan", "auto_trigger", "group_idle"].includes(task.type);
         const canReschedule = ["regular", "context", "auto_trigger", "group_idle"].includes(task.type);
+        const canEditDescription = ["regular", "context", "auto_trigger", "group_idle"].includes(task.type);
         const canRunNow = Boolean(task.enabled);
         const rescheduleTitle = ["auto_trigger", "group_idle"].includes(task.type)
           ? "使用上方時間改為手動排程"
@@ -228,25 +290,38 @@
         const lastMessage = task.last_message_time
           ? `<span class="meta">最後訊息：${escapeHtml(task.last_message_time)}</span>`
           : "";
+        const remaining = formatRemaining(task.remaining_seconds) || "未知";
         return `
           <tr data-task-id="${escapeHtml(task.id)}" data-task-type="${escapeHtml(task.type)}" data-session-id="${escapeHtml(task.session_id)}">
-            <td><span class="badge ${escapeHtml(task.type)}">${escapeHtml(typeLabel)}</span></td>
             <td>
               <div class="session">
                 <strong>${escapeHtml(task.session_label || task.session_id)}</strong>
-                <span class="meta">${escapeHtml(enabled)}${messageType}${target}</span>
+                <span class="meta">${escapeHtml(enabled)} · ${messageType}${target ? ` · ${target}` : ""}</span>
                 ${lastMessage}
               </div>
             </td>
-            <td>${escapeHtml(task.next_run_time || "未知")}</td>
-            <td>${escapeHtml(formatRemaining(task.remaining_seconds) || "未知")}</td>
-            <td>${escapeHtml(task.unanswered_count || 0)}</td>
-            <td class="detail">${escapeHtml(detail || "無描述")}</td>
+            <td>
+              <div class="task-kind ${taskTone(task.type)}">
+                <span class="badge ${escapeHtml(task.type)}">${escapeHtml(typeLabel)}</span>
+                <strong>${escapeHtml(task.title || typeLabel)}</strong>
+              </div>
+            </td>
+            <td>
+              <div class="time-cell">
+                <strong>${escapeHtml(remaining)}</strong>
+                <span class="meta">${escapeHtml(task.next_run_time || "未知")}</span>
+              </div>
+            </td>
+            <td><span class="count-pill">${escapeHtml(task.unanswered_count || 0)}</span></td>
+            <td class="detail-cell">
+              <textarea class="description-edit" data-role="description" rows="3" maxlength="800" ${canEditDescription ? "" : "disabled"} placeholder="填寫這個任務要提醒或接續的內容">${escapeHtml(detail || "")}</textarea>
+            </td>
             <td>
               <div class="row-actions">
-                <button type="button" data-action="run-now" ${canRunNow ? "" : "disabled"} title="${canRunNow ? "立即檢查發送條件" : "會話未啟用"}">檢查</button>
-                <button type="button" data-action="reschedule" ${canReschedule ? "" : "disabled"} title="${escapeHtml(rescheduleTitle)}">改期</button>
-                <button type="button" data-action="delete" ${canDelete ? "" : "disabled"} class="danger" title="刪除任務">刪除</button>
+                <button class="btn btn-secondary btn-sm" type="button" data-action="run-now" ${canRunNow ? "" : "disabled"} title="${canRunNow ? "立即檢查發送條件" : "會話未啟用"}">檢查</button>
+                <button class="btn btn-secondary btn-sm" type="button" data-action="reschedule" ${canReschedule ? "" : "disabled"} title="${escapeHtml(rescheduleTitle)}">改期</button>
+                <button class="btn btn-secondary btn-sm" type="button" data-action="save-description" ${canEditDescription ? "" : "disabled"} title="保存此任務描述">保存描述</button>
+                <button class="btn btn-danger btn-sm" type="button" data-action="delete" ${canDelete ? "" : "disabled"} title="刪除任務">刪除</button>
               </div>
             </td>
           </tr>
@@ -255,19 +330,24 @@
       .join("");
   }
 
-  function readSchedulePayload() {
+  function readSchedulePayload(descriptionOverride) {
     const runAt = byId("run-at-input").value;
     const delay = byId("delay-input").value;
+    const description =
+      descriptionOverride == null
+        ? byId("description-input").value.trim()
+        : String(descriptionOverride).trim();
     return {
       run_at: runAt || "",
       delay_minutes: runAt ? "" : delay,
+      description,
     };
   }
 
   function scheduleDescription() {
     const runAt = byId("run-at-input").value;
-    if (runAt) return `指定時間 ${runAt}`;
-    return `${byId("delay-input").value || 10} 分鐘後`;
+    if (runAt) return `上方「指定時間」：${runAt}`;
+    return `上方「延遲分鐘」：${byId("delay-input").value || 10} 分鐘後`;
   }
 
   async function createTask() {
@@ -301,7 +381,7 @@
 
     if (action === "delete" && !(await askConfirm("確定刪除此任務？", "刪除任務"))) return;
     if (action === "reschedule") {
-      if (!(await askConfirm(`確定將此任務改到 ${scheduleDescription()}？`, "修改任務時間"))) return;
+      if (!(await askConfirm(`確定將此任務改到 ${scheduleDescription()}？\n會一併使用這一列目前填寫的任務描述。`, "修改任務時間"))) return;
     }
 
     await withButtonBusy(button, async () => {
@@ -309,12 +389,21 @@
         await apiPost("tasks/action", { action: "run_now", ...payload });
         showToast("已送出立即檢查");
       } else if (action === "reschedule") {
+        const textarea = row.querySelector('[data-role="description"]');
         await apiPost("tasks/action", {
           action: "reschedule",
           ...payload,
-          ...readSchedulePayload(),
+          ...readSchedulePayload(textarea ? textarea.value : ""),
         });
         showToast("任務時間已更新");
+      } else if (action === "save-description") {
+        const textarea = row.querySelector('[data-role="description"]');
+        await apiPost("tasks/action", {
+          action: "update_description",
+          ...payload,
+          description: textarea ? textarea.value.trim() : "",
+        });
+        showToast("任務描述已保存");
       } else if (action === "delete") {
         await apiPost("tasks/action", { action: "delete", ...payload });
         showToast("任務已刪除");
@@ -335,7 +424,7 @@
     } catch (error) {
       byId("subtitle").textContent = error.message || "載入失敗";
       byId("task-body").innerHTML =
-        `<tr><td colspan="7" class="empty">${escapeHtml(error.message || "載入失敗")}</td></tr>`;
+        `<tr><td colspan="6" class="table-empty">${escapeHtml(error.message || "載入失敗")}</td></tr>`;
       showToast(error.message || "載入失敗");
     }
   }
@@ -344,13 +433,36 @@
     clearInterval(state.timer);
     state.timer = null;
     if (byId("auto-refresh").checked) {
-      state.timer = setInterval(() => refresh(false), 10000);
+      state.timer = setInterval(() => {
+        if (!isEditingDescription()) refresh(false);
+      }, 10000);
     }
   }
 
   function bindEvents() {
+    byId("theme-toggle").addEventListener("click", toggleTheme);
+    document.querySelectorAll(".nav-item[data-scroll-target]").forEach((item) => {
+      item.addEventListener("click", () => {
+        document.querySelectorAll(".nav-item[data-scroll-target]").forEach((nav) => {
+          nav.classList.toggle("active", nav === item);
+        });
+        const target = byId(item.dataset.scrollTarget);
+        if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
+      });
+    });
     byId("refresh-button").addEventListener("click", () => refresh(true));
     byId("auto-refresh").addEventListener("change", syncAutoRefresh);
+    byId("reset-filter-button").addEventListener("click", () => {
+      state.filter = "all";
+      state.sessionFilter = "all";
+      state.enabledFilter = "all";
+      state.query = "";
+      byId("type-filter").value = "all";
+      byId("session-filter").value = "all";
+      byId("enabled-filter").value = "all";
+      byId("search-input").value = "";
+      renderTasks();
+    });
     byId("type-filter").addEventListener("change", (event) => {
       state.filter = event.target.value;
       renderTasks();
@@ -387,6 +499,8 @@
   }
 
   document.addEventListener("DOMContentLoaded", () => {
+    applyTheme(readTheme());
+    listenBridgeTheme();
     bindEvents();
     syncAutoRefresh();
     refresh(false);

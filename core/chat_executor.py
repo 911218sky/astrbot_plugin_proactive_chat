@@ -487,6 +487,14 @@ def _build_final_prompt(
             f"建議的跟進話題：{ctx_hint}\n"
             f"請將這個語境自然地融入你的訊息中。"
         )
+    else:
+        task_description = _active_task_description(plugin, session_id)
+        if task_description:
+            final_prompt += (
+                f"\n\n[排程任務描述]\n"
+                f"{task_description}\n"
+                f"請將這個任務描述自然地融入你的主動訊息中。"
+            )
 
     return final_prompt, ctx_task
 
@@ -518,6 +526,22 @@ def _find_context_task(
         return None
     task_list = plugin._pending_context_tasks.get(session_id, [])
     return next((t for t in task_list if t.get("job_id") == ctx_job_id), None)
+
+
+def _active_task_description(plugin: ProactiveChatPlugin, session_id: str) -> str:
+    """回傳目前會話待執行任務的補充描述。"""
+    session_info = plugin.session_data.get(session_id, {})
+    if not isinstance(session_info, dict):
+        return ""
+    for key in (
+        "task_description",
+        "auto_trigger_description",
+        "group_idle_description",
+    ):
+        description = str(session_info.get(key) or "").strip()
+        if description:
+            return description
+    return ""
 
 
 async def _inject_memory(

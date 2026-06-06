@@ -86,6 +86,8 @@ class PluginPageApi:
                 result = await self._delete_task(payload)
             elif action == "run_now":
                 result = await self._run_now(payload)
+            elif action == "update_description":
+                result = await self._update_description(payload)
             else:
                 return self._error("未知操作")
             return self._ok(result)
@@ -155,12 +157,15 @@ class PluginPageApi:
     ) -> dict[str, Any]:
         session_id = self._resolve_session_from_payload(payload)
         run_date = self._parse_run_date(payload)
+        description = self._clean_description(payload.get("description"))
 
         if require_task:
             task_id = str(payload.get("task_id") or "").strip()
             task_type = str(payload.get("task_type") or "").strip()
             if task_type == "context":
-                return await self._reschedule_context_task(task_id, session_id, run_date)
+                return await self._reschedule_context_task(
+                    task_id, session_id, run_date, description
+                )
             if task_type in {"auto_trigger", "group_idle"}:
                 self._cancel_timer_task(task_type, session_id)
             elif task_type == "regular":
@@ -176,6 +181,12 @@ class PluginPageApi:
         async with self.plugin.data_lock:
             sd = self.plugin.session_data.setdefault(session_id, {})
             sd["next_trigger_time"] = time.time() + delay_seconds
+            if description:
+                sd["task_description"] = description
+            elif require_task:
+                sd.pop("task_description", None)
+            if require_task and task_type in {"auto_trigger", "group_idle"}:
+                sd.pop(f"{task_type}_description", None)
             await self.plugin._save_data()
 
         logger.info(
@@ -185,7 +196,11 @@ class PluginPageApi:
         return {"session_id": session_id, "next_run_time": self._format_datetime(run_date)}
 
     async def _reschedule_context_task(
-        self, task_id: str, session_id: str, run_date: datetime
+        self,
+        task_id: str,
+        session_id: str,
+        run_date: datetime,
+        description: str,
     ) -> dict[str, Any]:
         if not task_id:
             raise ValueError("缺少任務 ID")
@@ -196,6 +211,12 @@ class PluginPageApi:
         for task in self.plugin._pending_context_tasks.get(session_id, []):
             if isinstance(task, dict) and str(task.get("job_id", "")) == task_id:
                 task["run_at"] = run_date.isoformat()
+                if description:
+                    task["reason"] = description
+                    task["hint"] = description
+                else:
+                    task.pop("reason", None)
+                    task.pop("hint", None)
                 found = True
                 break
         if not found:
@@ -250,11 +271,72 @@ class PluginPageApi:
                 await self.plugin._save_data()
         elif task_type in {"auto_trigger", "group_idle"} and session_id:
             removed = self._cancel_timer_task(task_type, session_id) or removed
+            if removed:
+                async with self.plugin.data_lock:
+                    sd = self.plugin.session_data.get(session_id)
+                    if isinstance(sd, dict):
+                        sd.pop(f"{task_type}_description", None)
+                    await self.plugin._save_data()
 
         if not removed:
             raise ValueError("找不到可刪除的任務")
         logger.info(f"{_LOG_TAG} Web 任務頁已刪除任務 {task_id}")
         return {"task_id": task_id}
+
+    async def _update_description(self, payload: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(payload.get("task_id") or "").strip()
+        task_type = str(payload.get("task_type") or "").strip()
+        session_id = self._resolve_session_from_payload(payload)
+        description = self._clean_description(payload.get("description"))
+        if not task_id:
+            raise ValueError("缺少任務 ID")
+
+        if task_type == "regular":
+            if not self.plugin.scheduler or not self.plugin.scheduler.get_job(task_id):
+                raise ValueError("找不到指定一般排程任務")
+            async with self.plugin.data_lock:
+                sd = self.plugin.session_data.setdefault(session_id, {})
+                if description:
+                    sd["task_description"] = description
+                else:
+                    sd.pop("task_description", None)
+                await self.plugin._save_data()
+        elif task_type == "context":
+            async with self.plugin.data_lock:
+                found = False
+                for task in self.plugin._pending_context_tasks.get(session_id, []):
+                    if isinstance(task, dict) and str(task.get("job_id", "")) == task_id:
+                        task["reason"] = description
+                        task["hint"] = description
+                        found = True
+                        break
+                if not found:
+                    raise ValueError("找不到指定語境任務")
+                sd = self.plugin.session_data.setdefault(session_id, {})
+                sd["pending_context_tasks"] = self.plugin._pending_context_tasks.get(
+                    session_id, []
+                )
+                await self.plugin._save_data()
+        elif task_type in {"auto_trigger", "group_idle"}:
+            timers = {
+                "auto_trigger": self.plugin.auto_trigger_timers,
+                "group_idle": self.plugin.group_timers,
+            }.get(task_type, {})
+            if session_id not in timers:
+                raise ValueError("找不到指定等待計時器")
+            async with self.plugin.data_lock:
+                sd = self.plugin.session_data.setdefault(session_id, {})
+                key = f"{task_type}_description"
+                if description:
+                    sd[key] = description
+                else:
+                    sd.pop(key, None)
+                await self.plugin._save_data()
+        else:
+            raise ValueError("不支援修改此任務類型")
+
+        logger.info(f"{_LOG_TAG} Web 任務頁已更新任務描述 {task_id}")
+        return {"task_id": task_id, "description": description}
 
     async def _run_now(self, payload: dict[str, Any]) -> dict[str, Any]:
         session_id = self._resolve_session_from_payload(payload)
@@ -366,7 +448,8 @@ class PluginPageApi:
                     task_type=task_type,
                     title="一般主動訊息",
                     next_run_time=next_run_time,
-                    detail="依照排程設定觸發",
+                    detail=self._session_task_description(session_id)
+                    or "依照排程設定觸發",
                 )
             )
         return result
@@ -447,7 +530,8 @@ class PluginPageApi:
                     task_type=task_type,
                     title=title,
                     next_run_time=next_ts,
-                    detail="等待條件成立後建立正式排程；改期後會轉為一般排程",
+                    detail=self._session_task_description(session_id, task_type)
+                    or "等待條件成立後建立正式排程；改期後會轉為一般排程",
                     extra={"remaining_seconds": int(remaining) if remaining else 0},
                 )
             )
@@ -522,6 +606,17 @@ class PluginPageApi:
                 add(session_id, get_session_config(self.plugin.config, session_id), settings_key)
 
         return sorted(sessions.values(), key=lambda item: item["label"])
+
+    def _clean_description(self, value: Any) -> str:
+        return str(value or "").strip()[:800]
+
+    def _session_task_description(self, session_id: str, task_type: str = "regular") -> str:
+        session_info = self.plugin.session_data.get(session_id, {})
+        if not isinstance(session_info, dict):
+            return ""
+        if task_type in {"auto_trigger", "group_idle"}:
+            return str(session_info.get(f"{task_type}_description") or "").strip()
+        return str(session_info.get("task_description") or "").strip()
 
     def _current_loop_time(self, timers: dict[str, Any]) -> float | None:
         try:

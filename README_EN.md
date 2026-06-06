@@ -23,11 +23,15 @@
 
 A proactive messaging plugin for [AstrBot](https://github.com/AstrBotDevs/AstrBot) that enables your Bot to initiate context-aware, persona-consistent conversations with dynamic emotions at random intervals after session silence.
 
-Current version: `v2.18.3`
+Current version: `v2.18.6`
 
 Recent updates:
 
 - Upgraded the AstrBot Pages task dashboard into a task management UI with filters, create, reschedule, run-check, and delete actions.
+- Added editable task descriptions. Manual schedule descriptions are injected into proactive generation.
+- Restyled the dashboard after the livingmemory AstrBot Pages UI, including sidebar navigation, theme switching, and denser task tables.
+- Auto-trigger and group-idle task descriptions are now also injected into proactive generation.
+- Refined the dashboard UI for clearer summaries, filters, schedule creation, and task scanning.
 - Improved livingmemory integration with session/persona filtering support.
 - Changed the default `decay_rate` to empty, meaning no decay by default.
 - Clarified QQ/Telegram session hints and empty states in the task dashboard.
@@ -114,6 +118,7 @@ The plugin provides a Pages dashboard in AstrBot WebUI for checking and managing
 - Group silence timers
 - Filters by keyword, task type, session type, and enabled status
 - Create regular one-shot schedules, reschedule tasks, run a session check immediately, or delete waiting tasks
+- Add, edit, or clear task descriptions directly from the dashboard
 
 ### 6. Dedicated LLM Provider for Context Analysis
 

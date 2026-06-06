@@ -7,120 +7,192 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <header class="topbar">
-        <div>
-          <h1>主動訊息任務</h1>
-          <p id="subtitle">載入中</p>
-        </div>
-        <div class="actions">
-          <button id="refresh-button" type="button" title="重新整理">刷新</button>
-          <label class="toggle">
+    <div id="app">
+      <aside class="sidebar">
+        <div class="sidebar-brand">Proactive Chat</div>
+        <nav class="sidebar-nav">
+          <button class="nav-item active" type="button" data-scroll-target="tasks-panel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M8 6h13M8 12h13M8 18h13" />
+              <path d="M3 6h.01M3 12h.01M3 18h.01" />
+            </svg>
+            <span>任務看板</span>
+          </button>
+          <button class="nav-item" type="button" data-scroll-target="create-panel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span>新增排程</span>
+          </button>
+          <button class="nav-item" type="button" data-scroll-target="filter-panel">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 3H2l8 9.5V20l4 2v-9.5L22 3Z" />
+            </svg>
+            <span>篩選任務</span>
+          </button>
+        </nav>
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-footer">
+          <button class="nav-item" id="theme-toggle" type="button">
+            <svg id="theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z" />
+            </svg>
+            <svg id="theme-icon-light" class="hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+            </svg>
+            <span>主題</span>
+          </button>
+          <label class="nav-item nav-toggle">
             <input id="auto-refresh" type="checkbox" checked />
             <span>自動刷新</span>
           </label>
         </div>
-      </header>
+      </aside>
 
-      <section class="summary-grid" aria-label="任務摘要">
-        <div class="metric">
-          <span class="metric-label">全部任務</span>
-          <strong id="metric-total">0</strong>
-        </div>
-        <div class="metric">
-          <span class="metric-label">一般排程</span>
-          <strong id="metric-regular">0</strong>
-        </div>
-        <div class="metric">
-          <span class="metric-label">語境預測</span>
-          <strong id="metric-context">0</strong>
-        </div>
-        <div class="metric">
-          <span class="metric-label">等待計時器</span>
-          <strong id="metric-timers">0</strong>
-        </div>
-      </section>
-
-      <section class="toolbar" aria-label="篩選">
-        <input id="search-input" type="search" placeholder="搜尋會話、任務、原因" />
-        <select id="type-filter" aria-label="任務類型">
-          <option value="all">全部類型</option>
-          <option value="regular">一般排程</option>
-          <option value="context">語境預測</option>
-          <option value="auto_trigger">自動觸發</option>
-          <option value="group_idle">群聊沉默</option>
-          <option value="context_orphan">未追蹤語境</option>
-        </select>
-        <select id="session-filter" aria-label="會話類型">
-          <option value="all">全部會話</option>
-          <option value="private">私聊</option>
-          <option value="group">群聊</option>
-        </select>
-        <select id="enabled-filter" aria-label="啟用狀態">
-          <option value="all">全部狀態</option>
-          <option value="enabled">已啟用</option>
-          <option value="disabled">未啟用</option>
-        </select>
-      </section>
-
-      <section class="task-editor" aria-label="新增任務">
-        <div class="section-head">
-          <div>
-            <h2>新增手動排程</h2>
-            <p>訊息內容會使用該會話在插件配置中的主動訊息 Prompt 生成，執行時仍會套用免打擾與衰減規則。</p>
+      <main class="main-content">
+        <header class="page-header">
+          <div class="page-title-group">
+            <span class="page-title">主動訊息任務</span>
+            <span id="subtitle" class="page-subtitle">正在讀取排程狀態</span>
           </div>
-        </div>
-        <div class="editor-grid">
-          <label>
-            <span>會話</span>
-            <select id="session-select"></select>
-            <small>選擇已啟用的私聊或群聊；支援 QQ、Telegram 與其他 AstrBot 會話。</small>
-          </label>
-          <label>
-            <span>延遲分鐘</span>
-            <input id="delay-input" type="number" min="1" step="1" value="10" />
-            <small>不填指定時間時，會在這個分鐘數後執行。</small>
-          </label>
-          <label>
-            <span>指定時間</span>
-            <input id="run-at-input" type="datetime-local" />
-            <small>使用 AstrBot 伺服器時區；填寫後會優先於延遲分鐘。</small>
-          </label>
-          <button id="create-task-button" type="button">新增任務</button>
-        </div>
-      </section>
+          <div class="page-actions">
+            <span id="scheduler-pill" class="status-pill">載入中</span>
+            <button id="refresh-button" class="btn btn-secondary btn-sm" type="button" title="重新整理任務資料">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                <path d="M3 21v-5h5" />
+                <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                <path d="M16 8h5V3" />
+              </svg>
+              <span>刷新</span>
+            </button>
+          </div>
+        </header>
 
-      <section class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>類型</th>
-              <th>會話</th>
-              <th>下次執行</th>
-              <th>剩餘</th>
-              <th>未回覆</th>
-              <th>描述</th>
-              <th>操作</th>
-            </tr>
-          </thead>
-          <tbody id="task-body">
-            <tr>
-              <td colspan="7" class="empty">載入中</td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
+        <div class="page-body">
+          <section class="stat-pills" aria-label="任務摘要">
+            <div class="stat-pill accent">
+              <div class="stat-pill-value" id="metric-total">0</div>
+              <div class="stat-pill-label">全部任務</div>
+            </div>
+            <div class="stat-pill">
+              <div class="stat-pill-value" id="metric-regular">0</div>
+              <div class="stat-pill-label">一般排程</div>
+            </div>
+            <div class="stat-pill">
+              <div class="stat-pill-value" id="metric-context">0</div>
+              <div class="stat-pill-label">語境預測</div>
+            </div>
+            <div class="stat-pill">
+              <div class="stat-pill-value" id="metric-timers">0</div>
+              <div class="stat-pill-label">等待計時器</div>
+            </div>
+          </section>
+
+          <section class="card" id="filter-panel" aria-label="任務篩選">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">篩選</h2>
+                <p id="result-count" class="card-description">0 個任務</p>
+              </div>
+              <button id="reset-filter-button" class="btn btn-ghost btn-sm" type="button">清除篩選</button>
+            </div>
+            <div class="filter-bar">
+              <input id="search-input" class="input filter-keyword" type="search" placeholder="搜尋會話 ID、平台、任務名稱或描述" />
+              <select id="type-filter" class="input select" aria-label="任務類型">
+                <option value="all">全部類型</option>
+                <option value="regular">一般排程</option>
+                <option value="context">語境預測</option>
+                <option value="auto_trigger">自動觸發</option>
+                <option value="group_idle">群聊沉默</option>
+                <option value="context_orphan">未追蹤語境</option>
+              </select>
+              <select id="session-filter" class="input select" aria-label="會話類型">
+                <option value="all">全部會話</option>
+                <option value="private">私聊</option>
+                <option value="group">群聊</option>
+              </select>
+              <select id="enabled-filter" class="input select" aria-label="啟用狀態">
+                <option value="all">全部狀態</option>
+                <option value="enabled">已啟用</option>
+                <option value="disabled">未啟用</option>
+              </select>
+            </div>
+          </section>
+
+          <section class="card" id="create-panel" aria-label="新增任務">
+            <div class="card-header">
+              <div>
+                <h2 class="card-title">新增手動排程</h2>
+                <p class="card-description">會話可使用 QQ、Telegram 或其他平台的完整會話 ID；訊息內容仍由插件配置的主動訊息 Prompt 生成。</p>
+              </div>
+            </div>
+            <div class="task-form">
+              <label class="form-field form-field-wide">
+                <span>會話</span>
+                <select id="session-select" class="input select"></select>
+                <small>只顯示已啟用主動訊息服務的會話。</small>
+              </label>
+              <label class="form-field">
+                <span>延遲分鐘</span>
+                <input id="delay-input" class="input" type="number" min="1" step="1" value="10" placeholder="例如 10" />
+                <small>未填指定時間時使用。</small>
+              </label>
+              <label class="form-field">
+                <span>指定時間</span>
+                <input id="run-at-input" class="input" type="datetime-local" />
+                <small>填寫後優先使用指定時間。</small>
+              </label>
+              <label class="form-field form-field-description">
+                <span>任務描述</span>
+                <textarea id="description-input" class="input textarea" rows="3" maxlength="800" placeholder="例如：提醒我晚點回報進度、關心對方今天的狀況、接續剛才聊到的話題"></textarea>
+                <small>會顯示在列表，也會提供給主動訊息生成使用。</small>
+              </label>
+              <button id="create-task-button" class="btn btn-primary create-button" type="button">新增任務</button>
+            </div>
+          </section>
+
+          <section class="table-container" id="tasks-panel">
+            <div class="table-toolbar">
+              <div>
+                <h2 class="card-title">任務列表</h2>
+                <p class="card-description">修改描述後可直接保存，或按改期時一併套用該列描述。</p>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th class="cell-session">會話</th>
+                    <th class="cell-task">任務</th>
+                    <th class="cell-time">時間</th>
+                    <th class="cell-count">未回覆</th>
+                    <th class="cell-detail">描述</th>
+                    <th class="cell-actions">操作</th>
+                  </tr>
+                </thead>
+                <tbody id="task-body">
+                  <tr>
+                    <td colspan="6" class="table-empty">載入中</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </main>
 
       <div id="toast" role="status"></div>
-    </main>
+    </div>
 
     <div id="confirm-dialog" class="dialog-backdrop" hidden>
       <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
         <h2 id="confirm-title">確認操作</h2>
         <p id="confirm-message"></p>
         <div class="dialog-actions">
-          <button id="confirm-cancel" type="button">取消</button>
-          <button id="confirm-ok" type="button" class="danger">確認</button>
+          <button id="confirm-cancel" class="btn btn-secondary" type="button">取消</button>
+          <button id="confirm-ok" class="btn btn-danger" type="button">確認</button>
         </div>
       </div>
     </div>
