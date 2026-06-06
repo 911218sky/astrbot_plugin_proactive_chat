@@ -178,8 +178,12 @@
       select.innerHTML = '<option value="">沒有可用會話</option>';
       return;
     }
-    select.innerHTML = state.sessions
-      .filter((session) => session.enabled)
+    const enabledSessions = state.sessions.filter((session) => session.enabled);
+    if (!enabledSessions.length) {
+      select.innerHTML = '<option value="">沒有已啟用會話</option>';
+      return;
+    }
+    select.innerHTML = enabledSessions
       .map((session) => {
         const label = `${session.label || session.session_id} · ${session.session_id}`;
         return `<option value="${escapeHtml(session.session_id)}">${escapeHtml(label)}</option>`;
@@ -218,6 +222,9 @@
         const canDelete = ["regular", "context", "context_orphan", "auto_trigger", "group_idle"].includes(task.type);
         const canReschedule = ["regular", "context", "auto_trigger", "group_idle"].includes(task.type);
         const canRunNow = Boolean(task.enabled);
+        const rescheduleTitle = ["auto_trigger", "group_idle"].includes(task.type)
+          ? "使用上方時間改為手動排程"
+          : "使用上方時間改期";
         const lastMessage = task.last_message_time
           ? `<span class="meta">最後訊息：${escapeHtml(task.last_message_time)}</span>`
           : "";
@@ -237,8 +244,8 @@
             <td class="detail">${escapeHtml(detail || "無描述")}</td>
             <td>
               <div class="row-actions">
-                <button type="button" data-action="run-now" ${canRunNow ? "" : "disabled"} title="${canRunNow ? "立即執行" : "會話未啟用"}">執行</button>
-                <button type="button" data-action="reschedule" ${canReschedule ? "" : "disabled"} title="使用上方時間修改">改期</button>
+                <button type="button" data-action="run-now" ${canRunNow ? "" : "disabled"} title="${canRunNow ? "立即檢查發送條件" : "會話未啟用"}">檢查</button>
+                <button type="button" data-action="reschedule" ${canReschedule ? "" : "disabled"} title="${escapeHtml(rescheduleTitle)}">改期</button>
                 <button type="button" data-action="delete" ${canDelete ? "" : "disabled"} class="danger" title="刪除任務">刪除</button>
               </div>
             </td>
@@ -300,7 +307,7 @@
     await withButtonBusy(button, async () => {
       if (action === "run-now") {
         await apiPost("tasks/action", { action: "run_now", ...payload });
-        showToast("已送出立即執行");
+        showToast("已送出立即檢查");
       } else if (action === "reschedule") {
         await apiPost("tasks/action", {
           action: "reschedule",
