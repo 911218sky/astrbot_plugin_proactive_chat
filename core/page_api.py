@@ -1,6 +1,7 @@
 """AstrBot 官方插件頁 API。
 
-提供只讀任務看板資料，讓官方 WebUI 的 plugin Pages 可以查看目前排程狀態。
+提供任務看板與操作 API，讓官方 WebUI 的 plugin Pages 可以查看、建立、修改、
+立即執行與刪除目前排程狀態。
 """
 
 from __future__ import annotations
@@ -204,7 +205,8 @@ class PluginPageApi:
             self.plugin.check_and_chat,
             "date",
             run_date=run_date,
-            args=[session_id, task_id],
+            args=[session_id],
+            kwargs={"ctx_job_id": task_id},
             id=task_id,
             replace_existing=True,
             misfire_grace_time=60,
@@ -255,11 +257,7 @@ class PluginPageApi:
         return {"task_id": task_id}
 
     async def _run_now(self, payload: dict[str, Any]) -> dict[str, Any]:
-        session_id = str(payload.get("session_id") or "").strip()
-        if not session_id:
-            raise ValueError("缺少會話 ID")
-        if not get_session_config(self.plugin.config, session_id):
-            raise ValueError("此會話未在插件配置中啟用")
+        session_id = self._resolve_session_from_payload(payload)
         asyncio.create_task(self.plugin.check_and_chat(session_id))
         logger.info(f"{_LOG_TAG} Web 任務頁已要求立即執行 {session_id}")
         return {"session_id": session_id}

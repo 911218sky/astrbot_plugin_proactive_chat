@@ -13,7 +13,7 @@
                 "description": "📋 私聊會話 ID 列表",
                 "type": "list",
                 "default": [],
-                "hint": "填寫會話 ID 列表，如 QQ 號、Telegram user id：['123456', '789012']。只有這些明確配置的私聊會獲得主動訊息服務"
+                "hint": "填寫私聊 ID 列表，如 QQ 號或 Telegram user id：['123456', '789012']。任務頁/API 可解析完整 UMO，但配置中建議填純 ID；只有這些明確配置的私聊會獲得主動訊息服務"
             },
             "auto_trigger_settings": {
                 "description": "🤖 自動主動訊息設定",
@@ -425,7 +425,7 @@
                 "description": "📋 群聊會話 ID 列表",
                 "type": "list",
                 "default": [],
-                "hint": "填寫群聊 ID 列表，如 QQ 群號、Telegram group/chat id：['123456', '-1001234567890']。只有這些明確配置的群聊會獲得主動訊息服務"
+                "hint": "填寫群聊 ID 列表，如 QQ 群號或 Telegram group/chat id：['123456', '-1001234567890']。任務頁/API 可解析完整 UMO，但配置中建議填純 ID；只有這些明確配置的群聊會獲得主動訊息服務"
             },
             "auto_trigger_settings": {
                 "description": "🤖 自動主動訊息設定",

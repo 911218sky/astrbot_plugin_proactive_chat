@@ -32,6 +32,7 @@ if TYPE_CHECKING:
     from ..main import ProactiveChatPlugin
 
 _LOG_TAG = "[主動訊息]"
+_RESTORE_MISSED_GRACE_SECONDS = 30 * 60
 
 
 async def handle_context_aware_scheduling(
@@ -296,8 +297,11 @@ def restore_pending_context_tasks(plugin: ProactiveChatPlugin) -> bool:
         True 表示有過期任務被清理或舊格式被移除，需要持久化；False 表示無需持久化。
     """
     restored = 0
+    scheduled = 0
+    missed = 0
     needs_save = False
     now = time.time()
+    max_counter = getattr(plugin, "_ctx_task_counter", 0)
     for sid, info in plugin.session_data.items():
         if not isinstance(info, dict):
             continue
@@ -311,15 +315,50 @@ def restore_pending_context_tasks(plugin: ProactiveChatPlugin) -> bool:
             if not isinstance(pending, dict):
                 continue
             run_at_str = pending.get("run_at", "")
-            if run_at_str:
-                try:
-                    run_at_dt = datetime.fromisoformat(run_at_str)
-                    if run_at_dt.timestamp() < now:
-                        continue  # 任務已過期，跳過
-                except (ValueError, TypeError):
+            if not run_at_str:
+                continue
+            try:
+                run_at_dt = datetime.fromisoformat(run_at_str)
+                run_at_ts = run_at_dt.timestamp()
+            except (ValueError, TypeError):
+                continue
+
+            job_id = str(pending.get("job_id") or "").strip()
+            if not job_id:
+                continue
+
+            suffix = job_id.rsplit("_", 1)[-1]
+            if suffix.isdigit():
+                max_counter = max(max_counter, int(suffix))
+
+            if run_at_ts < now:
+                if now - run_at_ts > _RESTORE_MISSED_GRACE_SECONDS:
                     continue
+                run_at_dt = datetime.fromtimestamp(now + 1, tz=plugin.timezone)
+                pending["run_at"] = run_at_dt.isoformat()
+                missed += 1
+                needs_save = True
+
             valid_tasks.append(pending)
             restored += 1
+            try:
+                if plugin.scheduler and not plugin.scheduler.get_job(job_id):
+                    plugin.scheduler.add_job(
+                        plugin.check_and_chat,
+                        "date",
+                        run_date=run_at_dt,
+                        args=[sid],
+                        kwargs={"ctx_job_id": job_id},
+                        id=job_id,
+                        replace_existing=True,
+                        misfire_grace_time=120,
+                    )
+                    scheduled += 1
+            except Exception as e:
+                logger.error(
+                    f"{_LOG_TAG} 恢復語境預測排程失敗"
+                    f" | session={sid}, job_id={job_id}: {e}"
+                )
         # 檢查是否有任務被過濾掉（過期任務被清理）
         if len(valid_tasks) != len(task_list):
             needs_save = True
@@ -335,6 +374,15 @@ def restore_pending_context_tasks(plugin: ProactiveChatPlugin) -> bool:
             if "pending_context_tasks" in info:
                 info.pop("pending_context_tasks", None)
                 needs_save = True
+    plugin._ctx_task_counter = max_counter
     if restored:
-        logger.info(f"{_LOG_TAG} 已恢復 {restored} 個語境預測的待執行任務。")
+        logger.info(
+            f"{_LOG_TAG} 已恢復 {restored} 個語境預測的待執行任務，"
+            f"重新掛載 {scheduled} 個排程。"
+        )
+    if missed:
+        logger.info(
+            f"{_LOG_TAG} 有 {missed} 個語境預測任務在重啟期間錯過觸發時間，"
+            "已安排立即補跑。"
+        )
     return needs_save

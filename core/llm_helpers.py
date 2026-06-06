@@ -179,6 +179,12 @@ async def recall_memories_for_proactive(
     Returns:
         格式化的記憶文字，無記憶或 livingmemory 不可用時回傳空字串。
     """
+    try:
+        memory_top_k = int(memory_top_k)
+    except (TypeError, ValueError):
+        logger.info(f"{_LOG_TAG} memory_top_k 配置無效，改用預設值 5。")
+        memory_top_k = 5
+
     if memory_top_k <= 0:
         logger.info(f"{_LOG_TAG} memory_top_k={memory_top_k}，已停用記憶檢索。")
         return ""
