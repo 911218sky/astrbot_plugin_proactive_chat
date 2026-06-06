@@ -72,6 +72,7 @@ class ProactiveChatPlugin(star.Star):
         "_cleanup_counter",
         "_pending_context_tasks",
         "_ctx_task_counter",
+        "_active_chat_locks",
         "page_api",
     )
 
@@ -116,6 +117,8 @@ class ProactiveChatPlugin(star.Star):
         self._pending_context_tasks: dict[str, list[dict]] = {}
         # 語境任務計數器，用於生成唯一 job_id
         self._ctx_task_counter: int = 0
+        # 同一會話的主動訊息流程不可重入，避免並發 agent/DB 寫入放大 SQLite lock。
+        self._active_chat_locks: dict[str, asyncio.Lock] = {}
         # AstrBot 官方插件 Pages API（新版 AstrBot 可用）
         self.page_api = None
 
@@ -894,4 +897,12 @@ class ProactiveChatPlugin(star.Star):
 
     async def check_and_chat(self, session_id: str, ctx_job_id: str = "") -> None:
         """由定時任務觸發的核心函數，委派至 core.chat_executor。"""
-        await chat_executor.check_and_chat(self, session_id, ctx_job_id)
+        lock = self._active_chat_locks.setdefault(session_id, asyncio.Lock())
+        if lock.locked():
+            logger.info(
+                f"{_LOG_TAG} {get_session_log_str(session_id, None, self.session_data)} "
+                "已有主動訊息流程執行中，跳過本次重複觸發。"
+            )
+            return
+        async with lock:
+            await chat_executor.check_and_chat(self, session_id, ctx_job_id)
