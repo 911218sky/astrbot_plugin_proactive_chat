@@ -23,11 +23,11 @@
 
 A proactive messaging plugin for [AstrBot](https://github.com/AstrBotDevs/AstrBot) that enables your Bot to initiate context-aware, persona-consistent conversations with dynamic emotions at random intervals after session silence.
 
-Current version: `v2.17.0`
+Current version: `v2.18.0`
 
 Recent updates:
 
-- Added an AstrBot Pages task dashboard for viewing pending proactive tasks.
+- Upgraded the AstrBot Pages task dashboard into a task management UI with filters, create, reschedule, run-now, and delete actions.
 - Improved livingmemory integration with session/persona filtering support.
 - Changed the default `decay_rate` to empty, meaning no decay by default.
 
@@ -103,14 +103,16 @@ Optional integration with [astrbot_plugin_livingmemory](https://github.com/lxfig
 - Query priority: context task hint/reason → current proactive prompt as fallback
 - Respects livingmemory `use_session_filtering` and `use_persona_filtering` settings
 
-### 5. AstrBot Pages Task Dashboard
+### 5. AstrBot Pages Task Management Dashboard
 
-The plugin provides a Pages dashboard in AstrBot WebUI for checking pending proactive tasks:
+The plugin provides a Pages dashboard in AstrBot WebUI for checking and managing pending proactive tasks:
 
 - Regular proactive schedules
 - Context-aware follow-up tasks
 - Auto-trigger timers
 - Group silence timers
+- Filters by keyword, task type, session type, and enabled status
+- Create regular one-shot schedules, reschedule tasks, run a session check immediately, or delete waiting tasks
 
 ### 6. Dedicated LLM Provider for Context Analysis
 
@@ -151,11 +153,11 @@ astrbot_plugin_proactive_chat/
 │   ├── send.py                # Proactive message dispatch (TTS / text / segmented)
 │   ├── context_scheduling.py  # Context-aware scheduling (task creation/cancellation/restore)
 │   ├── chat_executor.py       # Core execution (check_and_chat flow, prompt building, finalization)
-│   ├── page_api.py            # AstrBot Pages API (task status and task list)
+│   ├── page_api.py            # AstrBot Pages API (task status, list, and actions)
 │   ├── prompts/               # LLM prompt templates (context prediction, task cancellation)
 │   └── utils.py               # Utilities
 ├── pages/
-│   └── dashboard/             # AstrBot Pages task dashboard
+│   └── dashboard/             # AstrBot Pages task management dashboard
 ├── main.py                    # Plugin entry point
 ├── _conf_schema.json          # Config schema definition
 ├── metadata.yaml              # Plugin metadata

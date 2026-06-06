@@ -23,11 +23,11 @@
 
 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 向けの能動的メッセージプラグインです。セッションの沈黙後、ランダムな間隔でコンテキストを認識し、ペルソナに合致した動的感情を含む会話を Bot が能動的に開始します。
 
-現在のバージョン：`v2.17.0`
+現在のバージョン：`v2.18.0`
 
 最近の更新：
 
-- AstrBot Pages のタスクダッシュボードを追加し、待機中の能動的タスクを確認できるようにしました。
+- AstrBot Pages のタスクダッシュボードを管理画面に拡張し、フィルタ、作成、時刻変更、即時実行、削除に対応しました。
 - livingmemory 統合を改善し、session/persona フィルタ設定に対応しました。
 - `decay_rate` のデフォルトを空欄に変更しました。空欄はデフォルトで減衰なしを意味します。
 
@@ -103,14 +103,16 @@
 - 検索クエリ優先順位：コンテキストタスクの hint/reason → 今回の能動的メッセージ prompt にフォールバック
 - livingmemory の `use_session_filtering` と `use_persona_filtering` 設定を尊重します
 
-### 5. AstrBot Pages タスクダッシュボード
+### 5. AstrBot Pages タスク管理ダッシュボード
 
-AstrBot WebUI の Pages から、待機中の能動的タスクを確認できます：
+AstrBot WebUI の Pages から、待機中の能動的タスクを確認・管理できます：
 
 - 通常の能動的メッセージスケジュール
 - コンテキスト認識フォローアップタスク
 - 自動トリガータイマー
 - グループ沈黙タイマー
+- キーワード、タスク種別、セッション種別、有効状態でのフィルタ
+- 通常スケジュールの作成、タスク時刻変更、即時実行、待機タスク削除
 
 ### 6. コンテキスト分析用の専用 LLM プロバイダー
 
@@ -151,11 +153,11 @@ astrbot_plugin_proactive_chat/
 │   ├── send.py                # 能動的メッセージ送信（TTS / テキスト / 分割）
 │   ├── context_scheduling.py  # コンテキスト認識スケジューリング（タスク作成/取消/復元）
 │   ├── chat_executor.py       # コア実行（check_and_chat フロー、プロンプト構築、後処理）
-│   ├── page_api.py            # AstrBot Pages API（タスク状態とタスク一覧）
+│   ├── page_api.py            # AstrBot Pages API（タスク状態、一覧、操作）
 │   ├── prompts/               # LLM プロンプトテンプレート（コンテキスト予測、タスク取消判定）
 │   └── utils.py               # ユーティリティ
 ├── pages/
-│   └── dashboard/             # AstrBot Pages タスクダッシュボード
+│   └── dashboard/             # AstrBot Pages タスク管理ダッシュボード
 ├── main.py                    # プラグインエントリポイント
 ├── _conf_schema.json          # 設定スキーマ定義
 ├── metadata.yaml              # プラグインメタデータ

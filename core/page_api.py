@@ -11,9 +11,16 @@ from datetime import datetime
 from typing import Any
 
 from astrbot.api import logger
+from quart import request
 
 from .config import get_session_config
-from .utils import get_session_log_str, parse_session_id
+from .utils import (
+    MSG_TYPE_FRIEND,
+    MSG_TYPE_GROUP,
+    get_session_log_str,
+    parse_session_id,
+    resolve_full_umo,
+)
 
 PLUGIN_NAME = "astrbot_plugin_proactive_chat_plus"
 PAGE_API_PREFIX = f"/{PLUGIN_NAME}/page"
@@ -40,6 +47,12 @@ class PluginPageApi:
             ["GET"],
             "Proactive Chat Page tasks",
         )
+        register(
+            f"{PAGE_API_PREFIX}/tasks/action",
+            self.handle_task_action,
+            ["POST"],
+            "Proactive Chat Page task actions",
+        )
 
     async def get_status(self):
         """回傳看板摘要。"""
@@ -57,6 +70,28 @@ class PluginPageApi:
             return self._ok(data)
         except Exception as e:
             logger.error(f"{_LOG_TAG} Page API 取得任務失敗: {e}", exc_info=True)
+            return self._error(str(e))
+
+    async def handle_task_action(self):
+        """建立、修改、刪除或立即執行任務。"""
+        try:
+            payload = await request.get_json(silent=True) or {}
+            action = str(payload.get("action", "")).strip()
+            if action == "create":
+                result = await self._create_or_reschedule(payload, require_task=False)
+            elif action == "reschedule":
+                result = await self._create_or_reschedule(payload, require_task=True)
+            elif action == "delete":
+                result = await self._delete_task(payload)
+            elif action == "run_now":
+                result = await self._run_now(payload)
+            else:
+                return self._error("未知操作")
+            return self._ok(result)
+        except ValueError as e:
+            return self._error(str(e))
+        except Exception as e:
+            logger.error(f"{_LOG_TAG} Page API 操作任務失敗: {e}", exc_info=True)
             return self._error(str(e))
 
     def _build_snapshot(self, *, include_tasks: bool) -> dict[str, Any]:
@@ -111,7 +146,215 @@ class PluginPageApi:
             for task in tasks:
                 task.pop("sort_time", None)
             data["tasks"] = tasks
+            data["sessions"] = self._collect_sessions()
         return data
+
+    async def _create_or_reschedule(
+        self, payload: dict[str, Any], *, require_task: bool
+    ) -> dict[str, Any]:
+        session_id = self._resolve_session_from_payload(payload)
+        run_date = self._parse_run_date(payload)
+
+        if require_task:
+            task_id = str(payload.get("task_id") or "").strip()
+            task_type = str(payload.get("task_type") or "").strip()
+            if task_type == "context":
+                return await self._reschedule_context_task(task_id, session_id, run_date)
+            if task_type in {"auto_trigger", "group_idle"}:
+                self._cancel_timer_task(task_type, session_id)
+            elif task_type == "regular":
+                if not self.plugin.scheduler or not self.plugin.scheduler.get_job(task_id):
+                    raise ValueError("找不到指定一般排程任務")
+            else:
+                raise ValueError("不支援修改此任務類型")
+
+        if not self.plugin.scheduler:
+            raise ValueError("排程器尚未啟動")
+        delay_seconds = max(1, int(run_date.timestamp() - time.time()))
+        self.plugin._add_scheduled_job(session_id, delay_seconds)
+        async with self.plugin.data_lock:
+            sd = self.plugin.session_data.setdefault(session_id, {})
+            sd["next_trigger_time"] = time.time() + delay_seconds
+            await self.plugin._save_data()
+
+        logger.info(
+            f"{_LOG_TAG} Web 任務頁已為 {session_id} 設定手動排程："
+            f"{run_date.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+        return {"session_id": session_id, "next_run_time": self._format_datetime(run_date)}
+
+    async def _reschedule_context_task(
+        self, task_id: str, session_id: str, run_date: datetime
+    ) -> dict[str, Any]:
+        if not task_id:
+            raise ValueError("缺少任務 ID")
+        if not self.plugin.scheduler:
+            raise ValueError("排程器尚未啟動")
+
+        found = False
+        for task in self.plugin._pending_context_tasks.get(session_id, []):
+            if isinstance(task, dict) and str(task.get("job_id", "")) == task_id:
+                task["run_at"] = run_date.isoformat()
+                found = True
+                break
+        if not found:
+            raise ValueError("找不到指定語境任務")
+
+        self.plugin.scheduler.add_job(
+            self.plugin.check_and_chat,
+            "date",
+            run_date=run_date,
+            args=[session_id, task_id],
+            id=task_id,
+            replace_existing=True,
+            misfire_grace_time=60,
+        )
+        async with self.plugin.data_lock:
+            sd = self.plugin.session_data.setdefault(session_id, {})
+            sd["pending_context_tasks"] = self.plugin._pending_context_tasks.get(
+                session_id, []
+            )
+            await self.plugin._save_data()
+        return {"session_id": session_id, "next_run_time": self._format_datetime(run_date)}
+
+    async def _delete_task(self, payload: dict[str, Any]) -> dict[str, Any]:
+        task_id = str(payload.get("task_id") or "").strip()
+        task_type = str(payload.get("task_type") or "").strip()
+        session_id = str(payload.get("session_id") or "").strip()
+        if not task_id:
+            raise ValueError("缺少任務 ID")
+
+        removed = False
+        if self.plugin.scheduler and self.plugin.scheduler.get_job(task_id):
+            self.plugin.scheduler.remove_job(task_id)
+            removed = True
+
+        if task_type == "regular" and session_id:
+            async with self.plugin.data_lock:
+                sd = self.plugin.session_data.get(session_id)
+                if isinstance(sd, dict):
+                    sd.pop("next_trigger_time", None)
+                await self.plugin._save_data()
+        elif task_type in {"context", "context_orphan"}:
+            removed = self._remove_context_task(session_id, task_id) or removed
+            async with self.plugin.data_lock:
+                sd = self.plugin.session_data.get(session_id)
+                if isinstance(sd, dict):
+                    pending = self.plugin._pending_context_tasks.get(session_id)
+                    if pending:
+                        sd["pending_context_tasks"] = pending
+                    else:
+                        sd.pop("pending_context_tasks", None)
+                await self.plugin._save_data()
+        elif task_type in {"auto_trigger", "group_idle"} and session_id:
+            removed = self._cancel_timer_task(task_type, session_id) or removed
+
+        if not removed:
+            raise ValueError("找不到可刪除的任務")
+        logger.info(f"{_LOG_TAG} Web 任務頁已刪除任務 {task_id}")
+        return {"task_id": task_id}
+
+    async def _run_now(self, payload: dict[str, Any]) -> dict[str, Any]:
+        session_id = str(payload.get("session_id") or "").strip()
+        if not session_id:
+            raise ValueError("缺少會話 ID")
+        if not get_session_config(self.plugin.config, session_id):
+            raise ValueError("此會話未在插件配置中啟用")
+        asyncio.create_task(self.plugin.check_and_chat(session_id))
+        logger.info(f"{_LOG_TAG} Web 任務頁已要求立即執行 {session_id}")
+        return {"session_id": session_id}
+
+    def _remove_context_task(self, session_id: str, task_id: str) -> bool:
+        if not session_id or session_id not in self.plugin._pending_context_tasks:
+            return False
+        before = len(self.plugin._pending_context_tasks[session_id])
+        self.plugin._pending_context_tasks[session_id] = [
+            task
+            for task in self.plugin._pending_context_tasks[session_id]
+            if not isinstance(task, dict) or str(task.get("job_id", "")) != task_id
+        ]
+        if not self.plugin._pending_context_tasks[session_id]:
+            self.plugin._pending_context_tasks.pop(session_id, None)
+        return len(self.plugin._pending_context_tasks.get(session_id, [])) != before
+
+    def _cancel_timer_task(self, task_type: str, session_id: str) -> bool:
+        timers = {
+            "auto_trigger": self.plugin.auto_trigger_timers,
+            "group_idle": self.plugin.group_timers,
+        }.get(task_type)
+        if timers is None:
+            return False
+        handle = timers.pop(session_id, None)
+        if handle is None:
+            return False
+        handle.cancel()
+        return True
+
+    def _resolve_session_from_payload(self, payload: dict[str, Any]) -> str:
+        session_id = str(payload.get("session_id") or "").strip()
+        target_id = str(payload.get("target_id") or "").strip()
+        message_type = str(payload.get("message_type") or MSG_TYPE_FRIEND).strip()
+
+        if session_id:
+            config = get_session_config(self.plugin.config, session_id)
+            if config:
+                return session_id
+            parsed = parse_session_id(session_id)
+            if parsed:
+                target_id = parsed[2]
+                message_type = parsed[1]
+                preferred = parsed[0]
+            else:
+                target_id = session_id
+                preferred = None
+        else:
+            preferred = None
+
+        if not target_id:
+            raise ValueError("缺少會話 ID")
+        if "group" in message_type.lower():
+            message_type = MSG_TYPE_GROUP
+        elif "friend" in message_type.lower() or "private" in message_type.lower():
+            message_type = MSG_TYPE_FRIEND
+
+        resolved = resolve_full_umo(
+            target_id,
+            message_type,
+            self.plugin.context.platform_manager,
+            self.plugin.session_data,
+            preferred,
+        )
+        if not get_session_config(self.plugin.config, resolved):
+            raise ValueError("此會話未在插件配置中啟用")
+        return resolved
+
+    def _parse_run_date(self, payload: dict[str, Any]) -> datetime:
+        delay = payload.get("delay_minutes")
+        if delay not in (None, ""):
+            try:
+                minutes = float(delay)
+            except (TypeError, ValueError) as exc:
+                raise ValueError("延遲分鐘格式錯誤") from exc
+            if minutes <= 0:
+                raise ValueError("延遲分鐘必須大於 0")
+            return datetime.fromtimestamp(
+                time.time() + minutes * 60, tz=self.plugin.timezone
+            )
+
+        run_at = str(payload.get("run_at") or "").strip()
+        if not run_at:
+            raise ValueError("請填寫延遲分鐘或執行時間")
+        try:
+            value = datetime.fromisoformat(run_at)
+        except ValueError as exc:
+            raise ValueError("執行時間格式錯誤") from exc
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=self.plugin.timezone)
+        else:
+            value = value.astimezone(self.plugin.timezone)
+        if value.timestamp() <= time.time():
+            raise ValueError("執行時間必須晚於現在")
+        return value
 
     def _collect_scheduler_jobs(self, jobs: list[Any], task_type: str) -> list[dict]:
         result = []
@@ -206,11 +449,81 @@ class PluginPageApi:
                     task_type=task_type,
                     title=title,
                     next_run_time=next_ts,
-                    detail="等待條件成立後建立正式排程",
+                    detail="等待條件成立後建立正式排程；改期後會轉為一般排程",
                     extra={"remaining_seconds": int(remaining) if remaining else 0},
                 )
             )
         return result
+
+    def _collect_sessions(self) -> list[dict[str, Any]]:
+        sessions: dict[str, dict[str, Any]] = {}
+
+        def add(session_id: str, session_config: dict | None, source: str) -> None:
+            if not session_id:
+                return
+            parsed = parse_session_id(session_id)
+            message_type = parsed[1] if parsed else ""
+            target_id = parsed[2] if parsed else session_id
+            sessions[session_id] = {
+                "session_id": session_id,
+                "label": get_session_log_str(
+                    session_id, session_config, self.plugin.session_data
+                ),
+                "message_type": message_type,
+                "target_id": target_id,
+                "enabled": bool(session_config and session_config.get("enable", False)),
+                "source": source,
+            }
+
+        for session_id in self.plugin.session_data:
+            add(
+                session_id,
+                get_session_config(self.plugin.config, session_id),
+                "session_data",
+            )
+
+        for key, message_type in (
+            ("private_sessions", MSG_TYPE_FRIEND),
+            ("group_sessions", MSG_TYPE_GROUP),
+        ):
+            for session_config in self.plugin.config.get(key, []):
+                target_id = str(session_config.get("session_id") or "").strip()
+                if not target_id:
+                    continue
+                parsed = parse_session_id(target_id)
+                if parsed:
+                    session_id = target_id
+                else:
+                    session_id = resolve_full_umo(
+                        target_id,
+                        message_type,
+                        self.plugin.context.platform_manager,
+                        self.plugin.session_data,
+                    )
+                add(session_id, session_config, key)
+
+        for settings_key, message_type in (
+            ("private_settings", MSG_TYPE_FRIEND),
+            ("group_settings", MSG_TYPE_GROUP),
+        ):
+            settings = self.plugin.config.get(settings_key, {})
+            for target_id in settings.get("session_list", []):
+                target_id = str(target_id).strip()
+                if not target_id:
+                    continue
+                parsed = parse_session_id(target_id)
+                if parsed:
+                    session_id = target_id
+                else:
+                    session_id = resolve_full_umo(
+                        target_id,
+                        message_type,
+                        self.plugin.context.platform_manager,
+                        self.plugin.session_data,
+                    )
+                add(session_id, get_session_config(self.plugin.config, session_id), settings_key)
+
+        return sorted(sessions.values(), key=lambda item: item["label"])
 
     def _current_loop_time(self, timers: dict[str, Any]) -> float | None:
         try:

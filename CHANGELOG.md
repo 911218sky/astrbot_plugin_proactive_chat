@@ -5,6 +5,31 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/06/06 v2.18.0
+
+## What's Changed
+
+### 新增 (Feat)
+
+- **AstrBot Pages 任務管理**：
+  - 儀表板新增會話、任務類型、啟用狀態與關鍵字過濾。
+  - 新增建立一般排程任務、修改執行時間、立即執行與刪除任務操作。
+  - 任務操作經由 `/page/tasks/action` API 執行，避免前端直接碰 scheduler 內部物件。
+
+### 改進 (Improve)
+
+- **AstrBot API 對齊**：
+  - 主動訊息發送改用 `context.send_message(session_id, MessageChain)`，減少對平台私有發送介面的依賴。
+  - Web API 回傳已配置會話清單，讓任務建立與篩選可同時支援 QQ、Telegram 等平台的 UMO。
+- **可維護性**：
+  - 前端任務表格與操作區維持單一資料流：刷新 snapshot 後重新渲染，降低狀態同步複雜度。
+
+### 文件 (Docs)
+
+- 更新 README、AGENTS 與 metadata，說明任務管理、過濾與新版 Web 介面能力。
+
+---
+
 # 2026/06/06 v2.17.0
 
 ## What's Changed

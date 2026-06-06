@@ -51,6 +51,34 @@
           <option value="group_idle">群聊沉默</option>
           <option value="context_orphan">未追蹤語境</option>
         </select>
+        <select id="session-filter" aria-label="會話類型">
+          <option value="all">全部會話</option>
+          <option value="private">私聊</option>
+          <option value="group">群聊</option>
+        </select>
+        <select id="enabled-filter" aria-label="啟用狀態">
+          <option value="all">全部狀態</option>
+          <option value="enabled">已啟用</option>
+          <option value="disabled">未啟用</option>
+        </select>
+      </section>
+
+      <section class="task-editor" aria-label="新增任務">
+        <div class="editor-grid">
+          <label>
+            <span>會話</span>
+            <select id="session-select"></select>
+          </label>
+          <label>
+            <span>延遲分鐘</span>
+            <input id="delay-input" type="number" min="1" step="1" value="10" />
+          </label>
+          <label>
+            <span>指定時間</span>
+            <input id="run-at-input" type="datetime-local" />
+          </label>
+          <button id="create-task-button" type="button">新增任務</button>
+        </div>
       </section>
 
       <section class="table-wrap">
@@ -63,11 +91,12 @@
               <th>剩餘</th>
               <th>未回覆</th>
               <th>描述</th>
+              <th>操作</th>
             </tr>
           </thead>
           <tbody id="task-body">
             <tr>
-              <td colspan="6" class="empty">載入中</td>
+              <td colspan="7" class="empty">載入中</td>
             </tr>
           </tbody>
         </table>

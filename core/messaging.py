@@ -7,7 +7,6 @@ import functools
 import math
 import random
 import re
-import traceback
 from typing import TYPE_CHECKING
 
 from astrbot.api import logger
@@ -19,13 +18,7 @@ from astrbot.core.platform.astrbot_message import (
     MessageMember,
 )
 from astrbot.core.platform.message_type import MessageType
-from astrbot.core.platform.platform import PlatformStatus
 from astrbot.core.star.star_handler import EventType, star_handlers_registry
-
-try:
-    from astrbot.core.platform.astr_message_event import MessageSession as MS
-except ImportError:
-    from astrbot.core.platform.message_session import MessageSession as MS
 
 from .utils import MSG_TYPE_KEYWORD_GROUP, parse_session_id
 
@@ -56,7 +49,7 @@ async def trigger_decorating_hooks(
 
     # 查找平台實例（先 id 後 name）
     platform_inst = None
-    for p in context.platform_manager.platform_insts:
+    for p in context.platform_manager.get_insts():
         meta = p.meta()
         if meta.id == platform_name or meta.name == platform_name:
             platform_inst = p
@@ -117,49 +110,21 @@ async def send_chain_with_hooks(
     context: Context,
     session_data: dict,
 ) -> None:
-    """經裝飾鉤子處理後，透過指定平台發送訊息鏈。"""
+    """經裝飾鉤子處理後，透過 AstrBot 核心 API 發送訊息鏈。"""
     processed = await trigger_decorating_hooks(
         session_id, components, context, session_data
     )
     if not processed:
         return
 
-    chain = MessageChain(processed)
-    parsed = parse_session_id(session_id)
-    if not parsed:
-        await context.send_message(session_id, chain)
-        return
-
-    p_id, m_type_str, t_id = parsed
-    m_type = (
-        MessageType.GROUP_MESSAGE
-        if MSG_TYPE_KEYWORD_GROUP in m_type_str
-        else MessageType.FRIEND_MESSAGE
-    )
-
-    target = None
-    for p in context.platform_manager.get_insts():
-        if p.meta().id == p_id:
-            target = p
-            break
-
-    if not target:
-        logger.warning(f"{_LOG_TAG} 找不到平台 {p_id}，使用核心 API 兜底。")
-        await context.send_message(session_id, chain)
-        return
-
-    if target.status != PlatformStatus.RUNNING:
-        logger.warning(f"{_LOG_TAG} 平台 {p_id} 未運行，跳過發送。")
-        return
-
     try:
-        await target.send_by_session(
-            MS(platform_name=p_id, message_type=m_type, session_id=t_id), chain
-        )
-        logger.debug(f"{_LOG_TAG} 訊息已透過平台 {p_id} 送達")
+        ok = await context.send_message(session_id, MessageChain(processed))
+        if ok:
+            logger.debug(f"{_LOG_TAG} 訊息已透過 AstrBot 核心 API 送達")
+        else:
+            logger.warning(f"{_LOG_TAG} AstrBot 核心 API 回報發送失敗 | session={session_id}")
     except Exception as e:
-        logger.error(f"{_LOG_TAG} 透過平台 {p_id} 發送失敗: {e}")
-        logger.debug(traceback.format_exc())
+        logger.error(f"{_LOG_TAG} AstrBot 核心 API 發送失敗 | session={session_id}: {e}")
 
 
 # ── 文本分段 ─────────────────────────────────────────────
