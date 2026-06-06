@@ -280,6 +280,7 @@
         const messageType = task.message_type ? escapeHtml(task.message_type) : "未知類型";
         const target = task.target_id ? escapeHtml(task.target_id) : "";
         const detail = task.detail || (task.extra && task.extra.hint) || "";
+        const description = task.description || "";
         const canDelete = ["regular", "context", "context_orphan", "auto_trigger", "group_idle"].includes(task.type);
         const canReschedule = ["regular", "context", "auto_trigger", "group_idle"].includes(task.type);
         const canEditDescription = ["regular", "context", "auto_trigger", "group_idle"].includes(task.type);
@@ -314,11 +315,11 @@
             </td>
             <td><span class="count-pill">${escapeHtml(task.unanswered_count || 0)}</span></td>
             <td class="detail-cell">
-              <textarea class="description-edit" data-role="description" rows="3" maxlength="800" ${canEditDescription ? "" : "disabled"} placeholder="填寫這個任務要提醒或接續的內容">${escapeHtml(detail || "")}</textarea>
+              <textarea class="description-edit" data-role="description" rows="3" maxlength="800" ${canEditDescription ? "" : "disabled"} placeholder="${escapeHtml(detail || "填寫這個任務要提醒或接續的內容")}">${escapeHtml(description)}</textarea>
             </td>
             <td>
               <div class="row-actions">
-                <button class="btn btn-secondary btn-sm" type="button" data-action="run-now" ${canRunNow ? "" : "disabled"} title="${canRunNow ? "立即檢查發送條件" : "會話未啟用"}">檢查</button>
+                <button class="btn btn-secondary btn-sm" type="button" data-action="run-now" ${canRunNow ? "" : "disabled"} title="${canRunNow ? "立即檢查條件，符合時會發送訊息" : "會話未啟用"}">立即執行</button>
                 <button class="btn btn-secondary btn-sm" type="button" data-action="reschedule" ${canReschedule ? "" : "disabled"} title="${escapeHtml(rescheduleTitle)}">改期</button>
                 <button class="btn btn-secondary btn-sm" type="button" data-action="save-description" ${canEditDescription ? "" : "disabled"} title="保存此任務描述">保存描述</button>
                 <button class="btn btn-danger btn-sm" type="button" data-action="delete" ${canDelete ? "" : "disabled"} title="刪除任務">刪除</button>
@@ -380,6 +381,9 @@
     };
 
     if (action === "delete" && !(await askConfirm("確定刪除此任務？", "刪除任務"))) return;
+    if (action === "run-now") {
+      if (!(await askConfirm("這會立即檢查發送條件，符合條件時可能真的送出主動訊息。確定執行？", "立即執行任務"))) return;
+    }
     if (action === "reschedule") {
       if (!(await askConfirm(`確定將此任務改到 ${scheduleDescription()}？\n會一併使用這一列目前填寫的任務描述。`, "修改任務時間"))) return;
     }
@@ -387,7 +391,7 @@
     await withButtonBusy(button, async () => {
       if (action === "run-now") {
         await apiPost("tasks/action", { action: "run_now", ...payload });
-        showToast("已送出立即檢查");
+        showToast("已送出立即執行");
       } else if (action === "reschedule") {
         const textarea = row.querySelector('[data-role="description"]');
         await apiPost("tasks/action", {

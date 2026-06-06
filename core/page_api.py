@@ -207,21 +207,6 @@ class PluginPageApi:
         if not self.plugin.scheduler:
             raise ValueError("排程器尚未啟動")
 
-        found = False
-        for task in self.plugin._pending_context_tasks.get(session_id, []):
-            if isinstance(task, dict) and str(task.get("job_id", "")) == task_id:
-                task["run_at"] = run_date.isoformat()
-                if description:
-                    task["reason"] = description
-                    task["hint"] = description
-                else:
-                    task.pop("reason", None)
-                    task.pop("hint", None)
-                found = True
-                break
-        if not found:
-            raise ValueError("找不到指定語境任務")
-
         self.plugin.scheduler.add_job(
             self.plugin.check_and_chat,
             "date",
@@ -233,6 +218,22 @@ class PluginPageApi:
             misfire_grace_time=60,
         )
         async with self.plugin.data_lock:
+            found = False
+            for task in self.plugin._pending_context_tasks.get(session_id, []):
+                if isinstance(task, dict) and str(task.get("job_id", "")) == task_id:
+                    task["run_at"] = run_date.isoformat()
+                    if description:
+                        task["reason"] = description
+                        task["hint"] = description
+                    else:
+                        task.pop("reason", None)
+                        task.pop("hint", None)
+                    found = True
+                    break
+            if not found:
+                if self.plugin.scheduler and self.plugin.scheduler.get_job(task_id):
+                    self.plugin.scheduler.remove_job(task_id)
+                raise ValueError("找不到指定語境任務")
             sd = self.plugin.session_data.setdefault(session_id, {})
             sd["pending_context_tasks"] = self.plugin._pending_context_tasks.get(
                 session_id, []
@@ -257,6 +258,7 @@ class PluginPageApi:
                 sd = self.plugin.session_data.get(session_id)
                 if isinstance(sd, dict):
                     sd.pop("next_trigger_time", None)
+                    sd.pop("task_description", None)
                 await self.plugin._save_data()
         elif task_type in {"context", "context_orphan"}:
             removed = self._remove_context_task(session_id, task_id) or removed
@@ -276,6 +278,7 @@ class PluginPageApi:
                     sd = self.plugin.session_data.get(session_id)
                     if isinstance(sd, dict):
                         sd.pop(f"{task_type}_description", None)
+                        sd.pop("task_description", None)
                     await self.plugin._save_data()
 
         if not removed:
@@ -340,7 +343,7 @@ class PluginPageApi:
 
     async def _run_now(self, payload: dict[str, Any]) -> dict[str, Any]:
         session_id = self._resolve_session_from_payload(payload)
-        asyncio.create_task(self.plugin.check_and_chat(session_id))
+        asyncio.create_task(self.plugin.check_and_chat(session_id, manual=True))
         logger.info(f"{_LOG_TAG} Web 任務頁已要求立即執行 {session_id}")
         return {"session_id": session_id}
 
@@ -441,6 +444,7 @@ class PluginPageApi:
         for job in jobs:
             session_id = str(job.id)
             next_run_time = getattr(job, "next_run_time", None)
+            description = self._session_task_description(session_id)
             result.append(
                 self._task_base(
                     session_id=session_id,
@@ -448,8 +452,8 @@ class PluginPageApi:
                     task_type=task_type,
                     title="一般主動訊息",
                     next_run_time=next_run_time,
-                    detail=self._session_task_description(session_id)
-                    or "依照排程設定觸發",
+                    detail=description or "依照排程設定觸發",
+                    description=description,
                 )
             )
         return result
@@ -469,6 +473,7 @@ class PluginPageApi:
                 job = scheduler_index.get(job_id)
                 run_at = self._parse_datetime(task.get("run_at"))
                 next_run_time = getattr(job, "next_run_time", None) or run_at
+                description = str(task.get("reason") or task.get("hint") or "").strip()
                 result.append(
                     self._task_base(
                         session_id=session_id,
@@ -477,7 +482,8 @@ class PluginPageApi:
                         title="語境預測主動訊息",
                         next_run_time=next_run_time,
                         session_config=session_config,
-                        detail=task.get("reason") or task.get("hint") or "無描述",
+                        detail=description or "無描述",
+                        description=description,
                         extra={
                             "reason": task.get("reason", ""),
                             "hint": task.get("hint", ""),
@@ -502,6 +508,7 @@ class PluginPageApi:
                     title="未追蹤的語境排程",
                     next_run_time=getattr(job, "next_run_time", None),
                     detail="APScheduler 中存在，但 pending_context_tasks 未追蹤",
+                    description="",
                     extra={"tracked": False},
                 )
             )
@@ -523,6 +530,7 @@ class PluginPageApi:
             if callable(when) and loop_time is not None:
                 remaining = max(0.0, when() - loop_time)
             next_ts = now_ts + remaining if remaining is not None else None
+            description = self._session_task_description(session_id, task_type)
             result.append(
                 self._task_base(
                     session_id=session_id,
@@ -530,8 +538,8 @@ class PluginPageApi:
                     task_type=task_type,
                     title=title,
                     next_run_time=next_ts,
-                    detail=self._session_task_description(session_id, task_type)
-                    or "等待條件成立後建立正式排程；改期後會轉為一般排程",
+                    detail=description or "等待條件成立後建立正式排程；改期後會轉為一般排程",
+                    description=description,
                     extra={"remaining_seconds": int(remaining) if remaining else 0},
                 )
             )
@@ -643,6 +651,7 @@ class PluginPageApi:
         next_run_time: Any,
         session_config: dict | None = None,
         detail: str = "",
+        description: str = "",
         extra: dict | None = None,
     ) -> dict:
         session_config = session_config or get_session_config(
@@ -673,6 +682,7 @@ class PluginPageApi:
             "next_run_time": self._format_datetime(next_dt),
             "remaining_seconds": self._remaining_seconds(next_dt),
             "detail": detail,
+            "description": description,
             "extra": extra or {},
             "sort_time": next_dt.timestamp() if next_dt else None,
         }

@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 import traceback
 import zoneinfo
@@ -55,6 +56,8 @@ _INVALID_RESPONSES = frozenset({"[object Object]"})
 _AUTH_ERROR_KEYWORDS = frozenset(
     {"authentication", "auth", "unauthorized", "forbidden"}
 )
+
+_SQLITE_LOCK_KEYWORDS = frozenset({"database is locked", "database table is locked"})
 
 
 # ═══════════════════════════════════════════════════════════
@@ -315,7 +318,9 @@ async def _deliver_and_finalize(
         last_bot_message_time_setter=_set_bot_time,
     )
 
-    await _save_conversation_history(plugin, conv_id, final_prompt, response_text)
+    await _save_conversation_history(
+        plugin, session_config, conv_id, final_prompt, response_text
+    )
     await _update_unanswered_and_reschedule(
         plugin, session_id, session_config, unanswered_count
     )
@@ -333,20 +338,104 @@ async def _deliver_and_finalize(
 
 
 async def _save_conversation_history(
-    plugin: ProactiveChatPlugin, conv_id: str, user_prompt: str, assistant_response: str
+    plugin: ProactiveChatPlugin,
+    session_config: dict,
+    conv_id: str,
+    user_prompt: str,
+    assistant_response: str,
 ) -> None:
-    """將本次對話（prompt + response）存入對話歷史。"""
-    try:
-        await plugin.context.conversation_manager.add_message_pair(
-            cid=conv_id,
-            user_message=UserMessageSegment(content=[TextPart(text=user_prompt)]),
-            assistant_message=AssistantMessageSegment(
-                content=[TextPart(text=assistant_response)]
-            ),
+    """按配置將主動訊息寫回 AstrBot 主對話歷史。
+
+    預設關閉，避免主動排程在一般 agent request 存檔時搶同一個 SQLite。
+    這只影響 AstrBot 主歷史是否記錄本次主動 prompt/response，不影響訊息發送、
+    未回覆計數或 livingmemory 檢索。
+    """
+    history_conf = _history_settings(plugin, session_config)
+    if not history_conf["save_proactive_history"]:
+        return
+    if not conv_id:
+        return
+
+    delay_seconds = history_conf["history_save_delay_seconds"]
+    if delay_seconds > 0:
+        await asyncio.sleep(delay_seconds)
+
+    max_attempts = history_conf["history_save_retry_attempts"] + 1
+    async with plugin._history_save_lock:
+        for attempt in range(1, max_attempts + 1):
+            try:
+                await plugin.context.conversation_manager.add_message_pair(
+                    cid=conv_id,
+                    user_message=UserMessageSegment(content=[TextPart(text=user_prompt)]),
+                    assistant_message=AssistantMessageSegment(
+                        content=[TextPart(text=assistant_response)]
+                    ),
+                )
+                return
+            except Exception as e:
+                if _is_sqlite_lock_error(e):
+                    if attempt >= max_attempts:
+                        logger.warning(
+                            f"{_LOG_TAG} AstrBot 對話歷史忙碌，已跳過本次主動訊息寫回"
+                            f" | conv_id={conv_id}: {e}"
+                        )
+                        return
+                    await asyncio.sleep(min(0.5 * attempt, 2.0))
+                    continue
+
+                logger.warning(
+                    f"{_LOG_TAG} 主動訊息寫回 AstrBot 對話歷史失敗，已跳過: {e}"
+                )
+                logger.debug(traceback.format_exc())
+                return
+
+
+def _history_settings(plugin: ProactiveChatPlugin, session_config: dict) -> dict:
+    """合併全域與會話級歷史寫回設定。"""
+    default_settings = {
+        "save_proactive_history": False,
+        "history_save_delay_seconds": 2.0,
+        "history_save_retry_attempts": 3,
+    }
+    global_settings = plugin.config.get("history_settings", {})
+    session_settings = session_config.get("history_settings", {})
+    if not isinstance(global_settings, dict):
+        global_settings = {}
+    if not isinstance(session_settings, dict):
+        session_settings = {}
+
+    out = default_settings | {
+        k: v for k, v in global_settings.items() if v is not None
+    } | {
+        k: v for k, v in session_settings.items() if v is not None
+    }
+    out["save_proactive_history"] = bool(out.get("save_proactive_history", False))
+    out["history_save_delay_seconds"] = _coerce_float(
+        out.get("history_save_delay_seconds"), 2.0, min_value=0.0, max_value=30.0
+    )
+    out["history_save_retry_attempts"] = int(
+        _coerce_float(
+            out.get("history_save_retry_attempts"), 3, min_value=0.0, max_value=10.0
         )
-    except Exception as e:
-        logger.error(f"{_LOG_TAG} _save_conversation_history 存檔對話歷史失敗: {e}")
-        logger.debug(traceback.format_exc())
+    )
+    return out
+
+
+def _coerce_float(
+    value: object, default: float, *, min_value: float, max_value: float
+) -> float:
+    """將配置值轉為 float，並限制在合理範圍。"""
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(min_value, min(max_value, parsed))
+
+
+def _is_sqlite_lock_error(error: Exception) -> bool:
+    """判斷例外是否為 SQLite lock 類型錯誤。"""
+    message = str(error).lower()
+    return any(keyword in message for keyword in _SQLITE_LOCK_KEYWORDS)
 
 
 async def _update_unanswered_and_reschedule(

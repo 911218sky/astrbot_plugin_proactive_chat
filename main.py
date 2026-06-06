@@ -73,6 +73,8 @@ class ProactiveChatPlugin(star.Star):
         "_pending_context_tasks",
         "_ctx_task_counter",
         "_active_chat_locks",
+        "_chat_run_semaphore",
+        "_history_save_lock",
         "page_api",
     )
 
@@ -119,6 +121,10 @@ class ProactiveChatPlugin(star.Star):
         self._ctx_task_counter: int = 0
         # 同一會話的主動訊息流程不可重入，避免並發 agent/DB 寫入放大 SQLite lock。
         self._active_chat_locks: dict[str, asyncio.Lock] = {}
+        # 全域限流：避免多個會話同時觸發主動訊息，一起打進 AstrBot agent/history 流程。
+        self._chat_run_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
+        # 主動訊息寫回 AstrBot 主對話歷史時使用，避免本插件自己並發搶同一個 SQLite。
+        self._history_save_lock: asyncio.Lock = asyncio.Lock()
         # AstrBot 官方插件 Pages API（新版 AstrBot 可用）
         self.page_api = None
 
@@ -290,6 +296,44 @@ class ProactiveChatPlugin(star.Star):
             misfire_grace_time=60,
         )
         return run_date
+
+    async def _retry_chat_job(
+        self,
+        session_id: str,
+        ctx_job_id: str = "",
+        delay_seconds: int = 15,
+    ) -> None:
+        """同一會話忙碌時延後一次性任務，避免 date job 被直接吃掉。"""
+        if not self.scheduler:
+            return
+        run_date = datetime.fromtimestamp(time.time() + delay_seconds, tz=self.timezone)
+        job_id = ctx_job_id or session_id
+        self.scheduler.add_job(
+            self.check_and_chat,
+            "date",
+            run_date=run_date,
+            args=[session_id],
+            kwargs={"ctx_job_id": ctx_job_id} if ctx_job_id else {},
+            id=job_id,
+            replace_existing=True,
+            misfire_grace_time=120,
+        )
+        async with self.data_lock:
+            if ctx_job_id:
+                for task in self._pending_context_tasks.get(session_id, []):
+                    if (
+                        isinstance(task, dict)
+                        and str(task.get("job_id", "")) == ctx_job_id
+                    ):
+                        task["run_at"] = run_date.isoformat()
+                        self.session_data.setdefault(session_id, {})[
+                            "pending_context_tasks"
+                        ] = self._pending_context_tasks.get(session_id, [])
+                        break
+            else:
+                session_info = self.session_data.setdefault(session_id, {})
+                session_info["next_trigger_time"] = time.time() + delay_seconds
+            await self._save_data()
 
     async def _schedule_next_chat_and_save(
         self,
@@ -895,14 +939,44 @@ class ProactiveChatPlugin(star.Star):
     #  委派至 core.chat_executor 模組，保持 main.py 精簡。
     # ═══════════════════════════════════════════════════════════
 
-    async def check_and_chat(self, session_id: str, ctx_job_id: str = "") -> None:
+    async def check_and_chat(
+        self,
+        session_id: str,
+        ctx_job_id: str = "",
+        manual: bool = False,
+    ) -> None:
         """由定時任務觸發的核心函數，委派至 core.chat_executor。"""
         lock = self._active_chat_locks.setdefault(session_id, asyncio.Lock())
         if lock.locked():
+            if manual:
+                logger.info(
+                    f"{_LOG_TAG} {get_session_log_str(session_id, None, self.session_data)} "
+                    "已有主動訊息流程執行中，略過本次手動立即執行。"
+                )
+                return
             logger.info(
                 f"{_LOG_TAG} {get_session_log_str(session_id, None, self.session_data)} "
-                "已有主動訊息流程執行中，跳過本次重複觸發。"
+                "已有主動訊息流程執行中，延後本次任務。"
             )
+            await self._retry_chat_job(session_id, ctx_job_id)
             return
-        async with lock:
-            await chat_executor.check_and_chat(self, session_id, ctx_job_id)
+        try:
+            async with lock:
+                if self._chat_run_semaphore.locked():
+                    if manual:
+                        logger.info(
+                            f"{_LOG_TAG} {get_session_log_str(session_id, None, self.session_data)} "
+                            "目前已有其他主動訊息流程執行中，略過本次手動立即執行。"
+                        )
+                        return
+                    logger.info(
+                        f"{_LOG_TAG} {get_session_log_str(session_id, None, self.session_data)} "
+                        "目前已有其他主動訊息流程執行中，延後本次任務。"
+                    )
+                    await self._retry_chat_job(session_id, ctx_job_id)
+                    return
+                async with self._chat_run_semaphore:
+                    await chat_executor.check_and_chat(self, session_id, ctx_job_id)
+        finally:
+            if self._active_chat_locks.get(session_id) is lock and not lock.locked():
+                self._active_chat_locks.pop(session_id, None)
