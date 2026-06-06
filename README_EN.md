@@ -23,6 +23,14 @@
 
 A proactive messaging plugin for [AstrBot](https://github.com/AstrBotDevs/AstrBot) that enables your Bot to initiate context-aware, persona-consistent conversations with dynamic emotions at random intervals after session silence.
 
+Current version: `v2.17.0`
+
+Recent updates:
+
+- Added an AstrBot Pages task dashboard for viewing pending proactive tasks.
+- Improved livingmemory integration with session/persona filtering support.
+- Changed the default `decay_rate` to empty, meaning no decay by default.
+
 ## 🙏 Credits
 
 This project is based on [DBJD-CR/astrbot_plugin_proactive_chat](https://github.com/DBJD-CR/astrbot_plugin_proactive_chat). Huge thanks to the original author **DBJD-CR** and collaborators for building the complete proactive messaging framework including multi-session support, persistence, DND periods, TTS integration, segmented replies, and more.
@@ -92,16 +100,26 @@ Optional integration with [astrbot_plugin_livingmemory](https://github.com/lxfig
 - Toggle on/off via `context_aware_settings.enable_memory`
 - Control retrieval count via `memory_top_k` (1-20, visible when memory is enabled)
 - Fully optional: works without livingmemory installed, no errors or side effects
-- Query priority: context task hint/reason → current time as fallback
+- Query priority: context task hint/reason → current proactive prompt as fallback
+- Respects livingmemory `use_session_filtering` and `use_persona_filtering` settings
 
-### 5. Dedicated LLM Provider for Context Analysis
+### 5. AstrBot Pages Task Dashboard
+
+The plugin provides a Pages dashboard in AstrBot WebUI for checking pending proactive tasks:
+
+- Regular proactive schedules
+- Context-aware follow-up tasks
+- Auto-trigger timers
+- Group silence timers
+
+### 6. Dedicated LLM Provider for Context Analysis
 
 Context-aware scheduling can now use a separate LLM provider, saving tokens on your primary model:
 
 - `llm_provider_id` — select from a dropdown of available LLM providers in WebUI; leave empty to use session default
 - `extra_prompt` — append custom instructions to the context analysis prompt (e.g., "If user mentions exercise, set delay to 60-90 minutes")
 
-### 6. Externalized Prompt Templates
+### 7. Externalized Prompt Templates
 
 Context prediction prompts have been extracted to `core/prompts/` as `.txt` files, making them easy to customize without modifying Python code.
 
@@ -133,8 +151,11 @@ astrbot_plugin_proactive_chat/
 │   ├── send.py                # Proactive message dispatch (TTS / text / segmented)
 │   ├── context_scheduling.py  # Context-aware scheduling (task creation/cancellation/restore)
 │   ├── chat_executor.py       # Core execution (check_and_chat flow, prompt building, finalization)
+│   ├── page_api.py            # AstrBot Pages API (task status and task list)
 │   ├── prompts/               # LLM prompt templates (context prediction, task cancellation)
 │   └── utils.py               # Utilities
+├── pages/
+│   └── dashboard/             # AstrBot Pages task dashboard
 ├── main.py                    # Plugin entry point
 ├── _conf_schema.json          # Config schema definition
 ├── metadata.yaml              # Plugin metadata

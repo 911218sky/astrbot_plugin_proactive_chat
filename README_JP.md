@@ -23,6 +23,14 @@
 
 [AstrBot](https://github.com/AstrBotDevs/AstrBot) 向けの能動的メッセージプラグインです。セッションの沈黙後、ランダムな間隔でコンテキストを認識し、ペルソナに合致した動的感情を含む会話を Bot が能動的に開始します。
 
+現在のバージョン：`v2.17.0`
+
+最近の更新：
+
+- AstrBot Pages のタスクダッシュボードを追加し、待機中の能動的タスクを確認できるようにしました。
+- livingmemory 統合を改善し、session/persona フィルタ設定に対応しました。
+- `decay_rate` のデフォルトを空欄に変更しました。空欄はデフォルトで減衰なしを意味します。
+
 ## 🙏 原作者への謝辞
 
 本プロジェクトは [DBJD-CR/astrbot_plugin_proactive_chat](https://github.com/DBJD-CR/astrbot_plugin_proactive_chat) をベースに改変したものです。原作者 **DBJD-CR** および協力者の素晴らしい仕事に感謝します。原プロジェクトは、マルチセッション対応、永続化、おやすみモード、TTS 統合、分割返信など、完全な能動的メッセージフレームワークを提供しています。
@@ -92,16 +100,26 @@
 - `context_aware_settings.enable_memory` でオン/オフ切替
 - `memory_top_k` で検索数を制御（1-20、記憶有効時に表示）
 - 完全にオプション：livingmemory 未インストールでもエラーなく動作
-- 検索クエリ優先順位：コンテキストタスクの hint/reason → 現在時刻にフォールバック
+- 検索クエリ優先順位：コンテキストタスクの hint/reason → 今回の能動的メッセージ prompt にフォールバック
+- livingmemory の `use_session_filtering` と `use_persona_filtering` 設定を尊重します
 
-### 5. コンテキスト分析用の専用 LLM プロバイダー
+### 5. AstrBot Pages タスクダッシュボード
+
+AstrBot WebUI の Pages から、待機中の能動的タスクを確認できます：
+
+- 通常の能動的メッセージスケジュール
+- コンテキスト認識フォローアップタスク
+- 自動トリガータイマー
+- グループ沈黙タイマー
+
+### 6. コンテキスト分析用の専用 LLM プロバイダー
 
 コンテキスト認識スケジューリングで別の LLM プロバイダーを使用可能。メインモデルのトークンを節約できます：
 
 - `llm_provider_id` — WebUI のドロップダウンから利用可能な LLM プロバイダーを選択。空欄でセッションのデフォルトを使用
 - `extra_prompt` — コンテキスト分析プロンプトにカスタム指示を追加（例：「ユーザーが運動に言及した場合、遅延を 60-90 分に設定」）
 
-### 6. プロンプトテンプレートの外部化
+### 7. プロンプトテンプレートの外部化
 
 コンテキスト予測のプロンプトを `core/prompts/` に `.txt` ファイルとして抽出。Python コードを変更せずにカスタマイズ可能です。
 
@@ -133,8 +151,11 @@ astrbot_plugin_proactive_chat/
 │   ├── send.py                # 能動的メッセージ送信（TTS / テキスト / 分割）
 │   ├── context_scheduling.py  # コンテキスト認識スケジューリング（タスク作成/取消/復元）
 │   ├── chat_executor.py       # コア実行（check_and_chat フロー、プロンプト構築、後処理）
+│   ├── page_api.py            # AstrBot Pages API（タスク状態とタスク一覧）
 │   ├── prompts/               # LLM プロンプトテンプレート（コンテキスト予測、タスク取消判定）
 │   └── utils.py               # ユーティリティ
+├── pages/
+│   └── dashboard/             # AstrBot Pages タスクダッシュボード
 ├── main.py                    # プラグインエントリポイント
 ├── _conf_schema.json          # 設定スキーマ定義
 ├── metadata.yaml              # プラグインメタデータ

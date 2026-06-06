@@ -5,6 +5,33 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/06/06 v2.17.0
+
+## What's Changed
+
+### 新增 (Feat)
+
+- **AstrBot Pages 任務儀表板**：
+  - 新增 `pages/dashboard/` Web 介面，可在 AstrBot 插件頁查看目前主動訊息任務。
+  - 新增 `core/page_api.py`，提供 `/page/status` 與 `/page/tasks` API。
+  - 儀表板支援任務摘要、搜尋、任務類型篩選、手動刷新與自動刷新。
+
+### 改進 (Improve)
+
+- **livingmemory 整合加強**：
+  - 等待 livingmemory 初始化完成後再檢索，降低 AstrBot 啟動期間抓不到記憶的機率。
+  - 對齊 livingmemory 的 `use_session_filtering` 與 `use_persona_filtering` 設定。
+  - 無語境任務時，使用本次主動訊息 prompt 作為記憶查詢內容，避免只用時間字串查詢。
+- **未回覆衰減預設調整**：
+  - `decay_rate` 預設改為留空，代表不衰減、每次都允許觸發。
+  - 配置提示補充說明空值、單一值、列表與 `0` 的差異。
+
+### 文件 (Docs)
+
+- 更新 README、AGENTS 與配置提示，補充 Pages 儀表板、Telegram ID 白名單與 livingmemory 過濾邏輯。
+
+---
+
 # 2026/03/25 v2.16.0
 
 ## What's Changed
