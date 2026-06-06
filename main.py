@@ -72,6 +72,7 @@ class ProactiveChatPlugin(star.Star):
         "_cleanup_counter",
         "_pending_context_tasks",
         "_ctx_task_counter",
+        "page_api",
     )
 
     def __init__(self, context: star.Context, config: AstrBotConfig) -> None:
@@ -115,8 +116,32 @@ class ProactiveChatPlugin(star.Star):
         self._pending_context_tasks: dict[str, list[dict]] = {}
         # 語境任務計數器，用於生成唯一 job_id
         self._ctx_task_counter: int = 0
+        # AstrBot 官方插件 Pages API（新版 AstrBot 可用）
+        self.page_api = None
 
+        self._register_official_page_api_if_available()
         logger.info(f"{_LOG_TAG} 插件實例已創建。")
+
+    def _register_official_page_api_if_available(self) -> None:
+        """註冊 AstrBot 官方插件頁 API；舊版 AstrBot 不支援時自動跳過。"""
+        if not hasattr(self.context, "register_web_api"):
+            return
+
+        try:
+            from .core.page_api import PluginPageApi
+        except Exception as e:
+            logger.warning(f"{_LOG_TAG} 官方插件頁 API 不可用，已跳過註冊: {e}")
+            return
+
+        try:
+            self.page_api = PluginPageApi(self)
+            self.page_api.register_routes()
+        except Exception as e:
+            self.page_api = None
+            logger.warning(
+                f"{_LOG_TAG} 官方插件頁 API 註冊失敗，已跳過: {e}",
+                exc_info=True,
+            )
 
     # ═══════════════════════════════════════════════════════════
     #  數據持久化

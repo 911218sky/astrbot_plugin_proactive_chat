@@ -235,7 +235,7 @@ async def _prepare_and_call_llm(
 
     # 注入 livingmemory 記憶（可選依賴）
     system_prompt = await _inject_memory(
-        plugin, session_id, session_config, ctx_task, system_prompt
+        plugin, session_id, session_config, ctx_task, system_prompt, final_prompt
     )
 
     # 清洗歷史記錄格式（確保 content 欄位一致）
@@ -526,6 +526,7 @@ async def _inject_memory(
     session_config: dict,
     ctx_task: dict | None,
     system_prompt: str,
+    final_prompt: str,
 ) -> str:
     """嘗試從 livingmemory 檢索相關記憶並注入 system_prompt。
 
@@ -544,7 +545,7 @@ async def _inject_memory(
     if ctx_task:
         memory_query = ctx_task.get("hint", "") or ctx_task.get("reason", "")
     if not memory_query:
-        memory_query = datetime.now(plugin.timezone).strftime("%Y年%m月%d日 %H:%M")
+        memory_query = final_prompt.strip()
 
     memory_str = await recall_memories_for_proactive(
         plugin.context, session_id, memory_query, memory_top_k=memory_top_k

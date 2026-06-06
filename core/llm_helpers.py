@@ -11,7 +11,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any
 
-from astrbot.api import logger
+from astrbot.api import logger, sp
 from astrbot.core.agent.context.truncator import ContextTruncator
 from astrbot.core.agent.message import Message
 
@@ -23,6 +23,37 @@ if TYPE_CHECKING:
     from ...astrbot_plugin_livingmemory.core.managers.memory_engine import MemoryEngine
 
 _LOG_TAG = "[主動訊息]"
+_LIVINGMEMORY_ROOT = "astrbot_plugin_livingmemory"
+_LIVINGMEMORY_NAMES = {
+    "livingmemory",
+    "astrbot_plugin_livingmemory",
+}
+
+
+def _is_livingmemory_star(star_meta: Any) -> bool:
+    """Return True when the metadata looks like the LivingMemory plugin."""
+    root_dir_name = str(getattr(star_meta, "root_dir_name", "") or "").lower()
+    star_name = str(getattr(star_meta, "name", "") or "").lower()
+    return root_dir_name == _LIVINGMEMORY_ROOT or star_name in _LIVINGMEMORY_NAMES
+
+
+def _engine_from_initializer(initializer: Any) -> MemoryEngine | None:
+    if not initializer or not getattr(initializer, "is_initialized", False):
+        return None
+
+    engine: MemoryEngine | None = getattr(initializer, "memory_engine", None)
+    return engine if engine is not None else None
+
+
+def _find_livingmemory_initializer(context: Context) -> Any | None:
+    for star_meta in context.get_all_stars():
+        if (
+            _is_livingmemory_star(star_meta)
+            and getattr(star_meta, "activated", False)
+            and getattr(star_meta, "star_cls", None) is not None
+        ):
+            return getattr(star_meta.star_cls, "initializer", None)
+    return None
 
 
 def get_livingmemory_engine(context: Context) -> MemoryEngine | None:
@@ -32,26 +63,103 @@ def get_livingmemory_engine(context: Context) -> MemoryEngine | None:
         MemoryEngine 實例，找不到或未初始化時回傳 None。
     """
     try:
-        for star_meta in context.get_all_stars():
-            if (
-                star_meta.root_dir_name == "astrbot_plugin_livingmemory"
-                and star_meta.activated
-                and star_meta.star_cls is not None
-            ):
-                initializer = getattr(star_meta.star_cls, "initializer", None)
-                if initializer and getattr(initializer, "is_initialized", False):
-                    engine: MemoryEngine | None = getattr(
-                        initializer, "memory_engine", None
-                    )
-                    if engine:
-                        return engine
-                else:
-                    logger.info(
-                        f"{_LOG_TAG} livingmemory 插件尚未完成初始化，跳過記憶檢索。"
-                    )
+        initializer = _find_livingmemory_initializer(context)
+        engine = _engine_from_initializer(initializer)
+        if engine:
+            return engine
+        if initializer:
+            logger.info(
+                f"{_LOG_TAG} livingmemory 插件尚未完成初始化，暫時跳過記憶檢索。"
+            )
     except Exception as e:
         logger.info(f"{_LOG_TAG} 取得 livingmemory 引擎失敗: {e}")
     return None
+
+
+async def get_livingmemory_engine_async(context: Context) -> MemoryEngine | None:
+    """取得 livingmemory 的 MemoryEngine，必要時短暫等待其初始化完成。"""
+    engine = get_livingmemory_engine(context)
+    if engine:
+        return engine
+
+    try:
+        initializer = _find_livingmemory_initializer(context)
+        ensure_initialized = getattr(initializer, "ensure_initialized", None)
+        if callable(ensure_initialized):
+            await ensure_initialized(timeout=10.0)
+            engine = _engine_from_initializer(initializer)
+            if engine:
+                return engine
+
+        if initializer:
+            logger.info(
+                f"{_LOG_TAG} livingmemory 初始化未就緒，本次主動訊息不注入記憶。"
+            )
+    except Exception as e:
+        logger.info(f"{_LOG_TAG} 取得 livingmemory 引擎失敗: {e}")
+    return None
+
+
+def _get_livingmemory_filtering_settings(context: Context) -> dict[str, Any]:
+    initializer = _find_livingmemory_initializer(context)
+    config_manager = getattr(initializer, "config_manager", None)
+    filtering_settings = getattr(config_manager, "filtering_settings", None)
+    return filtering_settings if isinstance(filtering_settings, dict) else {}
+
+
+def _uses_persona_filtering(context: Context) -> bool:
+    filtering_settings = _get_livingmemory_filtering_settings(context)
+    return filtering_settings.get("use_persona_filtering", True)
+
+
+def _uses_session_filtering(context: Context) -> bool:
+    filtering_settings = _get_livingmemory_filtering_settings(context)
+    return filtering_settings.get("use_session_filtering", True)
+
+
+def _recall_session_id(context: Context, session_id: str) -> str | None:
+    if _uses_session_filtering(context):
+        return session_id
+    return None
+
+
+async def resolve_persona_id_for_session(context: Context, session_id: str) -> str | None:
+    """依 AstrBot 主流程優先順序取得目前 session 的 persona_id。"""
+    try:
+        session_service_config = await sp.get_async(
+            scope="umo",
+            scope_id=session_id,
+            key="session_service_config",
+            default={},
+        )
+        persona_id = (
+            session_service_config.get("persona_id")
+            if isinstance(session_service_config, dict)
+            else None
+        )
+        if persona_id:
+            return persona_id
+
+        conv_id = await context.conversation_manager.get_curr_conversation_id(
+            session_id
+        )
+        if conv_id:
+            conversation = await context.conversation_manager.get_conversation(
+                session_id, conv_id
+            )
+            persona_id = getattr(conversation, "persona_id", None)
+            if persona_id == "[%None]":
+                return None
+            if persona_id:
+                return persona_id
+
+        default_persona = await context.persona_manager.get_default_persona_v3(
+            umo=session_id
+        )
+        return default_persona["name"] if default_persona else None
+    except Exception as e:
+        logger.debug(f"{_LOG_TAG} 取得 persona_id 失敗 | session={session_id}: {e}")
+        return None
 
 
 async def recall_memories_for_proactive(
@@ -75,7 +183,7 @@ async def recall_memories_for_proactive(
         logger.info(f"{_LOG_TAG} memory_top_k={memory_top_k}，已停用記憶檢索。")
         return ""
 
-    engine = get_livingmemory_engine(context)
+    engine = await get_livingmemory_engine_async(context)
     if not engine:
         logger.info(f"{_LOG_TAG} livingmemory 不可用，跳過記憶檢索。")
         return ""
@@ -84,7 +192,12 @@ async def recall_memories_for_proactive(
         results = await engine.search_memories(
             query=query,
             k=memory_top_k,
-            session_id=session_id,
+            session_id=_recall_session_id(context, session_id),
+            persona_id=(
+                await resolve_persona_id_for_session(context, session_id)
+                if _uses_persona_filtering(context)
+                else None
+            ),
         )
         if not results:
             logger.info(f"{_LOG_TAG} livingmemory 中未找到 {session_id} 的相關記憶。")

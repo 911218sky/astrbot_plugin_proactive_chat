@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Proactive Chat Tasks</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <h1>主動訊息任務</h1>
+          <p id="subtitle">載入中</p>
+        </div>
+        <div class="actions">
+          <button id="refresh-button" type="button" title="重新整理">刷新</button>
+          <label class="toggle">
+            <input id="auto-refresh" type="checkbox" checked />
+            <span>自動刷新</span>
+          </label>
+        </div>
+      </header>
+
+      <section class="summary-grid" aria-label="任務摘要">
+        <div class="metric">
+          <span class="metric-label">全部任務</span>
+          <strong id="metric-total">0</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">一般排程</span>
+          <strong id="metric-regular">0</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">語境預測</span>
+          <strong id="metric-context">0</strong>
+        </div>
+        <div class="metric">
+          <span class="metric-label">等待計時器</span>
+          <strong id="metric-timers">0</strong>
+        </div>
+      </section>
+
+      <section class="toolbar" aria-label="篩選">
+        <input id="search-input" type="search" placeholder="搜尋會話、任務、原因" />
+        <select id="type-filter" aria-label="任務類型">
+          <option value="all">全部類型</option>
+          <option value="regular">一般排程</option>
+          <option value="context">語境預測</option>
+          <option value="auto_trigger">自動觸發</option>
+          <option value="group_idle">群聊沉默</option>
+          <option value="context_orphan">未追蹤語境</option>
+        </select>
+      </section>
+
+      <section class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>類型</th>
+              <th>會話</th>
+              <th>下次執行</th>
+              <th>剩餘</th>
+              <th>未回覆</th>
+              <th>描述</th>
+            </tr>
+          </thead>
+          <tbody id="task-body">
+            <tr>
+              <td colspan="6" class="empty">載入中</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <div id="toast" role="status"></div>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

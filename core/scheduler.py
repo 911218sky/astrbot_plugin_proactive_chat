@@ -77,7 +77,7 @@ def should_trigger_by_unanswered(
     衰減率查找順序：
     1. 當前時段匹配的 schedule_rule 中的 ``decay_rate``（逐次列表）
     2. ``default_decay_rate``（全域預設遞減步長）
-    3. 若以上皆未配置，回退到 ``max_unanswered_times``（硬性上限）
+    3. 若以上皆未配置，視為不衰減（每次 100% 觸發）
 
     時段專屬上限：
     - 若當前時段規則配置了 ``max_unanswered_times`` 且大於 0，將覆蓋全域設定
@@ -91,7 +91,7 @@ def should_trigger_by_unanswered(
     - 當未匹配到任何規則時，從 1.0 開始每次遞減此步長。
       例如步長 ``0.05`` → 第 1 次 100%、第 2 次 95%、第 3 次 90%…
     - 填 ``0`` 表示不衰減（維持 100% 或列表末尾概率）。
-    - 留空表示不使用遞減衰減（回退到硬性上限邏輯）。
+    - 留空表示不衰減（每次 100% 觸發）。
 
     Returns:
         (是否觸發, 原因描述)
@@ -129,6 +129,10 @@ def should_trigger_by_unanswered(
         generated = _generate_step_decay_list(default_step, idx + 1)
         if idx < len(generated):
             return _roll_probability(generated[idx], unanswered_count, "全域預設衰減")
+
+    # 未配置衰減時，依照配置說明視為不衰減。
+    if (schedule_conf.get("default_decay_rate") or "").strip() == "":
+        return _roll_probability(1.0, unanswered_count, "未配置衰減")
 
     # 回退到硬性上限（優先使用時段專屬上限）
     max_unanswered = schedule_conf.get("max_unanswered_times", 3)
