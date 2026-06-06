@@ -23,7 +23,7 @@
 
 A proactive messaging plugin for [AstrBot](https://github.com/AstrBotDevs/AstrBot) that enables your Bot to initiate context-aware, persona-consistent conversations with dynamic emotions at random intervals after session silence.
 
-Current version: `v2.18.0`
+Current version: `v2.18.1`
 
 Recent updates:
 

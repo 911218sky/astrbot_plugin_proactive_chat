@@ -70,6 +70,67 @@
     showToast._timer = setTimeout(() => el.classList.remove("visible"), 2600);
   }
 
+  function askConfirm(message, title) {
+    const dialog = byId("confirm-dialog");
+    const titleEl = byId("confirm-title");
+    const messageEl = byId("confirm-message");
+    const okButton = byId("confirm-ok");
+    const cancelButton = byId("confirm-cancel");
+    const previousFocus = document.activeElement;
+    if (!dialog || !titleEl || !messageEl || !okButton || !cancelButton) {
+      return Promise.resolve(false);
+    }
+
+    titleEl.textContent = title || "確認操作";
+    messageEl.textContent = message;
+    dialog.hidden = false;
+    okButton.focus();
+
+    return new Promise((resolve) => {
+      let done = false;
+
+      const close = (result) => {
+        if (done) return;
+        done = true;
+        dialog.hidden = true;
+        okButton.removeEventListener("click", onOk);
+        cancelButton.removeEventListener("click", onCancel);
+        dialog.removeEventListener("click", onBackdrop);
+        document.removeEventListener("keydown", onKeydown);
+        if (previousFocus && typeof previousFocus.focus === "function") {
+          previousFocus.focus();
+        }
+        resolve(result);
+      };
+
+      const onOk = () => close(true);
+      const onCancel = () => close(false);
+      const onBackdrop = (event) => {
+        if (event.target === dialog) close(false);
+      };
+      const onKeydown = (event) => {
+        if (event.key === "Escape") close(false);
+      };
+
+      okButton.addEventListener("click", onOk);
+      cancelButton.addEventListener("click", onCancel);
+      dialog.addEventListener("click", onBackdrop);
+      document.addEventListener("keydown", onKeydown);
+    });
+  }
+
+  async function withButtonBusy(button, callback) {
+    const oldText = button.textContent;
+    button.disabled = true;
+    button.textContent = "處理中";
+    try {
+      return await callback();
+    } finally {
+      button.disabled = false;
+      button.textContent = oldText;
+    }
+  }
+
   function formatRemaining(seconds) {
     if (seconds == null || !Number.isFinite(Number(seconds))) return "";
     let value = Math.max(0, Number(seconds));
@@ -225,29 +286,34 @@
     const taskType = row.dataset.taskType;
     const sessionId = row.dataset.sessionId;
 
-    if (action === "delete" && !window.confirm("確定刪除此任務？")) return;
-
     const payload = {
       task_id: taskId,
       task_type: taskType,
       session_id: sessionId,
     };
-    if (action === "run-now") {
-      await apiPost("tasks/action", { action: "run_now", ...payload });
-      showToast("已送出立即執行");
-    } else if (action === "reschedule") {
-      if (!window.confirm(`確定將此任務改到 ${scheduleDescription()}？`)) return;
-      await apiPost("tasks/action", {
-        action: "reschedule",
-        ...payload,
-        ...readSchedulePayload(),
-      });
-      showToast("任務時間已更新");
-    } else if (action === "delete") {
-      await apiPost("tasks/action", { action: "delete", ...payload });
-      showToast("任務已刪除");
+
+    if (action === "delete" && !(await askConfirm("確定刪除此任務？", "刪除任務"))) return;
+    if (action === "reschedule") {
+      if (!(await askConfirm(`確定將此任務改到 ${scheduleDescription()}？`, "修改任務時間"))) return;
     }
-    await refresh(false);
+
+    await withButtonBusy(button, async () => {
+      if (action === "run-now") {
+        await apiPost("tasks/action", { action: "run_now", ...payload });
+        showToast("已送出立即執行");
+      } else if (action === "reschedule") {
+        await apiPost("tasks/action", {
+          action: "reschedule",
+          ...payload,
+          ...readSchedulePayload(),
+        });
+        showToast("任務時間已更新");
+      } else if (action === "delete") {
+        await apiPost("tasks/action", { action: "delete", ...payload });
+        showToast("任務已刪除");
+      }
+      await refresh(false);
+    });
   }
 
   async function refresh(showDone) {
@@ -295,8 +361,9 @@
       renderTasks();
     });
     byId("create-task-button").addEventListener("click", async () => {
+      const button = byId("create-task-button");
       try {
-        await createTask();
+        await withButtonBusy(button, createTask);
       } catch (error) {
         showToast(error.message || "新增失敗");
       }

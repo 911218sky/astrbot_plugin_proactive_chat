@@ -64,18 +64,27 @@
       </section>
 
       <section class="task-editor" aria-label="新增任務">
+        <div class="section-head">
+          <div>
+            <h2>新增一次性任務</h2>
+            <p>訊息內容會使用該會話在插件配置中的主動訊息 Prompt 生成。</p>
+          </div>
+        </div>
         <div class="editor-grid">
           <label>
             <span>會話</span>
             <select id="session-select"></select>
+            <small>只會列出已啟用的私聊或群聊會話。</small>
           </label>
           <label>
             <span>延遲分鐘</span>
             <input id="delay-input" type="number" min="1" step="1" value="10" />
+            <small>未填指定時間時使用。</small>
           </label>
           <label>
             <span>指定時間</span>
             <input id="run-at-input" type="datetime-local" />
+            <small>填寫後會優先於延遲分鐘。</small>
           </label>
           <button id="create-task-button" type="button">新增任務</button>
         </div>
@@ -104,6 +113,17 @@
 
       <div id="toast" role="status"></div>
     </main>
+
+    <div id="confirm-dialog" class="dialog-backdrop" hidden>
+      <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <h2 id="confirm-title">確認操作</h2>
+        <p id="confirm-message"></p>
+        <div class="dialog-actions">
+          <button id="confirm-cancel" type="button">取消</button>
+          <button id="confirm-ok" type="button" class="danger">確認</button>
+        </div>
+      </div>
+    </div>
     <script src="./app.js"></script>
   </body>
 </html>
