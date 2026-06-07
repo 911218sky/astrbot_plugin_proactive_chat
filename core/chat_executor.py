@@ -489,6 +489,7 @@ async def _cleanup_context_task(
             else:
                 sd.pop("pending_context_tasks", None)
                 sd.pop("pending_context_task", None)
+            await plugin._save_data()
 
 
 # ═══════════════════════════════════════════════════════════

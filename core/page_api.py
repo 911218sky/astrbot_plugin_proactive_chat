@@ -183,10 +183,11 @@ class PluginPageApi:
             sd["next_trigger_time"] = time.time() + delay_seconds
             if description:
                 sd["task_description"] = description
-            elif require_task:
+            else:
                 sd.pop("task_description", None)
             if require_task and task_type in {"auto_trigger", "group_idle"}:
                 sd.pop(f"{task_type}_description", None)
+                sd.pop(f"{task_type}_deadline", None)
             await self.plugin._save_data()
 
         logger.info(
@@ -273,12 +274,18 @@ class PluginPageApi:
                 await self.plugin._save_data()
         elif task_type in {"auto_trigger", "group_idle"} and session_id:
             removed = self._cancel_timer_task(task_type, session_id) or removed
+            session_info = self.plugin.session_data.get(session_id)
+            if isinstance(session_info, dict) and (
+                session_info.get(f"{task_type}_deadline")
+                or session_info.get(f"{task_type}_description")
+            ):
+                removed = True
             if removed:
                 async with self.plugin.data_lock:
                     sd = self.plugin.session_data.get(session_id)
                     if isinstance(sd, dict):
                         sd.pop(f"{task_type}_description", None)
-                        sd.pop("task_description", None)
+                        sd.pop(f"{task_type}_deadline", None)
                     await self.plugin._save_data()
 
         if not removed:
@@ -321,11 +328,7 @@ class PluginPageApi:
                 )
                 await self.plugin._save_data()
         elif task_type in {"auto_trigger", "group_idle"}:
-            timers = {
-                "auto_trigger": self.plugin.auto_trigger_timers,
-                "group_idle": self.plugin.group_timers,
-            }.get(task_type, {})
-            if session_id not in timers:
+            if not self._has_waiting_timer(task_type, session_id):
                 raise ValueError("找不到指定等待計時器")
             async with self.plugin.data_lock:
                 sd = self.plugin.session_data.setdefault(session_id, {})
@@ -373,6 +376,18 @@ class PluginPageApi:
         handle.cancel()
         return True
 
+    def _has_waiting_timer(self, task_type: str, session_id: str) -> bool:
+        timers = {
+            "auto_trigger": self.plugin.auto_trigger_timers,
+            "group_idle": self.plugin.group_timers,
+        }.get(task_type, {})
+        if session_id in timers:
+            return True
+        session_info = self.plugin.session_data.get(session_id, {})
+        if not isinstance(session_info, dict):
+            return False
+        return bool(session_info.get(f"{task_type}_deadline"))
+
     def _resolve_session_from_payload(self, payload: dict[str, Any]) -> str:
         session_id = str(payload.get("session_id") or "").strip()
         target_id = str(payload.get("target_id") or "").strip()
@@ -412,6 +427,20 @@ class PluginPageApi:
         return resolved
 
     def _parse_run_date(self, payload: dict[str, Any]) -> datetime:
+        run_at = str(payload.get("run_at") or "").strip()
+        if run_at:
+            try:
+                value = datetime.fromisoformat(run_at)
+            except ValueError as exc:
+                raise ValueError("執行時間格式錯誤") from exc
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=self.plugin.timezone)
+            else:
+                value = value.astimezone(self.plugin.timezone)
+            if value.timestamp() <= time.time():
+                raise ValueError("執行時間必須晚於現在")
+            return value
+
         delay = payload.get("delay_minutes")
         if delay not in (None, ""):
             try:
@@ -424,20 +453,7 @@ class PluginPageApi:
                 time.time() + minutes * 60, tz=self.plugin.timezone
             )
 
-        run_at = str(payload.get("run_at") or "").strip()
-        if not run_at:
-            raise ValueError("請填寫延遲分鐘或執行時間")
-        try:
-            value = datetime.fromisoformat(run_at)
-        except ValueError as exc:
-            raise ValueError("執行時間格式錯誤") from exc
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=self.plugin.timezone)
-        else:
-            value = value.astimezone(self.plugin.timezone)
-        if value.timestamp() <= time.time():
-            raise ValueError("執行時間必須晚於現在")
-        return value
+        raise ValueError("請填寫延遲分鐘或執行時間")
 
     def _collect_scheduler_jobs(self, jobs: list[Any], task_type: str) -> list[dict]:
         result = []
@@ -523,13 +539,27 @@ class PluginPageApi:
     ) -> list[dict]:
         result = []
         loop_time = self._current_loop_time(timers)
+        session_ids = set(timers)
+        for sid, info in self.plugin.session_data.items():
+            if isinstance(info, dict) and info.get(f"{task_type}_deadline"):
+                session_ids.add(sid)
 
-        for session_id, handle in timers.items():
+        for session_id in session_ids:
+            handle = timers.get(session_id)
             when = getattr(handle, "when", None)
             remaining = None
             if callable(when) and loop_time is not None:
                 remaining = max(0.0, when() - loop_time)
             next_ts = now_ts + remaining if remaining is not None else None
+            if next_ts is None:
+                session_info = self.plugin.session_data.get(session_id, {})
+                if isinstance(session_info, dict):
+                    try:
+                        next_ts = float(session_info.get(f"{task_type}_deadline"))
+                    except (TypeError, ValueError):
+                        next_ts = None
+                    if next_ts is not None:
+                        remaining = max(0.0, next_ts - now_ts)
             description = self._session_task_description(session_id, task_type)
             result.append(
                 self._task_base(

@@ -23,10 +23,15 @@
 
 A proactive messaging plugin for [AstrBot](https://github.com/AstrBotDevs/AstrBot) that enables your Bot to initiate context-aware, persona-consistent conversations with dynamic emotions at random intervals after session silence.
 
-Current version: `v2.18.6`
+Current version: `v2.19.0`
 
 Recent updates:
 
+- Added a plugin-owned SQLite state store, `proactive_state.db`, for the latest task/session state.
+- Restored restart-safe auto-trigger and group-idle waiting timers, including missed-task catch-up within a 30-minute grace window.
+- The dashboard reschedule action now opens its own dialog for delay time, exact run time, and task description.
+- DB-backed waiting tasks can now be edited or deleted from the dashboard even after AstrBot restarts.
+- `requirements.txt` now declares `aiosqlite>=0.20.0`.
 - Upgraded the AstrBot Pages task dashboard into a task management UI with filters, create, reschedule, run-check, and delete actions.
 - Added editable task descriptions. Manual schedule descriptions are injected into proactive generation.
 - Restyled the dashboard after the livingmemory AstrBot Pages UI, including sidebar navigation, theme switching, and denser task tables.
@@ -91,7 +96,7 @@ Added `schedule_rules` (`template_list` type) to all `schedule_settings`, enabli
 - Multiple concurrent context tasks per session (short-term follow-ups don't overwrite long-term scheduled greetings)
 - Parallel context task cancellation checks
 - Dynamic emotions (unanswered counter)
-- Persistent sessions (task recovery after restart)
+- Persistent sessions backed by the plugin's own SQLite DB (task recovery after restart)
 - Do Not Disturb periods
 - TTS voice integration
 - Segmented replies (simulated typing intervals)
@@ -117,8 +122,10 @@ The plugin provides a Pages dashboard in AstrBot WebUI for checking and managing
 - Auto-trigger timers
 - Group silence timers
 - Filters by keyword, task type, session type, and enabled status
-- Create regular one-shot schedules, reschedule tasks, run a session check immediately, or delete waiting tasks
+- Create regular one-shot schedules, reschedule tasks through a dialog, run a session check immediately, or delete waiting tasks
 - Add, edit, or clear task descriptions directly from the dashboard
+
+Task state is stored in the plugin's own `proactive_state.db`. On first upgrade, the plugin reads the old `session_data.json` once if the new DB is empty, then keeps only the latest state snapshot in SQLite.
 
 ### 6. Dedicated LLM Provider for Context Analysis
 
@@ -134,7 +141,7 @@ Context prediction prompts have been extracted to `core/prompts/` as `.txt` file
 ## 🚀 Installation
 
 1. Download `.zip` from this repo, install via AstrBot WebUI "Install from file"
-2. Core dependencies `APScheduler` and `aiofiles` are typically bundled with AstrBot
+2. Core dependencies `APScheduler`, `aiofiles`, and `aiosqlite` are declared in `requirements.txt`
 3. Go to WebUI → Plugin Configuration, set target sessions and proactive message motivation
 4. Save and enjoy
 
@@ -160,6 +167,7 @@ astrbot_plugin_proactive_chat/
 │   ├── context_scheduling.py  # Context-aware scheduling (task creation/cancellation/restore)
 │   ├── chat_executor.py       # Core execution (check_and_chat flow, prompt building, finalization)
 │   ├── page_api.py            # AstrBot Pages API (task status, list, and actions)
+│   ├── state_store.py         # Plugin SQLite state store
 │   ├── prompts/               # LLM prompt templates (context prediction, task cancellation)
 │   └── utils.py               # Utilities
 ├── pages/

@@ -340,10 +340,11 @@ def restore_pending_context_tasks(plugin: ProactiveChatPlugin) -> bool:
                 missed += 1
                 needs_save = True
 
-            valid_tasks.append(pending)
-            restored += 1
             try:
-                if plugin.scheduler and not plugin.scheduler.get_job(job_id):
+                if plugin.scheduler and plugin.scheduler.get_job(job_id):
+                    valid_tasks.append(pending)
+                    restored += 1
+                elif plugin.scheduler:
                     plugin.scheduler.add_job(
                         plugin.check_and_chat,
                         "date",
@@ -355,11 +356,16 @@ def restore_pending_context_tasks(plugin: ProactiveChatPlugin) -> bool:
                         misfire_grace_time=120,
                     )
                     scheduled += 1
+                    valid_tasks.append(pending)
+                    restored += 1
+                else:
+                    needs_save = True
             except Exception as e:
                 logger.error(
                     f"{_LOG_TAG} 恢復語境預測排程失敗"
                     f" | session={sid}, job_id={job_id}: {e}"
                 )
+                needs_save = True
         # 檢查是否有任務被過濾掉（過期任務被清理）
         if len(valid_tasks) != len(task_list):
             needs_save = True

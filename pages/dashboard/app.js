@@ -166,6 +166,84 @@
     });
   }
 
+  function openRescheduleDialog(task, currentDescription) {
+    const dialog = byId("reschedule-dialog");
+    const subtitle = byId("reschedule-subtitle");
+    const delayInput = byId("reschedule-delay-input");
+    const runAtInput = byId("reschedule-run-at-input");
+    const descriptionInput = byId("reschedule-description-input");
+    const okButton = byId("reschedule-ok");
+    const cancelButton = byId("reschedule-cancel");
+    const closeButton = byId("reschedule-close");
+    const previousFocus = document.activeElement;
+    if (
+      !dialog ||
+      !subtitle ||
+      !delayInput ||
+      !runAtInput ||
+      !descriptionInput ||
+      !okButton ||
+      !cancelButton ||
+      !closeButton
+    ) {
+      return Promise.resolve(null);
+    }
+
+    subtitle.textContent = `${task.session_label || task.session_id} · ${TYPE_LABELS[task.type] || task.type}`;
+    delayInput.value = "10";
+    runAtInput.value = "";
+    descriptionInput.value = currentDescription || "";
+    dialog.hidden = false;
+    delayInput.focus();
+
+    return new Promise((resolve) => {
+      let done = false;
+
+      const close = (result) => {
+        if (done) return;
+        done = true;
+        dialog.hidden = true;
+        okButton.removeEventListener("click", onOk);
+        cancelButton.removeEventListener("click", onCancel);
+        closeButton.removeEventListener("click", onCancel);
+        dialog.removeEventListener("click", onBackdrop);
+        document.removeEventListener("keydown", onKeydown);
+        if (previousFocus && typeof previousFocus.focus === "function") {
+          previousFocus.focus();
+        }
+        resolve(result);
+      };
+
+      const onOk = () => {
+        const runAt = runAtInput.value;
+        const delay = delayInput.value;
+        if (!runAt && (!delay || Number(delay) <= 0)) {
+          showToast("請填寫延遲分鐘或指定時間");
+          delayInput.focus();
+          return;
+        }
+        close({
+          run_at: runAt || "",
+          delay_minutes: runAt ? "" : delay,
+          description: descriptionInput.value.trim(),
+        });
+      };
+      const onCancel = () => close(null);
+      const onBackdrop = (event) => {
+        if (event.target === dialog) close(null);
+      };
+      const onKeydown = (event) => {
+        if (event.key === "Escape") close(null);
+      };
+
+      okButton.addEventListener("click", onOk);
+      cancelButton.addEventListener("click", onCancel);
+      closeButton.addEventListener("click", onCancel);
+      dialog.addEventListener("click", onBackdrop);
+      document.addEventListener("keydown", onKeydown);
+    });
+  }
+
   async function withButtonBusy(button, callback) {
     const oldText = button.textContent;
     button.disabled = true;
@@ -286,8 +364,8 @@
         const canEditDescription = ["regular", "context", "auto_trigger", "group_idle"].includes(task.type);
         const canRunNow = Boolean(task.enabled);
         const rescheduleTitle = ["auto_trigger", "group_idle"].includes(task.type)
-          ? "使用上方時間改為手動排程"
-          : "使用上方時間改期";
+          ? "開啟彈窗選擇時間，並轉為手動排程"
+          : "開啟彈窗選擇新的執行時間";
         const lastMessage = task.last_message_time
           ? `<span class="meta">最後訊息：${escapeHtml(task.last_message_time)}</span>`
           : "";
@@ -345,12 +423,6 @@
     };
   }
 
-  function scheduleDescription() {
-    const runAt = byId("run-at-input").value;
-    if (runAt) return `上方「指定時間」：${runAt}`;
-    return `上方「延遲分鐘」：${byId("delay-input").value || 10} 分鐘後`;
-  }
-
   async function createTask() {
     const sessionId = byId("session-select").value;
     if (!sessionId) {
@@ -379,13 +451,21 @@
       task_type: taskType,
       session_id: sessionId,
     };
+    const task = state.tasks.find(
+      (item) =>
+        String(item.id) === taskId &&
+        String(item.type) === taskType &&
+        String(item.session_id) === sessionId
+    ) || {
+      id: taskId,
+      type: taskType,
+      session_id: sessionId,
+      session_label: sessionId,
+    };
 
     if (action === "delete" && !(await askConfirm("確定刪除此任務？", "刪除任務"))) return;
     if (action === "run-now") {
       if (!(await askConfirm("這會立即檢查發送條件，符合條件時可能真的送出主動訊息。確定執行？", "立即執行任務"))) return;
-    }
-    if (action === "reschedule") {
-      if (!(await askConfirm(`確定將此任務改到 ${scheduleDescription()}？\n會一併使用這一列目前填寫的任務描述。`, "修改任務時間"))) return;
     }
 
     await withButtonBusy(button, async () => {
@@ -394,10 +474,15 @@
         showToast("已送出立即執行");
       } else if (action === "reschedule") {
         const textarea = row.querySelector('[data-role="description"]');
+        const schedulePayload = await openRescheduleDialog(
+          task,
+          textarea ? textarea.value : ""
+        );
+        if (!schedulePayload) return;
         await apiPost("tasks/action", {
           action: "reschedule",
           ...payload,
-          ...readSchedulePayload(textarea ? textarea.value : ""),
+          ...schedulePayload,
         });
         showToast("任務時間已更新");
       } else if (action === "save-description") {

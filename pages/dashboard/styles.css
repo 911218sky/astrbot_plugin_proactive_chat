@@ -699,6 +699,18 @@ button:disabled {
   box-shadow: var(--shadow-md);
 }
 
+.dialog-wide {
+  width: min(620px, 100%);
+}
+
+.dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
 .dialog h2 {
   margin: 0;
   font-size: 16px;
@@ -707,6 +719,46 @@ button:disabled {
 .dialog p {
   margin: var(--space-3) 0 var(--space-5);
   color: var(--text-secondary);
+}
+
+.dialog-subtitle {
+  margin: 4px 0 0 !important;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border: 1px solid var(--border-normal);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+}
+
+.icon-button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.reschedule-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  margin-bottom: var(--space-5);
+}
+
+.form-field-full {
+  grid-column: 1 / -1;
 }
 
 .dialog-actions {
@@ -771,6 +823,10 @@ button:disabled {
 
   .table-scroll {
     max-height: none;
+  }
+
+  .reschedule-grid {
+    grid-template-columns: 1fr;
   }
 }
 

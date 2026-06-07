@@ -157,7 +157,7 @@
             <div class="table-toolbar">
               <div>
                 <h2 class="card-title">任務列表</h2>
-                <p class="card-description">修改描述後可直接保存，或按改期時一併套用該列描述。</p>
+                <p class="card-description">可直接保存描述；按改期會開啟時間選擇彈窗，不需要回到新增表單。</p>
               </div>
             </div>
             <div class="table-scroll">
@@ -193,6 +193,43 @@
         <div class="dialog-actions">
           <button id="confirm-cancel" class="btn btn-secondary" type="button">取消</button>
           <button id="confirm-ok" class="btn btn-danger" type="button">確認</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="reschedule-dialog" class="dialog-backdrop" hidden>
+      <div class="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="reschedule-title">
+        <div class="dialog-header">
+          <div>
+            <h2 id="reschedule-title">修改任務時間</h2>
+            <p id="reschedule-subtitle" class="dialog-subtitle"></p>
+          </div>
+          <button id="reschedule-close" class="icon-button" type="button" aria-label="關閉">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 6 6 18M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div class="reschedule-grid">
+          <label class="form-field">
+            <span>延遲分鐘</span>
+            <input id="reschedule-delay-input" class="input" type="number" min="1" step="1" placeholder="例如 10" />
+            <small>沒有指定時間時使用。</small>
+          </label>
+          <label class="form-field">
+            <span>指定時間</span>
+            <input id="reschedule-run-at-input" class="input" type="datetime-local" />
+            <small>填寫後優先使用指定時間。</small>
+          </label>
+          <label class="form-field form-field-full">
+            <span>任務描述</span>
+            <textarea id="reschedule-description-input" class="input textarea" rows="4" maxlength="800" placeholder="填寫這次任務要提醒、關心或接續的內容"></textarea>
+            <small>保存後會顯示在任務列表，也會提供給主動訊息生成使用。</small>
+          </label>
+        </div>
+        <div class="dialog-actions">
+          <button id="reschedule-cancel" class="btn btn-secondary" type="button">取消</button>
+          <button id="reschedule-ok" class="btn btn-primary" type="button">保存改期</button>
         </div>
       </div>
     </div>

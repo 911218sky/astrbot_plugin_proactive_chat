@@ -22,6 +22,7 @@ from .core.context_scheduling import (
     restore_pending_context_tasks,
 )
 from .core.scheduler import compute_weighted_interval
+from .core.state_store import ProactiveStateStore, StateStoreCorruptionError
 
 # ── 核心模組匯入（使用相對匯入，避免與 AstrBot 自身的 core 衝突） ──
 from .core.utils import (
@@ -37,6 +38,9 @@ from .core.utils import (
 
 # 統一日誌前綴，方便在 AstrBot 日誌中篩選本插件的輸出
 _LOG_TAG = "[主動訊息]"
+_RESTORE_MISSED_GRACE_SECONDS = 30 * 60
+_AUTO_TRIGGER_DEADLINE_KEY = "auto_trigger_deadline"
+_GROUP_IDLE_DEADLINE_KEY = "group_idle_deadline"
 
 
 class ProactiveChatPlugin(star.Star):
@@ -60,6 +64,7 @@ class ProactiveChatPlugin(star.Star):
         "timezone",
         "data_dir",
         "session_data_file",
+        "state_store",
         "data_lock",
         "session_data",
         "group_timers",
@@ -92,6 +97,7 @@ class ProactiveChatPlugin(star.Star):
         # ── 持久化路徑 ──
         self.data_dir = star.StarTools.get_data_dir("astrbot_plugin_proactive_chat")
         self.session_data_file = self.data_dir / "session_data.json"
+        self.state_store = ProactiveStateStore(self.data_dir / "proactive_state.db")
 
         # 非同步鎖，保護 session_data 的讀寫
         self.data_lock: asyncio.Lock | None = None
@@ -163,30 +169,94 @@ class ProactiveChatPlugin(star.Star):
     # ═══════════════════════════════════════════════════════════
 
     async def _load_data(self) -> None:
-        """從 JSON 檔案載入會話持久化數據。若檔案不存在或損壞則初始化為空 dict。"""
+        """從插件自己的 SQLite DB 載入最新會話狀態。"""
         try:
-            if await aio_os.path.exists(str(self.session_data_file)):
-                async with aiofiles.open(self.session_data_file, encoding="utf-8") as f:
-                    content = await f.read()
-                    self.session_data = json.loads(content) if content.strip() else {}
-            else:
+            self.session_data = await self.state_store.load_session_data()
+            if self.session_data:
+                return
+
+            # 新 DB 尚未有資料時，讀一次舊 JSON 作為目前最新狀態，避免升級後任務清空。
+            if not await aio_os.path.exists(str(self.session_data_file)):
                 self.session_data = {}
+                return
+            async with aiofiles.open(self.session_data_file, encoding="utf-8") as f:
+                content = await f.read()
+            legacy_data = json.loads(content) if content.strip() else {}
+            self.session_data = legacy_data if isinstance(legacy_data, dict) else {}
+            if self.session_data:
+                await self.state_store.save_session_data(self.session_data)
+                logger.info(f"{_LOG_TAG} 已讀取既有 JSON 狀態並寫入插件 SQLite。")
+        except StateStoreCorruptionError:
+            self.session_data = {}
+            raise
         except Exception as e:
             logger.error(f"{_LOG_TAG} 加載會話數據失敗: {e}")
             self.session_data = {}
 
     async def _save_data(self) -> None:
-        """將會話持久化數據寫入 JSON 檔案。呼叫前須持有 data_lock。"""
+        """將最新會話狀態寫入插件自己的 SQLite DB。呼叫前須持有 data_lock。"""
         try:
-            await aio_os.makedirs(self.data_dir, exist_ok=True)
-            async with aiofiles.open(
-                self.session_data_file, "w", encoding="utf-8"
-            ) as f:
-                await f.write(
-                    json.dumps(self.session_data, indent=2, ensure_ascii=False)
-                )
+            await self.state_store.save_session_data(self.session_data)
         except Exception as e:
             logger.error(f"{_LOG_TAG} 保存會話數據失敗: {e}")
+
+    async def _persist_regular_job(
+        self,
+        session_id: str,
+        run_at_ts: float,
+        *,
+        unanswered_count: int | None = None,
+    ) -> None:
+        """保存一般主動訊息任務的下一次觸發時間。"""
+        async with self.data_lock:
+            sd = self.session_data.setdefault(session_id, {})
+            if unanswered_count is not None:
+                sd["unanswered_count"] = unanswered_count
+            sd["next_trigger_time"] = run_at_ts
+            await self._save_data()
+
+    async def _set_timer_deadline(
+        self, session_id: str, key: str, deadline_ts: float
+    ) -> None:
+        """保存等待型計時器的到期時間，讓重啟後可以恢復。"""
+        async with self.data_lock:
+            self.session_data.setdefault(session_id, {})[key] = deadline_ts
+            await self._save_data()
+
+    async def _clear_timer_state(self, session_id: str, *keys: str) -> None:
+        """清除等待型計時器狀態。"""
+        if not keys:
+            return
+        async with self.data_lock:
+            sd = self.session_data.get(session_id)
+            if not isinstance(sd, dict):
+                return
+            changed = False
+            for key in keys:
+                if key in sd:
+                    sd.pop(key, None)
+                    changed = True
+            if changed:
+                await self._save_data()
+
+    async def _clear_timer_state_many(
+        self, session_ids: set[str], *keys: str
+    ) -> None:
+        """批次清除等待型計時器狀態。"""
+        if not session_ids or not keys:
+            return
+        async with self.data_lock:
+            changed = False
+            for session_id in session_ids:
+                sd = self.session_data.get(session_id)
+                if not isinstance(sd, dict):
+                    continue
+                for key in keys:
+                    if key in sd:
+                        sd.pop(key, None)
+                        changed = True
+            if changed:
+                await self._save_data()
 
     # ═══════════════════════════════════════════════════════════
     #  生命週期
@@ -209,9 +279,10 @@ class ProactiveChatPlugin(star.Star):
             logger.warning(f"{_LOG_TAG} 配置驗證發現問題: {e}，將繼續使用默認設置。")
 
         # 載入持久化的會話數據
+        await self.state_store.initialize()
         async with self.data_lock:
             await self._load_data()
-        logger.info(f"{_LOG_TAG} 已成功從文件加載會話數據。")
+        logger.info(f"{_LOG_TAG} 已成功從插件 SQLite 加載會話數據。")
 
         # 從持久化數據恢復「最後訊息時間」到記憶體快取
         restored = 0
@@ -242,6 +313,7 @@ class ProactiveChatPlugin(star.Star):
         if restore_pending_context_tasks(self):
             async with self.data_lock:
                 await self._save_data()
+        await self._restore_waiting_timers_from_data()
         await self._setup_auto_triggers_for_enabled_sessions()
         logger.info(f"{_LOG_TAG} 初始化完成。")
 
@@ -282,6 +354,11 @@ class ProactiveChatPlugin(star.Star):
             except Exception as e:
                 logger.error(f"{_LOG_TAG} 保存數據時出錯: {e}")
 
+        try:
+            await self.state_store.close()
+        except Exception as e:
+            logger.error(f"{_LOG_TAG} 關閉狀態資料庫時出錯: {e}")
+
         logger.info(f"{_LOG_TAG} 插件已終止。")
 
     # ═══════════════════════════════════════════════════════════
@@ -310,6 +387,44 @@ class ProactiveChatPlugin(star.Star):
             misfire_grace_time=60,
         )
         return run_date
+
+    async def _create_auto_trigger_job(
+        self,
+        session_id: str,
+        auto_minutes: int,
+        *,
+        ignore_start_grace: bool = False,
+    ) -> None:
+        """自動觸發等待到期後建立正式排程，並立即持久化。"""
+        if session_id not in self.auto_trigger_timers:
+            return
+        try:
+            cfg = get_session_config(self.config, session_id)
+            if not cfg or not cfg.get("enable", False):
+                return
+            if self.last_message_times.get(session_id, 0) != 0:
+                return
+            if (
+                not ignore_start_grace
+                and time.time() - self.plugin_start_time < auto_minutes * 60
+            ):
+                return
+
+            schedule_conf = cfg.get("schedule_settings", {})
+            interval = compute_weighted_interval(schedule_conf, self.timezone, 0)
+            run_date = self._add_scheduled_job(session_id, interval)
+            await self._persist_regular_job(
+                session_id,
+                run_date.timestamp(),
+                unanswered_count=0,
+            )
+            logger.info(
+                f"{_LOG_TAG} {get_session_log_str(session_id, cfg, self.session_data)} "
+                f"自動觸發任務已創建，執行時間: {run_date.strftime('%Y-%m-%d %H:%M:%S')}"
+            )
+        finally:
+            self.auto_trigger_timers.pop(session_id, None)
+            await self._clear_timer_state(session_id, _AUTO_TRIGGER_DEADLINE_KEY)
 
     async def _retry_chat_job(
         self,
@@ -427,30 +542,55 @@ class ProactiveChatPlugin(star.Star):
         從持久化數據恢復定時任務。
 
         遍歷 session_data，對每個仍在有效期內的 next_trigger_time
-        重新建立 APScheduler 任務。同時清理格式異常的條目。
+        重新建立 APScheduler 任務。錯過觸發時間但仍在寬限內的任務會立即補跑；
+        太舊的任務會重新計算下一輪排程，避免重啟後在任務頁靜默消失。
         """
         restored = 0
+        missed = 0
+        rescheduled = 0
         now = time.time()
+        needs_save = False
 
         # 清理非 dict 的無效條目
         invalid = [k for k, v in self.session_data.items() if not isinstance(v, dict)]
         if invalid:
             for k in invalid:
                 del self.session_data[k]
-            async with self.data_lock:
-                await self._save_data()
+            needs_save = True
 
-        for sid, info in self.session_data.items():
+        sessions_to_reschedule: list[str] = []
+        for sid, info in list(self.session_data.items()):
+            if not isinstance(info, dict):
+                continue
             cfg = get_session_config(self.config, sid)
             if not cfg or not cfg.get("enable", False):
                 continue
-            next_t = info.get("next_trigger_time")
-            # 只恢復尚未過期（含 60 秒寬限）的任務
-            if not next_t or now >= next_t + 60:
+            raw_next_t = info.get("next_trigger_time")
+            if not raw_next_t:
                 continue
+            try:
+                next_t = float(raw_next_t)
+            except (TypeError, ValueError):
+                info.pop("next_trigger_time", None)
+                needs_save = True
+                continue
+
             # 避免重複建立
             if self.scheduler.get_job(sid):
                 continue
+
+            if next_t < now:
+                if now - next_t <= _RESTORE_MISSED_GRACE_SECONDS:
+                    next_t = now + 1
+                    info["next_trigger_time"] = next_t
+                    missed += 1
+                    needs_save = True
+                else:
+                    info.pop("next_trigger_time", None)
+                    sessions_to_reschedule.append(sid)
+                    needs_save = True
+                    continue
+
             try:
                 run_date = datetime.fromtimestamp(next_t, tz=self.timezone)
                 self.scheduler.add_job(
@@ -466,7 +606,118 @@ class ProactiveChatPlugin(star.Star):
             except Exception as e:
                 logger.error(f"{_LOG_TAG} 恢復任務失敗: {e}")
 
-        logger.info(f"{_LOG_TAG} 任務恢復完成，共恢復 {restored} 個定時任務。")
+        if needs_save:
+            async with self.data_lock:
+                await self._save_data()
+
+        for sid in sessions_to_reschedule:
+            try:
+                await self._schedule_next_chat_and_save(sid)
+                rescheduled += 1
+            except Exception as e:
+                logger.error(f"{_LOG_TAG} 重排過期任務失敗 | session={sid}: {e}")
+
+        logger.info(
+            f"{_LOG_TAG} 任務恢復完成，共恢復 {restored} 個定時任務，"
+            f"補跑 {missed} 個，重排 {rescheduled} 個。"
+        )
+
+    async def _restore_waiting_timers_from_data(self) -> None:
+        """從持久化狀態恢復自動觸發與群聊沉默等待計時器。"""
+        now = time.time()
+        auto_restored = 0
+        auto_missed = 0
+        group_restored = 0
+        group_missed = 0
+        stale: dict[str, set[str]] = {}
+
+        for sid, info in list(self.session_data.items()):
+            if not isinstance(info, dict):
+                continue
+            cfg = get_session_config(self.config, sid)
+            if not cfg or not cfg.get("enable", False):
+                for key in (_AUTO_TRIGGER_DEADLINE_KEY, _GROUP_IDLE_DEADLINE_KEY):
+                    if key in info:
+                        stale.setdefault(sid, set()).add(key)
+                continue
+
+            auto_deadline = self._coerce_timestamp(
+                info.get(_AUTO_TRIGGER_DEADLINE_KEY)
+            )
+            if auto_deadline is not None:
+                auto_settings = cfg.get("auto_trigger_settings", {})
+                if (
+                    auto_settings.get("enable_auto_trigger", False)
+                    and self.last_message_times.get(sid, 0) == 0
+                    and not info.get("next_trigger_time")
+                ):
+                    delay = max(0.0, auto_deadline - now)
+                    if delay <= 0:
+                        if now - auto_deadline <= _RESTORE_MISSED_GRACE_SECONDS:
+                            await self._setup_auto_trigger(
+                                sid,
+                                silent=True,
+                                delay_seconds=1.0,
+                                ignore_start_grace=True,
+                            )
+                            auto_missed += 1
+                        else:
+                            stale.setdefault(sid, set()).add(_AUTO_TRIGGER_DEADLINE_KEY)
+                    else:
+                        await self._setup_auto_trigger(
+                            sid, silent=True, delay_seconds=delay
+                        )
+                        auto_restored += 1
+                else:
+                    stale.setdefault(sid, set()).add(_AUTO_TRIGGER_DEADLINE_KEY)
+
+            group_deadline = self._coerce_timestamp(info.get(_GROUP_IDLE_DEADLINE_KEY))
+            if group_deadline is not None:
+                if is_group_session_id(sid) and not info.get("next_trigger_time"):
+                    delay = max(0.0, group_deadline - now)
+                    if delay <= 0:
+                        if now - group_deadline <= _RESTORE_MISSED_GRACE_SECONDS:
+                            await self._setup_group_silence_timer(
+                                sid, delay_seconds=1.0
+                            )
+                            group_missed += 1
+                        else:
+                            stale.setdefault(sid, set()).add(_GROUP_IDLE_DEADLINE_KEY)
+                    else:
+                        await self._setup_group_silence_timer(
+                            sid, delay_seconds=delay
+                        )
+                        group_restored += 1
+                else:
+                    stale.setdefault(sid, set()).add(_GROUP_IDLE_DEADLINE_KEY)
+
+        if stale:
+            async with self.data_lock:
+                changed = False
+                for sid, keys in stale.items():
+                    sd = self.session_data.get(sid)
+                    if not isinstance(sd, dict):
+                        continue
+                    for key in keys:
+                        if key in sd:
+                            sd.pop(key, None)
+                            changed = True
+                if changed:
+                    await self._save_data()
+
+        if auto_restored or auto_missed or group_restored or group_missed:
+            logger.info(
+                f"{_LOG_TAG} 等待計時器恢復完成：自動觸發 {auto_restored} 個、"
+                f"補跑 {auto_missed} 個；群聊沉默 {group_restored} 個、"
+                f"補跑 {group_missed} 個。"
+            )
+
+    def _coerce_timestamp(self, value: object) -> float | None:
+        try:
+            timestamp = float(value)
+        except (TypeError, ValueError):
+            return None
+        return timestamp if timestamp > 0 else None
 
     # ═══════════════════════════════════════════════════════════
     #  自動觸發
@@ -492,19 +743,28 @@ class ProactiveChatPlugin(star.Star):
         parsed = parse_session_id(session_id)
         if not parsed:
             self._cancel_timer(self.auto_trigger_timers, session_id)
+            await self._clear_timer_state(session_id, _AUTO_TRIGGER_DEADLINE_KEY)
             return
 
         _, _, target_id = parsed
         suffix = f":{target_id}"
-        to_cancel = [
+        to_cancel = {
             sid
-            for sid in self.auto_trigger_timers
+            for sid in set(self.auto_trigger_timers) | set(self.session_data)
             if sid.endswith(suffix) or sid == session_id
-        ]
+        }
         for sid in to_cancel:
             self._cancel_timer(self.auto_trigger_timers, sid)
+        to_cancel.add(session_id)
+        await self._clear_timer_state_many(to_cancel, _AUTO_TRIGGER_DEADLINE_KEY)
 
-    async def _setup_auto_trigger(self, session_id: str, silent: bool = False) -> None:
+    async def _setup_auto_trigger(
+        self,
+        session_id: str,
+        silent: bool = False,
+        delay_seconds: float | None = None,
+        ignore_start_grace: bool = False,
+    ) -> None:
         """
         為單一會話設置自動觸發計時器。
 
@@ -521,6 +781,9 @@ class ProactiveChatPlugin(star.Star):
         auto_minutes = auto_settings.get("auto_trigger_after_minutes", 5)
         if auto_minutes <= 0:
             return
+        delay = float(delay_seconds) if delay_seconds is not None else auto_minutes * 60
+        if delay <= 0:
+            delay = 1.0
 
         # 先取消舊的計時器（避免重複）
         self._cancel_timer(self.auto_trigger_timers, session_id)
@@ -531,38 +794,31 @@ class ProactiveChatPlugin(star.Star):
                 # 若計時器已被外部取消（pop 掉了），則不執行
                 if captured_sid not in self.auto_trigger_timers:
                     return
-                cfg = get_session_config(self.config, captured_sid)
-                if not cfg or not cfg.get("enable", False):
-                    return
-                # 條件：該會話從未收到訊息 且 插件已運行超過指定分鐘
-                if self.last_message_times.get(captured_sid, 0) == 0 and (
-                    time.time() - self.plugin_start_time >= auto_minutes * 60
-                ):
-                    schedule_conf = cfg.get("schedule_settings", {})
-                    # 自動觸發時未回覆次數為 0
-                    interval = compute_weighted_interval(
-                        schedule_conf, self.timezone, 0
+                asyncio.create_task(
+                    self._create_auto_trigger_job(
+                        captured_sid,
+                        auto_minutes,
+                        ignore_start_grace=ignore_start_grace,
                     )
-                    run_date = self._add_scheduled_job(captured_sid, interval)
-                    logger.info(
-                        f"{_LOG_TAG} {get_session_log_str(captured_sid, cfg, self.session_data)} "
-                        f"自動觸發任務已創建，執行時間: {run_date.strftime('%Y-%m-%d %H:%M:%S')}"
-                    )
-                    # 任務已建立，移除計時器引用
-                    self.auto_trigger_timers.pop(captured_sid, None)
+                )
             except Exception as e:
                 logger.error(f"{_LOG_TAG} 自動觸發回調失敗: {e}")
 
         try:
             loop = asyncio.get_running_loop()
             self.auto_trigger_timers[session_id] = loop.call_later(
-                auto_minutes * 60,
+                delay,
                 _auto_trigger_callback,
+            )
+            await self._set_timer_deadline(
+                session_id,
+                _AUTO_TRIGGER_DEADLINE_KEY,
+                time.time() + delay,
             )
             if not silent:
                 logger.info(
                     f"{_LOG_TAG} 已為 {get_session_log_str(session_id, session_config, self.session_data)} "
-                    f"設置自動觸發器，{auto_minutes} 分鐘後檢查。"
+                    f"設置自動觸發器，{delay / 60:.1f} 分鐘後檢查。"
                 )
         except Exception as e:
             logger.error(f"{_LOG_TAG} 設置自動觸發計時器失敗: {e}")
@@ -593,10 +849,28 @@ class ProactiveChatPlugin(star.Star):
         now = time.time()
         suffix = f":{message_type}:{target_id}"
         for sid, info in self.session_data.items():
+            if not isinstance(info, dict):
+                continue
             if sid.endswith(suffix) and info.get("next_trigger_time"):
-                if now < info["next_trigger_time"] + 60:
+                try:
+                    next_trigger_time = float(info["next_trigger_time"])
+                except (TypeError, ValueError):
+                    continue
+                if now < next_trigger_time + 60:
                     logger.info(
                         f"{_LOG_TAG} {log_str} 已存在持久化任務，跳過自動觸發。"
+                    )
+                    return 0
+            if sid.endswith(suffix) and sid in self.auto_trigger_timers:
+                logger.info(
+                    f"{_LOG_TAG} {log_str} 已存在自動觸發等待計時器，跳過重複設置。"
+                )
+                return 0
+            if sid.endswith(suffix):
+                deadline = self._coerce_timestamp(info.get(_AUTO_TRIGGER_DEADLINE_KEY))
+                if deadline and now < deadline + 60:
+                    logger.info(
+                        f"{_LOG_TAG} {log_str} 已存在自動觸發等待狀態，跳過重複設置。"
                     )
                     return 0
 
@@ -776,24 +1050,27 @@ class ProactiveChatPlugin(star.Star):
 
         # 記錄機器人自身 ID（用於構建模擬事件時的 self_id 欄位）
         self_id = event.get_self_id()
-        if self_id:
-            async with self.data_lock:
-                self.session_data.setdefault(session_id, {})["self_id"] = self_id
-
-        # 更新時間戳
         self.last_message_times[session_id] = now
         if is_group:
             # 群聊額外記錄臨時狀態（用於 after_message_sent 的過期清理）
             self.session_temp_state[session_id] = {"last_user_time": now}
 
-        # 持久化最後訊息時間
+        session_config = get_session_config(self.config, session_id)
+        enabled = bool(session_config and session_config.get("enable", False))
+
+        # 先把使用者已回覆這件事落盤：舊任務不應在重啟後又被恢復。
         async with self.data_lock:
+            sd = self.session_data.setdefault(session_id, {})
+            if self_id:
+                sd["self_id"] = self_id
             if now >= self.plugin_start_time:
-                self.session_data.setdefault(session_id, {})["last_message_time"] = now
+                sd["last_message_time"] = now
+            if enabled:
+                sd["unanswered_count"] = 0
+                sd.pop("next_trigger_time", None)
+            await self._save_data()
 
         # 首次訊息日誌（每個會話只記錄一次）
-        session_config = get_session_config(self.config, session_id)
-        enabled = session_config and session_config.get("enable", False)
         if enabled and session_id not in self.first_message_logged:
             self.first_message_logged.add(session_id)
             logger.info(
@@ -824,16 +1101,9 @@ class ProactiveChatPlugin(star.Star):
         if is_group:
             # 群聊：重設沉默倒計時（背景執行），等群組再次安靜後才排定主動訊息
             asyncio.create_task(self._reset_group_silence_timer(session_id))
-            async with self.data_lock:
-                sd = self.session_data.get(session_id)
-                if sd:
-                    sd["unanswered_count"] = 0
-                    sd.pop("next_trigger_time", None)
         else:
-            # 私聊：立即安排下一次主動訊息（背景執行），並歸零未回覆計數
-            asyncio.create_task(
-                self._schedule_next_chat_and_save(session_id, reset_counter=True)
-            )
+            # 私聊：排程本身很輕量，直接保存可避免重啟時短暫丟失下一次任務。
+            await self._schedule_next_chat_and_save(session_id, reset_counter=True)
 
         # 語境感知排程：在背景執行，避免阻塞訊息回覆流程
         if ctx_enabled:
@@ -981,9 +1251,31 @@ class ProactiveChatPlugin(star.Star):
         if not session_config or not session_config.get("enable", False):
             return
 
-        # 取消舊的沉默計時器
-        self._cancel_timer(self.group_timers, session_id)
         idle_minutes = session_config.get("group_idle_trigger_minutes", 10)
+        await self._setup_group_silence_timer(
+            session_id,
+            delay_seconds=max(1.0, float(idle_minutes) * 60),
+            idle_minutes=idle_minutes,
+        )
+
+    async def _setup_group_silence_timer(
+        self,
+        session_id: str,
+        *,
+        delay_seconds: float,
+        idle_minutes: float | None = None,
+    ) -> None:
+        """設置群聊沉默等待計時器，並保存 deadline。"""
+        session_config = get_session_config(self.config, session_id)
+        if not session_config or not session_config.get("enable", False):
+            return
+
+        idle_minutes = (
+            session_config.get("group_idle_trigger_minutes", 10)
+            if idle_minutes is None
+            else idle_minutes
+        )
+        self._cancel_timer(self.group_timers, session_id)
 
         def _schedule_callback(captured_sid: str = session_id) -> None:
             """沉默倒計時到期回調。"""
@@ -998,9 +1290,7 @@ class ProactiveChatPlugin(star.Star):
                 if not cfg or not cfg.get("enable", False):
                     return
                 # 建立非同步任務來安排主動訊息
-                asyncio.create_task(
-                    self._schedule_next_chat_and_save(captured_sid, reset_counter=False)
-                )
+                asyncio.create_task(self._handle_group_silence_elapsed(captured_sid))
                 logger.info(
                     f"{_LOG_TAG} {get_session_log_str(captured_sid, cfg, self.session_data)} "
                     f"已沉默 {idle_minutes} 分鐘，開始計劃主動訊息。"
@@ -1011,10 +1301,23 @@ class ProactiveChatPlugin(star.Star):
         try:
             loop = asyncio.get_running_loop()
             self.group_timers[session_id] = loop.call_later(
-                idle_minutes * 60, _schedule_callback
+                delay_seconds, _schedule_callback
+            )
+            await self._set_timer_deadline(
+                session_id,
+                _GROUP_IDLE_DEADLINE_KEY,
+                time.time() + delay_seconds,
             )
         except Exception as e:
             logger.error(f"{_LOG_TAG} 設置沉默倒計時失敗: {e}")
+
+    async def _handle_group_silence_elapsed(self, session_id: str) -> None:
+        """群聊沉默等待到期後轉成正式主動訊息排程。"""
+        try:
+            await self._clear_timer_state(session_id, _GROUP_IDLE_DEADLINE_KEY)
+            await self._schedule_next_chat_and_save(session_id, reset_counter=False)
+        finally:
+            self.group_timers.pop(session_id, None)
 
     # ═══════════════════════════════════════════════════════════
     #  核心執行：check_and_chat
