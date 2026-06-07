@@ -152,7 +152,9 @@ def _recall_session_id(context: Context, session_id: str) -> str | None:
     return None
 
 
-async def resolve_persona_id_for_session(context: Context, session_id: str) -> str | None:
+async def resolve_persona_id_for_session(
+    context: Context, session_id: str
+) -> str | None:
     """依 AstrBot 主流程優先順序取得目前 session 的 persona_id。"""
     try:
         session_service_config = await sp.get_async(
@@ -170,8 +172,7 @@ async def resolve_persona_id_for_session(context: Context, session_id: str) -> s
             return persona_id
     except Exception as e:
         logger.debug(
-            f"{_LOG_TAG} 讀取 session_service_config 失敗"
-            f" | session={session_id}: {e}"
+            f"{_LOG_TAG} 讀取 session_service_config 失敗 | session={session_id}: {e}"
         )
 
     try:
@@ -184,7 +185,9 @@ async def resolve_persona_id_for_session(context: Context, session_id: str) -> s
             conversation = await _retry_core_conversation_call(
                 "get_conversation",
                 session_id,
-                lambda: context.conversation_manager.get_conversation(session_id, conv_id),
+                lambda: context.conversation_manager.get_conversation(
+                    session_id, conv_id
+                ),
             )
             persona_id = getattr(conversation, "persona_id", None)
             if persona_id == "[%None]":
@@ -198,8 +201,7 @@ async def resolve_persona_id_for_session(context: Context, session_id: str) -> s
         )
     except Exception as e:
         logger.debug(
-            f"{_LOG_TAG} 讀取對話人格失敗，改用預設人格"
-            f" | session={session_id}: {e}"
+            f"{_LOG_TAG} 讀取對話人格失敗，改用預設人格 | session={session_id}: {e}"
         )
 
     try:
@@ -320,8 +322,7 @@ async def load_conversation_history(
         if raise_on_busy:
             raise
         logger.info(
-            f"{_LOG_TAG} AstrBot 對話歷史忙碌，略過本次讀取"
-            f" | session={session_id}: {e}"
+            f"{_LOG_TAG} AstrBot 對話歷史忙碌，略過本次讀取 | session={session_id}: {e}"
         )
         return ("", [])
     except Exception as e:

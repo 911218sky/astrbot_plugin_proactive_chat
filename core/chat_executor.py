@@ -366,7 +366,9 @@ async def _save_conversation_history(
             try:
                 await plugin.context.conversation_manager.add_message_pair(
                     cid=conv_id,
-                    user_message=UserMessageSegment(content=[TextPart(text=user_prompt)]),
+                    user_message=UserMessageSegment(
+                        content=[TextPart(text=user_prompt)]
+                    ),
                     assistant_message=AssistantMessageSegment(
                         content=[TextPart(text=assistant_response)]
                     ),
@@ -404,11 +406,11 @@ def _history_settings(plugin: ProactiveChatPlugin, session_config: dict) -> dict
     if not isinstance(session_settings, dict):
         session_settings = {}
 
-    out = default_settings | {
-        k: v for k, v in global_settings.items() if v is not None
-    } | {
-        k: v for k, v in session_settings.items() if v is not None
-    }
+    out = (
+        default_settings
+        | {k: v for k, v in global_settings.items() if v is not None}
+        | {k: v for k, v in session_settings.items() if v is not None}
+    )
     out["save_proactive_history"] = bool(out.get("save_proactive_history", False))
     out["history_save_delay_seconds"] = _coerce_float(
         out.get("history_save_delay_seconds"), 2.0, min_value=0.0, max_value=30.0

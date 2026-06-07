@@ -169,7 +169,9 @@ class PluginPageApi:
             if task_type in {"auto_trigger", "group_idle"}:
                 self._cancel_timer_task(task_type, session_id)
             elif task_type == "regular":
-                if not self.plugin.scheduler or not self.plugin.scheduler.get_job(task_id):
+                if not self.plugin.scheduler or not self.plugin.scheduler.get_job(
+                    task_id
+                ):
                     raise ValueError("找不到指定一般排程任務")
             else:
                 raise ValueError("不支援修改此任務類型")
@@ -194,7 +196,10 @@ class PluginPageApi:
             f"{_LOG_TAG} Web 任務頁已為 {session_id} 設定手動排程："
             f"{run_date.strftime('%Y-%m-%d %H:%M:%S')}"
         )
-        return {"session_id": session_id, "next_run_time": self._format_datetime(run_date)}
+        return {
+            "session_id": session_id,
+            "next_run_time": self._format_datetime(run_date),
+        }
 
     async def _reschedule_context_task(
         self,
@@ -240,7 +245,10 @@ class PluginPageApi:
                 session_id, []
             )
             await self.plugin._save_data()
-        return {"session_id": session_id, "next_run_time": self._format_datetime(run_date)}
+        return {
+            "session_id": session_id,
+            "next_run_time": self._format_datetime(run_date),
+        }
 
     async def _delete_task(self, payload: dict[str, Any]) -> dict[str, Any]:
         task_id = str(payload.get("task_id") or "").strip()
@@ -315,7 +323,10 @@ class PluginPageApi:
             async with self.plugin.data_lock:
                 found = False
                 for task in self.plugin._pending_context_tasks.get(session_id, []):
-                    if isinstance(task, dict) and str(task.get("job_id", "")) == task_id:
+                    if (
+                        isinstance(task, dict)
+                        and str(task.get("job_id", "")) == task_id
+                    ):
                         task["reason"] = description
                         task["hint"] = description
                         found = True
@@ -568,7 +579,8 @@ class PluginPageApi:
                     task_type=task_type,
                     title=title,
                     next_run_time=next_ts,
-                    detail=description or "等待條件成立後建立正式排程；改期後會轉為一般排程",
+                    detail=description
+                    or "等待條件成立後建立正式排程；改期後會轉為一般排程",
                     description=description,
                     extra={"remaining_seconds": int(remaining) if remaining else 0},
                 )
@@ -641,14 +653,20 @@ class PluginPageApi:
                         self.plugin.context.platform_manager,
                         self.plugin.session_data,
                     )
-                add(session_id, get_session_config(self.plugin.config, session_id), settings_key)
+                add(
+                    session_id,
+                    get_session_config(self.plugin.config, session_id),
+                    settings_key,
+                )
 
         return sorted(sessions.values(), key=lambda item: item["label"])
 
     def _clean_description(self, value: Any) -> str:
         return str(value or "").strip()[:800]
 
-    def _session_task_description(self, session_id: str, task_type: str = "regular") -> str:
+    def _session_task_description(
+        self, session_id: str, task_type: str = "regular"
+    ) -> str:
         session_info = self.plugin.session_data.get(session_id, {})
         if not isinstance(session_info, dict):
             return ""
@@ -735,7 +753,9 @@ class PluginPageApi:
     def _format_timestamp(self, value: Any) -> str:
         if not isinstance(value, (int, float)) or value <= 0:
             return ""
-        return self._format_datetime(datetime.fromtimestamp(value, tz=self.plugin.timezone))
+        return self._format_datetime(
+            datetime.fromtimestamp(value, tz=self.plugin.timezone)
+        )
 
     def _format_datetime(self, value: datetime | None) -> str:
         if value is None:

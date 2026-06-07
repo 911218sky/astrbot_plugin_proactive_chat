@@ -74,7 +74,9 @@ class ProactiveStateStore:
             logger.error(
                 f"{_LOG_TAG} 插件狀態資料庫 JSON 無法解析，已停止載入以避免覆蓋原資料。"
             )
-            raise StateStoreCorruptionError("plugin_state.session_data JSON 已損壞") from exc
+            raise StateStoreCorruptionError(
+                "plugin_state.session_data JSON 已損壞"
+            ) from exc
         if not isinstance(data, dict):
             logger.error(
                 f"{_LOG_TAG} 插件狀態資料庫格式不正確，已停止載入以避免覆蓋原資料。"

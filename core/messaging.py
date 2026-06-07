@@ -122,9 +122,13 @@ async def send_chain_with_hooks(
         if ok:
             logger.debug(f"{_LOG_TAG} 訊息已透過 AstrBot 核心 API 送達")
         else:
-            logger.warning(f"{_LOG_TAG} AstrBot 核心 API 回報發送失敗 | session={session_id}")
+            logger.warning(
+                f"{_LOG_TAG} AstrBot 核心 API 回報發送失敗 | session={session_id}"
+            )
     except Exception as e:
-        logger.error(f"{_LOG_TAG} AstrBot 核心 API 發送失敗 | session={session_id}: {e}")
+        logger.error(
+            f"{_LOG_TAG} AstrBot 核心 API 發送失敗 | session={session_id}: {e}"
+        )
 
 
 # ── 文本分段 ─────────────────────────────────────────────

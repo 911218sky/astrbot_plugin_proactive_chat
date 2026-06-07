@@ -239,9 +239,7 @@ class ProactiveChatPlugin(star.Star):
             if changed:
                 await self._save_data()
 
-    async def _clear_timer_state_many(
-        self, session_ids: set[str], *keys: str
-    ) -> None:
+    async def _clear_timer_state_many(self, session_ids: set[str], *keys: str) -> None:
         """批次清除等待型計時器狀態。"""
         if not session_ids or not keys:
             return
@@ -641,9 +639,7 @@ class ProactiveChatPlugin(star.Star):
                         stale.setdefault(sid, set()).add(key)
                 continue
 
-            auto_deadline = self._coerce_timestamp(
-                info.get(_AUTO_TRIGGER_DEADLINE_KEY)
-            )
+            auto_deadline = self._coerce_timestamp(info.get(_AUTO_TRIGGER_DEADLINE_KEY))
             if auto_deadline is not None:
                 auto_settings = cfg.get("auto_trigger_settings", {})
                 if (
@@ -684,9 +680,7 @@ class ProactiveChatPlugin(star.Star):
                         else:
                             stale.setdefault(sid, set()).add(_GROUP_IDLE_DEADLINE_KEY)
                     else:
-                        await self._setup_group_silence_timer(
-                            sid, delay_seconds=delay
-                        )
+                        await self._setup_group_silence_timer(sid, delay_seconds=delay)
                         group_restored += 1
                 else:
                     stale.setdefault(sid, set()).add(_GROUP_IDLE_DEADLINE_KEY)
@@ -1021,9 +1015,7 @@ class ProactiveChatPlugin(star.Star):
         except asyncio.CancelledError:
             raise
         except Exception as e:
-            logger.error(
-                f"{_LOG_TAG} 語境分析背景任務失敗 | session={session_id}: {e}"
-            )
+            logger.error(f"{_LOG_TAG} 語境分析背景任務失敗 | session={session_id}: {e}")
         finally:
             current = asyncio.current_task()
             if self._context_analysis_tasks.get(session_id) is current:
@@ -1107,9 +1099,7 @@ class ProactiveChatPlugin(star.Star):
 
         # 語境感知排程：在背景執行，避免阻塞訊息回覆流程
         if ctx_enabled:
-            self._schedule_context_analysis(
-                session_id, message_text, ctx_settings, now
-            )
+            self._schedule_context_analysis(session_id, message_text, ctx_settings, now)
 
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE, priority=998)
     async def on_private_message(self, event: AstrMessageEvent) -> None:
