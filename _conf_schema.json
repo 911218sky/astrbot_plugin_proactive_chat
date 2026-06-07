@@ -252,6 +252,20 @@
                             "enable": true
                         }
                     },
+                    "analysis_delay_seconds": {
+                        "description": "⏳ 語境分析安靜等待秒數",
+                        "type": "float",
+                        "default": 10,
+                        "hint": "收到訊息後先等待一段安靜時間再做語境分析。同一會話在等待期間有新訊息時只保留最新一次，可降低 token 消耗並減少與 AstrBot 對話資料庫的競爭。建議 5~20 秒",
+                        "condition": {
+                            "enable": true
+                        },
+                        "slider": {
+                            "min": 0,
+                            "max": 120,
+                            "step": 1
+                        }
+                    },
                     "min_delay_minutes": {
                         "description": "⏱️ 最小延遲（分鐘）",
                         "type": "int",
@@ -673,6 +687,20 @@
                         "hint": "額外附加到語境分析 prompt 末尾的補充指示。例如：「如果用戶提到運動，延遲設為 60-90 分鐘」「不要對日常問候排程」。留空表示不附加",
                         "condition": {
                             "enable": true
+                        }
+                    },
+                    "analysis_delay_seconds": {
+                        "description": "⏳ 語境分析安靜等待秒數",
+                        "type": "float",
+                        "default": 10,
+                        "hint": "收到訊息後先等待一段安靜時間再做語境分析。同一會話在等待期間有新訊息時只保留最新一次，可降低 token 消耗並減少與 AstrBot 對話資料庫的競爭。建議 5~20 秒",
+                        "condition": {
+                            "enable": true
+                        },
+                        "slider": {
+                            "min": 0,
+                            "max": 120,
+                            "step": 1
                         }
                     },
                     "min_delay_minutes": {
@@ -1131,6 +1159,20 @@
                                     "enable": true
                                 }
                             },
+                            "analysis_delay_seconds": {
+                                "description": "⏳ 語境分析安靜等待秒數",
+                                "type": "float",
+                                "default": 10,
+                                "hint": "收到訊息後先等待一段安靜時間再做語境分析。同一會話在等待期間有新訊息時只保留最新一次，可降低 token 消耗並減少與 AstrBot 對話資料庫的競爭。建議 5~20 秒",
+                                "condition": {
+                                    "enable": true
+                                },
+                                "slider": {
+                                    "min": 0,
+                                    "max": 120,
+                                    "step": 1
+                                }
+                            },
                             "min_delay_minutes": {
                                 "description": "⏱️ 最小延遲（分鐘）",
                                 "type": "int",
@@ -1564,6 +1606,20 @@
                                 "hint": "額外附加到語境分析 prompt 末尾的補充指示。例如：「如果用戶提到運動，延遲設為 60-90 分鐘」「不要對日常問候排程」。留空表示不附加",
                                 "condition": {
                                     "enable": true
+                                }
+                            },
+                            "analysis_delay_seconds": {
+                                "description": "⏳ 語境分析安靜等待秒數",
+                                "type": "float",
+                                "default": 10,
+                                "hint": "收到訊息後先等待一段安靜時間再做語境分析。同一會話在等待期間有新訊息時只保留最新一次，可降低 token 消耗並減少與 AstrBot 對話資料庫的競爭。建議 5~20 秒",
+                                "condition": {
+                                    "enable": true
+                                },
+                                "slider": {
+                                    "min": 0,
+                                    "max": 120,
+                                    "step": 1
                                 }
                             },
                             "min_delay_minutes": {

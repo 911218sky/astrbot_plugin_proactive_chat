@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import TYPE_CHECKING, Any
 
@@ -28,6 +29,34 @@ _LIVINGMEMORY_NAMES = {
     "livingmemory",
     "astrbot_plugin_livingmemory",
 }
+_SQLITE_LOCK_KEYWORDS = frozenset({"database is locked", "database table is locked"})
+
+
+class CoreHistoryBusy(RuntimeError):
+    """AstrBot Core conversation DB is temporarily busy."""
+
+
+def _is_sqlite_lock_error(exc: Exception) -> bool:
+    return any(keyword in str(exc).lower() for keyword in _SQLITE_LOCK_KEYWORDS)
+
+
+async def _retry_core_conversation_call(
+    label: str,
+    session_id: str,
+    call,
+    *,
+    attempts: int = 3,
+) -> Any:
+    """Retry short Core conversation-manager operations when SQLite is busy."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return await call()
+        except Exception as e:
+            if not _is_sqlite_lock_error(e):
+                raise
+            if attempt >= attempts:
+                raise CoreHistoryBusy(str(e)) from e
+            await asyncio.sleep(min(0.4 * attempt, 1.5))
 
 
 def _is_livingmemory_star(star_meta: Any) -> bool:
@@ -139,26 +168,47 @@ async def resolve_persona_id_for_session(context: Context, session_id: str) -> s
         )
         if persona_id:
             return persona_id
+    except Exception as e:
+        logger.debug(
+            f"{_LOG_TAG} 讀取 session_service_config 失敗"
+            f" | session={session_id}: {e}"
+        )
 
-        conv_id = await context.conversation_manager.get_curr_conversation_id(
-            session_id
+    try:
+        conv_id = await _retry_core_conversation_call(
+            "get_curr_conversation_id",
+            session_id,
+            lambda: context.conversation_manager.get_curr_conversation_id(session_id),
         )
         if conv_id:
-            conversation = await context.conversation_manager.get_conversation(
-                session_id, conv_id
+            conversation = await _retry_core_conversation_call(
+                "get_conversation",
+                session_id,
+                lambda: context.conversation_manager.get_conversation(session_id, conv_id),
             )
             persona_id = getattr(conversation, "persona_id", None)
             if persona_id == "[%None]":
                 return None
             if persona_id:
                 return persona_id
+    except CoreHistoryBusy as e:
+        logger.info(
+            f"{_LOG_TAG} AstrBot 對話資料庫忙碌，改用預設人格做記憶檢索"
+            f" | session={session_id}: {e}"
+        )
+    except Exception as e:
+        logger.debug(
+            f"{_LOG_TAG} 讀取對話人格失敗，改用預設人格"
+            f" | session={session_id}: {e}"
+        )
 
+    try:
         default_persona = await context.persona_manager.get_default_persona_v3(
             umo=session_id
         )
         return default_persona["name"] if default_persona else None
     except Exception as e:
-        logger.debug(f"{_LOG_TAG} 取得 persona_id 失敗 | session={session_id}: {e}")
+        logger.debug(f"{_LOG_TAG} 取得預設 persona_id 失敗 | session={session_id}: {e}")
         return None
 
 
@@ -228,6 +278,8 @@ async def recall_memories_for_proactive(
 async def load_conversation_history(
     context: Context,
     session_id: str,
+    *,
+    raise_on_busy: bool = False,
 ) -> tuple[str, list]:
     """取得當前對話的 conv_id 與已解析的歷史記錄。
 
@@ -237,14 +289,18 @@ async def load_conversation_history(
         (conv_id, history)；無法取得時回傳 ("", [])。
     """
     try:
-        conv_id = await context.conversation_manager.get_curr_conversation_id(
-            session_id
+        conv_id = await _retry_core_conversation_call(
+            "get_curr_conversation_id",
+            session_id,
+            lambda: context.conversation_manager.get_curr_conversation_id(session_id),
         )
         if not conv_id:
             return ("", [])
 
-        conversation = await context.conversation_manager.get_conversation(
-            session_id, conv_id
+        conversation = await _retry_core_conversation_call(
+            "get_conversation",
+            session_id,
+            lambda: context.conversation_manager.get_conversation(session_id, conv_id),
         )
         if not conversation or not conversation.history:
             return (conv_id, [])
@@ -260,6 +316,14 @@ async def load_conversation_history(
             pass
 
         return (conv_id, history if history else [])
+    except CoreHistoryBusy as e:
+        if raise_on_busy:
+            raise
+        logger.info(
+            f"{_LOG_TAG} AstrBot 對話歷史忙碌，略過本次讀取"
+            f" | session={session_id}: {e}"
+        )
+        return ("", [])
     except Exception as e:
         logger.debug(f"{_LOG_TAG} 載入對話歷史失敗 | session={session_id}: {e}")
         return ("", [])
@@ -273,15 +337,25 @@ async def prepare_llm_request(context: Context, session_id: str) -> dict | None:
         若無法取得則回傳 None。
     """
     try:
-        conv_id, history = await load_conversation_history(context, session_id)
+        conv_id, history = await load_conversation_history(
+            context, session_id, raise_on_busy=True
+        )
         if not conv_id:
             # 嘗試建立新對話
             try:
-                conv_id = await context.conversation_manager.new_conversation(
-                    session_id
+                conv_id = await _retry_core_conversation_call(
+                    "new_conversation",
+                    session_id,
+                    lambda: context.conversation_manager.new_conversation(session_id),
                 )
             except ValueError:
                 raise
+            except CoreHistoryBusy as e:
+                logger.warning(
+                    f"{_LOG_TAG} AstrBot 對話資料庫忙碌，略過本次主動訊息上下文準備"
+                    f" | session={session_id}: {e}"
+                )
+                return None
             except Exception as e:
                 logger.error(
                     f"{_LOG_TAG} prepare_llm_request 創建新對話失敗"
@@ -293,8 +367,10 @@ async def prepare_llm_request(context: Context, session_id: str) -> dict | None:
 
         # 若 load_conversation_history 回傳了 conv_id 但 history 為空，
         # 仍需取得 conversation 以解析 system_prompt
-        conversation = await context.conversation_manager.get_conversation(
-            session_id, conv_id
+        conversation = await _retry_core_conversation_call(
+            "get_conversation",
+            session_id,
+            lambda: context.conversation_manager.get_conversation(session_id, conv_id),
         )
 
         system_prompt = await resolve_system_prompt(context, conversation, session_id)
@@ -307,6 +383,12 @@ async def prepare_llm_request(context: Context, session_id: str) -> dict | None:
             "history": history,
             "system_prompt": system_prompt,
         }
+    except CoreHistoryBusy as e:
+        logger.warning(
+            f"{_LOG_TAG} AstrBot 對話資料庫忙碌，略過本次主動訊息上下文準備"
+            f" | session={session_id}: {e}"
+        )
+        return None
     except Exception as e:
         logger.warning(
             f"{_LOG_TAG} prepare_llm_request 獲取上下文或人格失敗"

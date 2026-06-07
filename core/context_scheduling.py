@@ -45,17 +45,16 @@ async def handle_context_aware_scheduling(
     背景任務：檢查待執行的語境任務並執行 LLM 預測。
 
     步驟：
-    1. 並行執行：取消檢查（所有待執行任務同時檢查）+ 取得對話歷史
+    1. 先檢查是否需取消舊語境任務，再讀取對話歷史
     2. 根據最新訊息執行 LLM 時機預測
     3. 若預測結果建議排程，建立一次性任務
     """
     try:
-        # 步驟 1：並行執行取消檢查與歷史取得，減少等待時間
-        cancel_coro = maybe_cancel_pending_context_task(
+        # 步驟 1：順序執行，避免在 Core 正保存本輪對話時立刻並發讀 history。
+        cancelled_reason = await maybe_cancel_pending_context_task(
             plugin, session_id, message_text
         )
-        history_coro = get_history_for_prediction(plugin, session_id)
-        cancelled_reason, history = await asyncio.gather(cancel_coro, history_coro)
+        history = await get_history_for_prediction(plugin, session_id)
 
         now_str = datetime.now(plugin.timezone).strftime("%Y年%m月%d日 %H:%M")
 
@@ -104,6 +103,8 @@ async def handle_context_aware_scheduling(
             hint=hint,
         )
 
+    except asyncio.CancelledError:
+        raise
     except Exception as e:
         logger.error(
             f"{_LOG_TAG} handle_context_aware_scheduling 語境感知排程失敗"

@@ -71,6 +71,8 @@ class ProactiveChatPlugin(star.Star):
         "first_message_logged",
         "_cleanup_counter",
         "_pending_context_tasks",
+        "_context_analysis_tasks",
+        "_context_analysis_semaphore",
         "_ctx_task_counter",
         "_active_chat_locks",
         "_chat_run_semaphore",
@@ -117,6 +119,10 @@ class ProactiveChatPlugin(star.Star):
         # 語境預測的待執行任務追蹤: { session_id: [ { job_id, reason, hint, ... }, ... ] }
         # 每個會話可同時存在多個語境任務（如短期跟進 + 長期早安問候）
         self._pending_context_tasks: dict[str, list[dict]] = {}
+        # 語境分析背景任務：同一會話只保留最新一次，避免連續訊息時並發讀取 Core history。
+        self._context_analysis_tasks: dict[str, asyncio.Task] = {}
+        # 全域限流：避免多會話語境分析同時讀 AstrBot Core history，降低 SQLite 壓力尖峰。
+        self._context_analysis_semaphore: asyncio.Semaphore = asyncio.Semaphore(2)
         # 語境任務計數器，用於生成唯一 job_id
         self._ctx_task_counter: int = 0
         # 同一會話的主動訊息流程不可重入，避免並發 agent/DB 寫入放大 SQLite lock。
@@ -252,6 +258,14 @@ class ProactiveChatPlugin(star.Star):
         for timer in self.auto_trigger_timers.values():
             timer.cancel()
         self.auto_trigger_timers.clear()
+
+        if self._context_analysis_tasks:
+            for task in self._context_analysis_tasks.values():
+                task.cancel()
+            await asyncio.gather(
+                *self._context_analysis_tasks.values(), return_exceptions=True
+            )
+            self._context_analysis_tasks.clear()
 
         if self.scheduler and self.scheduler.running:
             try:
@@ -670,6 +684,77 @@ class ProactiveChatPlugin(star.Star):
     #  ``_handle_message()``，透過 ``is_group`` 參數區分差異。
     # ═══════════════════════════════════════════════════════════
 
+    def _context_analysis_delay(self, ctx_settings: dict) -> float:
+        """取得語境分析防抖延遲秒數，預設讓 Core 先完成本輪 history 寫入。"""
+        raw_value = ctx_settings.get("analysis_delay_seconds", 10)
+        try:
+            delay = float(raw_value)
+        except (TypeError, ValueError):
+            delay = 10.0
+        return min(max(delay, 0.0), 120.0)
+
+    def _schedule_context_analysis(
+        self,
+        session_id: str,
+        message_text: str,
+        ctx_settings: dict,
+        message_time: float,
+    ) -> None:
+        """延遲執行語境分析；同一會話的新訊息會取代尚未開始的舊任務。"""
+        old_task = self._context_analysis_tasks.pop(session_id, None)
+        if old_task and not old_task.done():
+            old_task.cancel()
+
+        task = asyncio.create_task(
+            self._run_context_analysis_after_quiet(
+                session_id,
+                message_text,
+                dict(ctx_settings),
+                message_time,
+            )
+        )
+        self._context_analysis_tasks[session_id] = task
+
+    async def _run_context_analysis_after_quiet(
+        self,
+        session_id: str,
+        message_text: str,
+        ctx_settings: dict,
+        message_time: float,
+    ) -> None:
+        """在會話短暫安靜後執行語境感知排程，降低 Core SQLite 競爭。"""
+        try:
+            delay = self._context_analysis_delay(ctx_settings)
+            if delay > 0:
+                await asyncio.sleep(delay)
+
+            if self.last_message_times.get(session_id, 0.0) > message_time + 0.001:
+                logger.debug(
+                    f"{_LOG_TAG} 語境分析已有更新訊息，略過舊任務 | session={session_id}"
+                )
+                return
+
+            async with self._context_analysis_semaphore:
+                if self.last_message_times.get(session_id, 0.0) > message_time + 0.001:
+                    logger.debug(
+                        f"{_LOG_TAG} 語境分析等待期間已有更新訊息，略過舊任務"
+                        f" | session={session_id}"
+                    )
+                    return
+                await handle_context_aware_scheduling(
+                    self, session_id, message_text, ctx_settings
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            logger.error(
+                f"{_LOG_TAG} 語境分析背景任務失敗 | session={session_id}: {e}"
+            )
+        finally:
+            current = asyncio.current_task()
+            if self._context_analysis_tasks.get(session_id) is current:
+                self._context_analysis_tasks.pop(session_id, None)
+
     async def _handle_message(self, event: AstrMessageEvent, *, is_group: bool) -> None:
         """
         私聊與群聊的共用訊息處理流程。
@@ -752,10 +837,8 @@ class ProactiveChatPlugin(star.Star):
 
         # 語境感知排程：在背景執行，避免阻塞訊息回覆流程
         if ctx_enabled:
-            asyncio.create_task(
-                handle_context_aware_scheduling(
-                    self, session_id, message_text, ctx_settings
-                )
+            self._schedule_context_analysis(
+                session_id, message_text, ctx_settings, now
             )
 
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE, priority=998)
