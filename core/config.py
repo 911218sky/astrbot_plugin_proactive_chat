@@ -97,6 +97,16 @@ def _is_target_match(target_id: str, config_id: str) -> bool:
     return target_id.endswith(f":{config_id}")
 
 
+def _extract_config_target_id(config_id: str) -> str:
+    """把配置中的純 ID 或完整 UMO 統一轉成 target_id 後再比對。"""
+    from .utils import parse_session_id
+
+    parsed = parse_session_id(config_id)
+    if parsed:
+        return parsed[2]
+    return config_id
+
+
 def _match_session(
     config: AstrBotConfig,
     target_id: str,
@@ -109,7 +119,7 @@ def _match_session(
     # 1) 個性化配置
     for sc in config.get(sessions_key, ()):
         cid = str(sc.get("session_id", ""))
-        if cid and _is_target_match(target_id, cid):
+        if cid and _is_target_match(target_id, _extract_config_target_id(cid)):
             if not sc.get("enable", False):
                 return None
             out = sc.copy()
@@ -121,7 +131,10 @@ def _match_session(
     settings = config.get(settings_key, {})
     if not settings.get("enable", False):
         return None
-    if target_id in settings.get("session_list", ()):
+    if any(
+        _is_target_match(target_id, _extract_config_target_id(str(config_id)))
+        for config_id in settings.get("session_list", ())
+    ):
         out = settings.copy()
         out["_session_type"] = session_type
         out["_from_session_list"] = True

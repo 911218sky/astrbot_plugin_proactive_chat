@@ -53,9 +53,9 @@ class ProactiveStateStore:
             await self.connection.close()
             self.connection = None
 
-    async def load_session_data(self) -> dict[str, dict]:
+    async def load_session_data(self) -> dict[str, dict] | None:
         if self.connection is None:
-            return {}
+            raise RuntimeError("proactive_state.db 尚未初始化，無法載入狀態")
         cursor = await self.connection.execute(
             "SELECT value FROM plugin_state WHERE key = ?",
             (_STATE_KEY_SESSION_DATA,),
@@ -63,7 +63,7 @@ class ProactiveStateStore:
         row = await cursor.fetchone()
         await cursor.close()
         if row is None:
-            return {}
+            return None
 
         payload = row["value"]
         if not payload.strip():
@@ -86,7 +86,7 @@ class ProactiveStateStore:
 
     async def save_session_data(self, session_data: dict[str, dict]) -> None:
         if self.connection is None:
-            return
+            raise RuntimeError("proactive_state.db 尚未初始化，無法保存狀態")
         payload = json.dumps(session_data, ensure_ascii=False, separators=(",", ":"))
         async with self._write_lock:
             await self.connection.execute(

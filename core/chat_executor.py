@@ -73,6 +73,7 @@ async def check_and_chat(
     流程：前置檢查 → UMO 修正 → LLM 生成 → 發送與收尾。
     任何步驟回傳 ``None`` 即表示本次應中止（已在內部處理重新排程）。
     """
+    context_finished = False
     try:
         # ── 步驟 1：前置條件檢查（免打擾 / 衰減 / 硬性上限） ──
         result = await _check_preconditions(plugin, session_id)
@@ -105,9 +106,13 @@ async def check_and_chat(
             unanswered_count,
             ctx_job_id,
         )
+        context_finished = True
 
     except Exception as e:
         await _handle_fatal_error(plugin, session_id, e)
+    finally:
+        if ctx_job_id and not context_finished:
+            await _cleanup_context_task(plugin, session_id, ctx_job_id)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -322,19 +327,15 @@ async def _deliver_and_finalize(
         plugin, session_config, conv_id, final_prompt, response_text
     )
     await _update_unanswered_and_reschedule(
-        plugin, session_id, session_config, unanswered_count
+        plugin,
+        session_id,
+        session_config,
+        unanswered_count,
+        clear_task_description=not bool(ctx_job_id),
     )
 
     if ctx_job_id:
         await _cleanup_context_task(plugin, session_id, ctx_job_id)
-
-    # 群聊：清除 next_trigger_time（由沉默計時器接管後續排程）
-    if is_group_session_id(session_id):
-        async with plugin.data_lock:
-            sd = plugin.session_data.get(session_id)
-            if sd and "next_trigger_time" in sd:
-                del sd["next_trigger_time"]
-                await plugin._save_data()
 
 
 async def _save_conversation_history(
@@ -445,27 +446,37 @@ async def _update_unanswered_and_reschedule(
     session_id: str,
     session_config: dict,
     unanswered_count: int,
+    *,
+    clear_task_description: bool = False,
 ) -> None:
     """遞增未回覆計數，私聊時安排下一次主動訊息。"""
     async with plugin.data_lock:
         sd = plugin.session_data.setdefault(session_id, {})
-        sd["unanswered_count"] = unanswered_count + 1
+        next_unanswered_count = unanswered_count + 1
+        sd["unanswered_count"] = next_unanswered_count
+        if clear_task_description:
+            sd.pop("task_description", None)
 
         # 私聊：安排下一次；群聊由沉默計時器自行處理
-        if not is_group_session_id(session_id):
-            schedule_conf = session_config.get("schedule_settings", {})
-            # 使用更新後的未回覆次數
-            interval = compute_weighted_interval(
-                schedule_conf, plugin.timezone, unanswered_count
-            )
-            run_date = plugin._add_scheduled_job(session_id, interval)
-            sd["next_trigger_time"] = time.time() + interval
-            logger.info(
-                f"{_LOG_TAG} 已為 "
-                f"{get_session_log_str(session_id, session_config, plugin.session_data)} "
-                f"安排下一次主動訊息: {run_date.strftime('%Y-%m-%d %H:%M:%S')}。"
-            )
+        if is_group_session_id(session_id):
+            sd.pop("next_trigger_time", None)
+            await plugin._save_data()
+            return
+
+        schedule_conf = session_config.get("schedule_settings", {})
+        interval = compute_weighted_interval(
+            schedule_conf, plugin.timezone, next_unanswered_count
+        )
+        run_date = datetime.fromtimestamp(time.time() + interval, tz=plugin.timezone)
+        sd["next_trigger_time"] = run_date.timestamp()
         await plugin._save_data()
+
+        plugin._add_scheduled_job_at(session_id, run_date)
+        logger.info(
+            f"{_LOG_TAG} 已為 "
+            f"{get_session_log_str(session_id, session_config, plugin.session_data)} "
+            f"安排下一次主動訊息: {run_date.strftime('%Y-%m-%d %H:%M:%S')}。"
+        )
 
 
 async def _cleanup_context_task(
@@ -571,14 +582,17 @@ def _build_final_prompt(
     # 若本次觸發來自語境預測，將預測的原因和跟進提示注入 Prompt
     ctx_task = _find_context_task(plugin, session_id, ctx_job_id)
     if ctx_task:
-        ctx_reason = ctx_task.get("reason", "")
-        ctx_hint = ctx_task.get("hint", "")
+        ctx_reason = str(ctx_task.get("reason", "")).strip()
+        ctx_hint = str(ctx_task.get("hint", "")).strip()
+        ctx_description = str(ctx_task.get("description", "")).strip()
         final_prompt += (
             f"\n\n[語境感知觸發]\n"
             f"這條主動訊息的排程原因：{ctx_reason}\n"
             f"建議的跟進話題：{ctx_hint}\n"
-            f"請將這個語境自然地融入你的訊息中。"
         )
+        if ctx_description:
+            final_prompt += f"任務補充描述：{ctx_description}\n"
+        final_prompt += "請將這個語境自然地融入你的訊息中。"
     else:
         task_description = _active_task_description(plugin, session_id)
         if task_description:
@@ -656,10 +670,14 @@ async def _inject_memory(
     log_str = get_session_log_str(session_id, session_config, plugin.session_data)
     memory_top_k = ctx_settings.get("memory_top_k", 5)
 
-    # 優先使用語境任務的 hint/reason 作為檢索查詢
+    # 優先使用語境任務的使用者描述 / hint / reason 作為檢索查詢。
     memory_query = ""
     if ctx_task:
-        memory_query = ctx_task.get("hint", "") or ctx_task.get("reason", "")
+        memory_query = (
+            ctx_task.get("description", "")
+            or ctx_task.get("hint", "")
+            or ctx_task.get("reason", "")
+        )
     if not memory_query:
         memory_query = final_prompt.strip()
 

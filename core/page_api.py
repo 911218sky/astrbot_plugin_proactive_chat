@@ -167,7 +167,8 @@ class PluginPageApi:
                     task_id, session_id, run_date, description
                 )
             if task_type in {"auto_trigger", "group_idle"}:
-                self._cancel_timer_task(task_type, session_id)
+                if not self._has_waiting_timer(task_type, session_id):
+                    raise ValueError("找不到指定等待任務")
             elif task_type == "regular":
                 if not self.plugin.scheduler or not self.plugin.scheduler.get_job(
                     task_id
@@ -178,11 +179,10 @@ class PluginPageApi:
 
         if not self.plugin.scheduler:
             raise ValueError("排程器尚未啟動")
-        delay_seconds = max(1, int(run_date.timestamp() - time.time()))
-        self.plugin._add_scheduled_job(session_id, delay_seconds)
+        run_at_ts = run_date.timestamp()
         async with self.plugin.data_lock:
             sd = self.plugin.session_data.setdefault(session_id, {})
-            sd["next_trigger_time"] = time.time() + delay_seconds
+            sd["next_trigger_time"] = run_at_ts
             if description:
                 sd["task_description"] = description
             else:
@@ -191,6 +191,9 @@ class PluginPageApi:
                 sd.pop(f"{task_type}_description", None)
                 sd.pop(f"{task_type}_deadline", None)
             await self.plugin._save_data()
+        if require_task and task_type in {"auto_trigger", "group_idle"}:
+            self._cancel_timer_task(task_type, session_id)
+        self.plugin._add_scheduled_job_at(session_id, run_date)
 
         logger.info(
             f"{_LOG_TAG} Web 任務頁已為 {session_id} 設定手動排程："
@@ -213,6 +216,24 @@ class PluginPageApi:
         if not self.plugin.scheduler:
             raise ValueError("排程器尚未啟動")
 
+        async with self.plugin.data_lock:
+            found = False
+            for task in self.plugin._pending_context_tasks.get(session_id, []):
+                if isinstance(task, dict) and str(task.get("job_id", "")) == task_id:
+                    task["run_at"] = run_date.isoformat()
+                    if description:
+                        task["description"] = description
+                    else:
+                        task.pop("description", None)
+                    found = True
+                    break
+            if not found:
+                raise ValueError("找不到指定語境任務")
+            sd = self.plugin.session_data.setdefault(session_id, {})
+            sd["pending_context_tasks"] = self.plugin._pending_context_tasks.get(
+                session_id, []
+            )
+            await self.plugin._save_data()
         self.plugin.scheduler.add_job(
             self.plugin.check_and_chat,
             "date",
@@ -223,28 +244,6 @@ class PluginPageApi:
             replace_existing=True,
             misfire_grace_time=60,
         )
-        async with self.plugin.data_lock:
-            found = False
-            for task in self.plugin._pending_context_tasks.get(session_id, []):
-                if isinstance(task, dict) and str(task.get("job_id", "")) == task_id:
-                    task["run_at"] = run_date.isoformat()
-                    if description:
-                        task["reason"] = description
-                        task["hint"] = description
-                    else:
-                        task.pop("reason", None)
-                        task.pop("hint", None)
-                    found = True
-                    break
-            if not found:
-                if self.plugin.scheduler and self.plugin.scheduler.get_job(task_id):
-                    self.plugin.scheduler.remove_job(task_id)
-                raise ValueError("找不到指定語境任務")
-            sd = self.plugin.session_data.setdefault(session_id, {})
-            sd["pending_context_tasks"] = self.plugin._pending_context_tasks.get(
-                session_id, []
-            )
-            await self.plugin._save_data()
         return {
             "session_id": session_id,
             "next_run_time": self._format_datetime(run_date),
@@ -258,36 +257,75 @@ class PluginPageApi:
             raise ValueError("缺少任務 ID")
 
         removed = False
-        if self.plugin.scheduler and self.plugin.scheduler.get_job(task_id):
-            self.plugin.scheduler.remove_job(task_id)
-            removed = True
-
         if task_type == "regular" and session_id:
+            scheduler_has_job = bool(
+                self.plugin.scheduler and self.plugin.scheduler.get_job(task_id)
+            )
+            session_info = self.plugin.session_data.get(session_id)
+            if not scheduler_has_job and not (
+                isinstance(session_info, dict)
+                and (
+                    session_info.get("next_trigger_time")
+                    or session_info.get("task_description")
+                )
+            ):
+                raise ValueError("找不到可刪除的任務")
             async with self.plugin.data_lock:
                 sd = self.plugin.session_data.get(session_id)
                 if isinstance(sd, dict):
                     sd.pop("next_trigger_time", None)
                     sd.pop("task_description", None)
                 await self.plugin._save_data()
+            if scheduler_has_job:
+                self.plugin.scheduler.remove_job(task_id)
+            removed = True
         elif task_type in {"context", "context_orphan"}:
-            removed = self._remove_context_task(session_id, task_id) or removed
+            scheduler_has_job = bool(
+                self.plugin.scheduler and self.plugin.scheduler.get_job(task_id)
+            )
+            original_pending = list(
+                self.plugin._pending_context_tasks.get(session_id, [])
+            )
+            new_pending = [
+                task
+                for task in original_pending
+                if not isinstance(task, dict) or str(task.get("job_id", "")) != task_id
+            ]
+            removed = len(new_pending) != len(original_pending) or scheduler_has_job
+            if not removed:
+                raise ValueError("找不到可刪除的任務")
             async with self.plugin.data_lock:
-                sd = self.plugin.session_data.get(session_id)
-                if isinstance(sd, dict):
-                    pending = self.plugin._pending_context_tasks.get(session_id)
-                    if pending:
-                        sd["pending_context_tasks"] = pending
+                try:
+                    if new_pending:
+                        self.plugin._pending_context_tasks[session_id] = new_pending
                     else:
-                        sd.pop("pending_context_tasks", None)
-                await self.plugin._save_data()
+                        self.plugin._pending_context_tasks.pop(session_id, None)
+                    sd = self.plugin.session_data.get(session_id)
+                    if isinstance(sd, dict):
+                        if new_pending:
+                            sd["pending_context_tasks"] = new_pending
+                        else:
+                            sd.pop("pending_context_tasks", None)
+                            sd.pop("pending_context_task", None)
+                    await self.plugin._save_data()
+                except Exception:
+                    if original_pending:
+                        self.plugin._pending_context_tasks[session_id] = (
+                            original_pending
+                        )
+                    else:
+                        self.plugin._pending_context_tasks.pop(session_id, None)
+                    raise
+            if scheduler_has_job:
+                self.plugin.scheduler.remove_job(task_id)
         elif task_type in {"auto_trigger", "group_idle"} and session_id:
-            removed = self._cancel_timer_task(task_type, session_id) or removed
+            has_memory_timer = self._has_memory_timer(task_type, session_id)
             session_info = self.plugin.session_data.get(session_id)
-            if isinstance(session_info, dict) and (
+            has_saved_timer = isinstance(session_info, dict) and (
                 session_info.get(f"{task_type}_deadline")
                 or session_info.get(f"{task_type}_description")
-            ):
-                removed = True
+            )
+            removed = has_memory_timer or has_saved_timer
             if removed:
                 async with self.plugin.data_lock:
                     sd = self.plugin.session_data.get(session_id)
@@ -295,6 +333,7 @@ class PluginPageApi:
                         sd.pop(f"{task_type}_description", None)
                         sd.pop(f"{task_type}_deadline", None)
                     await self.plugin._save_data()
+                self._cancel_timer_task(task_type, session_id)
 
         if not removed:
             raise ValueError("找不到可刪除的任務")
@@ -327,8 +366,10 @@ class PluginPageApi:
                         isinstance(task, dict)
                         and str(task.get("job_id", "")) == task_id
                     ):
-                        task["reason"] = description
-                        task["hint"] = description
+                        if description:
+                            task["description"] = description
+                        else:
+                            task.pop("description", None)
                         found = True
                         break
                 if not found:
@@ -386,6 +427,13 @@ class PluginPageApi:
             return False
         handle.cancel()
         return True
+
+    def _has_memory_timer(self, task_type: str, session_id: str) -> bool:
+        timers = {
+            "auto_trigger": self.plugin.auto_trigger_timers,
+            "group_idle": self.plugin.group_timers,
+        }.get(task_type, {})
+        return session_id in timers
 
     def _has_waiting_timer(self, task_type: str, session_id: str) -> bool:
         timers = {
@@ -500,7 +548,9 @@ class PluginPageApi:
                 job = scheduler_index.get(job_id)
                 run_at = self._parse_datetime(task.get("run_at"))
                 next_run_time = getattr(job, "next_run_time", None) or run_at
-                description = str(task.get("reason") or task.get("hint") or "").strip()
+                description = str(task.get("description") or "").strip()
+                reason = str(task.get("reason") or "").strip()
+                hint = str(task.get("hint") or "").strip()
                 result.append(
                     self._task_base(
                         session_id=session_id,
@@ -509,11 +559,11 @@ class PluginPageApi:
                         title="語境預測主動訊息",
                         next_run_time=next_run_time,
                         session_config=session_config,
-                        detail=description or "無描述",
+                        detail=description or hint or reason or "無描述",
                         description=description,
                         extra={
-                            "reason": task.get("reason", ""),
-                            "hint": task.get("hint", ""),
+                            "reason": reason,
+                            "hint": hint,
                             "delay_minutes": task.get("delay_minutes"),
                             "created_at": self._format_timestamp(
                                 task.get("created_at")

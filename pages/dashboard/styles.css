@@ -445,7 +445,7 @@ button:disabled {
 
 .filter-bar {
   display: grid;
-  grid-template-columns: minmax(260px, 1.6fr) minmax(150px, 0.8fr) minmax(130px, 0.65fr) minmax(130px, 0.65fr);
+  grid-template-columns: minmax(240px, 1.5fr) minmax(140px, 0.7fr) minmax(120px, 0.6fr) minmax(200px, 1fr) minmax(120px, 0.6fr);
   gap: var(--space-3);
 }
 
@@ -633,6 +633,13 @@ button:disabled {
 
 .description-edit:disabled {
   opacity: 0.65;
+}
+
+.description-note {
+  margin-top: 6px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.4;
 }
 
 .row-actions {

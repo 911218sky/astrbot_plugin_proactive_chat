@@ -17,7 +17,6 @@ from .context_scheduling import (
     get_history_for_prediction,
     handle_context_aware_scheduling,
     maybe_cancel_pending_context_task,
-    remove_context_predicted_task,
     restore_pending_context_tasks,
 )
 from .llm_helpers import (
@@ -86,7 +85,6 @@ __all__ = [
     # context_scheduling
     "handle_context_aware_scheduling",
     "maybe_cancel_pending_context_task",
-    "remove_context_predicted_task",
     "create_context_predicted_task",
     "get_history_for_prediction",
     "restore_pending_context_tasks",

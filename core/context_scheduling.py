@@ -163,60 +163,42 @@ async def maybe_cancel_pending_context_task(
                 f"的語境預測任務 ({task.get('job_id', '')})：{reason}"
             )
 
-    # 批次移除被取消的任務
-    for task in to_remove:
-        job_id = task.get("job_id", "")
-        try:
-            if plugin.scheduler.get_job(job_id):
-                plugin.scheduler.remove_job(job_id)
-        except Exception as e:
-            logger.debug(
-                f"{_LOG_TAG} maybe_cancel_pending_context_task 移除排程任務失敗"
-                f" | session={session_id}, job_id={job_id}: {e}"
-            )
-        task_list.remove(task)
-
-    # 清理空列表
-    if not task_list:
-        plugin._pending_context_tasks.pop(session_id, None)
-
-    # 更新持久化
     if to_remove:
+        original_tasks = list(task_list)
+        remove_job_ids = {str(task.get("job_id", "")) for task in to_remove}
+        remaining_tasks = [
+            task
+            for task in task_list
+            if str(task.get("job_id", "")) not in remove_job_ids
+        ]
         async with plugin.data_lock:
-            sd = plugin.session_data.get(session_id)
-            if sd:
-                if task_list:
-                    sd["pending_context_tasks"] = task_list
+            try:
+                if remaining_tasks:
+                    plugin._pending_context_tasks[session_id] = remaining_tasks
+                else:
+                    plugin._pending_context_tasks.pop(session_id, None)
+                sd = plugin.session_data.setdefault(session_id, {})
+                if remaining_tasks:
+                    sd["pending_context_tasks"] = remaining_tasks
                 else:
                     sd.pop("pending_context_tasks", None)
                     sd.pop("pending_context_task", None)
                 await plugin._save_data()
+            except Exception:
+                plugin._pending_context_tasks[session_id] = original_tasks
+                raise
+
+        for job_id in remove_job_ids:
+            try:
+                if job_id and plugin.scheduler.get_job(job_id):
+                    plugin.scheduler.remove_job(job_id)
+            except Exception as e:
+                logger.debug(
+                    f"{_LOG_TAG} maybe_cancel_pending_context_task 移除排程任務失敗"
+                    f" | session={session_id}, job_id={job_id}: {e}"
+                )
 
     return "; ".join(cancelled_reasons)
-
-
-def remove_context_predicted_task(
-    plugin: ProactiveChatPlugin,
-    session_id: str,
-    job_id: str,
-) -> None:
-    """從本地排程器和追蹤中移除指定的語境預測任務。"""
-    task_list = plugin._pending_context_tasks.get(session_id)
-    if task_list:
-        plugin._pending_context_tasks[session_id] = [
-            t for t in task_list if t.get("job_id") != job_id
-        ]
-        if not plugin._pending_context_tasks[session_id]:
-            plugin._pending_context_tasks.pop(session_id, None)
-
-    try:
-        if job_id and plugin.scheduler.get_job(job_id):
-            plugin.scheduler.remove_job(job_id)
-    except Exception as e:
-        logger.debug(
-            f"{_LOG_TAG} remove_context_predicted_task 移除排程任務失敗"
-            f" | session={session_id}, job_id={job_id}: {e}"
-        )
 
 
 async def create_context_predicted_task(
@@ -241,25 +223,7 @@ async def create_context_predicted_task(
     plugin._ctx_task_counter += 1
     ctx_job_id = f"ctx_{session_id}_{plugin._ctx_task_counter}"
 
-    plugin.scheduler.add_job(
-        plugin.check_and_chat,
-        "date",
-        run_date=run_at,
-        args=[session_id],
-        kwargs={"ctx_job_id": ctx_job_id},
-        id=ctx_job_id,
-        replace_existing=True,
-        misfire_grace_time=120,
-    )
-
     session_config = get_session_config(plugin.config, session_id)
-    logger.info(
-        f"{_LOG_TAG} 已為 "
-        f"{get_session_log_str(session_id, session_config, plugin.session_data)} "
-        f"建立語境預測排程，"
-        f"觸發時間 {run_at.strftime('%Y-%m-%d %H:%M:%S')} "
-        f"(+{delay_minutes}分鐘，原因: {reason})"
-    )
 
     # 追蹤待執行任務（追加到列表）
     task_info = {
@@ -279,6 +243,38 @@ async def create_context_predicted_task(
         sd["pending_context_tasks"] = task_list
         sd.pop("pending_context_task", None)  # 清理舊格式
         await plugin._save_data()
+
+    try:
+        plugin.scheduler.add_job(
+            plugin.check_and_chat,
+            "date",
+            run_date=run_at,
+            args=[session_id],
+            kwargs={"ctx_job_id": ctx_job_id},
+            id=ctx_job_id,
+            replace_existing=True,
+            misfire_grace_time=120,
+        )
+    except Exception:
+        async with plugin.data_lock:
+            if task_info in task_list:
+                task_list.remove(task_info)
+            sd = plugin.session_data.setdefault(session_id, {})
+            if task_list:
+                sd["pending_context_tasks"] = task_list
+            else:
+                plugin._pending_context_tasks.pop(session_id, None)
+                sd.pop("pending_context_tasks", None)
+            await plugin._save_data()
+        raise
+
+    logger.info(
+        f"{_LOG_TAG} 已為 "
+        f"{get_session_log_str(session_id, session_config, plugin.session_data)} "
+        f"建立語境預測排程，"
+        f"觸發時間 {run_at.strftime('%Y-%m-%d %H:%M:%S')} "
+        f"(+{delay_minutes}分鐘，原因: {reason})"
+    )
 
 
 async def get_history_for_prediction(

@@ -3,13 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Proactive Chat Tasks</title>
+    <title>主動訊息任務</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div id="app">
       <aside class="sidebar">
-        <div class="sidebar-brand">Proactive Chat</div>
+        <div class="sidebar-brand">主動訊息 Plus</div>
         <nav class="sidebar-nav">
           <button class="nav-item active" type="button" data-scroll-target="tasks-panel">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -113,6 +113,9 @@
                 <option value="private">私聊</option>
                 <option value="group">群聊</option>
               </select>
+              <select id="exact-session-filter" class="input select" aria-label="指定會話">
+                <option value="all">所有會話 ID</option>
+              </select>
               <select id="enabled-filter" class="input select" aria-label="啟用狀態">
                 <option value="all">全部狀態</option>
                 <option value="enabled">已啟用</option>
@@ -128,7 +131,7 @@
                 <p class="card-description">會話可使用 QQ、Telegram 或其他平台的完整會話 ID；訊息內容仍由插件配置的主動訊息 Prompt 生成。</p>
               </div>
             </div>
-            <div class="task-form">
+            <form id="create-task-form" class="task-form">
               <label class="form-field form-field-wide">
                 <span>會話</span>
                 <select id="session-select" class="input select"></select>
@@ -149,8 +152,8 @@
                 <textarea id="description-input" class="input textarea" rows="3" maxlength="800" placeholder="例如：提醒我晚點回報進度、關心對方今天的狀況、接續剛才聊到的話題"></textarea>
                 <small>會顯示在列表，也會提供給主動訊息生成使用。</small>
               </label>
-              <button id="create-task-button" class="btn btn-primary create-button" type="button">新增任務</button>
-            </div>
+              <button id="create-task-button" class="btn btn-primary create-button" type="submit">新增任務</button>
+            </form>
           </section>
 
           <section class="table-container" id="tasks-panel">
@@ -214,12 +217,12 @@
           <label class="form-field">
             <span>延遲分鐘</span>
             <input id="reschedule-delay-input" class="input" type="number" min="1" step="1" placeholder="例如 10" />
-            <small>沒有指定時間時使用。</small>
+            <small>想改成相對時間時再填。</small>
           </label>
           <label class="form-field">
             <span>指定時間</span>
             <input id="reschedule-run-at-input" class="input" type="datetime-local" />
-            <small>填寫後優先使用指定時間。</small>
+            <small id="reschedule-timezone">預設帶入目前任務時間。</small>
           </label>
           <label class="form-field form-field-full">
             <span>任務描述</span>

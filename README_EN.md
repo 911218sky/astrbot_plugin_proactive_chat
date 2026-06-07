@@ -23,15 +23,19 @@
 
 A proactive messaging plugin for [AstrBot](https://github.com/AstrBotDevs/AstrBot) that enables your Bot to initiate context-aware, persona-consistent conversations with dynamic emotions at random intervals after session silence.
 
-Current version: `v2.19.0`
+Current version: `v2.19.1`
 
 Recent updates:
 
 - Added a plugin-owned SQLite state store, `proactive_state.db`, for the latest task/session state.
+- Hardened create, reschedule, delete, and context-cancel flows so task state is saved before scheduler/timer changes.
+- Added exact session filtering in the dashboard. The reschedule dialog now defaults to the current task time instead of a hidden delay.
+- `requirements.txt` now pins compatible major versions for APScheduler, aiofiles, and aiosqlite.
 - Restored restart-safe auto-trigger and group-idle waiting timers, including missed-task catch-up within a 30-minute grace window.
 - The dashboard reschedule action now opens its own dialog for delay time, exact run time, and task description.
 - DB-backed waiting tasks can now be edited or deleted from the dashboard even after AstrBot restarts.
-- `requirements.txt` now declares `aiosqlite>=0.20.0`.
+- `requirements.txt` now declares `aiosqlite>=0.20.0,<1`.
+- Proactive history write-back to AstrBot's main conversation history is disabled by default to reduce `database is locked` risk. Enable `save_proactive_history` only if you need it.
 - Upgraded the AstrBot Pages task dashboard into a task management UI with filters, create, reschedule, run-check, and delete actions.
 - Added editable task descriptions. Manual schedule descriptions are injected into proactive generation.
 - Restyled the dashboard after the livingmemory AstrBot Pages UI, including sidebar navigation, theme switching, and denser task tables.
@@ -155,7 +159,7 @@ Context prediction prompts have been extracted to `core/prompts/` as `.txt` file
 ## 📂 Project Structure
 
 ```
-astrbot_plugin_proactive_chat/
+astrbot_plugin_proactive_chat_plus/
 ├── core/                      # Core modules
 │   ├── __init__.py            # Module exports
 │   ├── config.py              # Config management

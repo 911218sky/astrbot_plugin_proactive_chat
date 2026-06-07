@@ -5,6 +5,27 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/06/07 v2.19.1
+
+## What's Changed
+
+### 修復 (Fix)
+
+- 建立、改期、語境任務與等待 timer 統一採用「先保存插件 DB，再掛排程」流程，降低重啟後任務消失的風險。
+- Web 任務頁刪除任務改為先更新 `proactive_state.db`，保存成功後才移除 APScheduler job 或記憶體 timer，避免刪除後重啟復活。
+- 語境任務自動取消改為先保存最新 `pending_context_tasks`，保存成功後才移除 APScheduler job。
+- 修復完整 UMO 或 Telegram 會話 ID 在白名單/會話配置比對時可能不匹配的問題。
+
+### 改進 (Improve)
+
+- 任務頁新增指定會話 ID 篩選，刷新資料時會保留目前選取的新增任務會話。
+- 改期彈窗預設帶入目前任務時間，不再預設填入 10 分鐘，避免誤改時間。
+- 任務描述欄改為固定提示文字，若存在語境原始判斷會以輔助文字顯示，方便使用者理解與修改。
+- `requirements.txt` 為 APScheduler、aiofiles、aiosqlite 加上大版本上限，降低未來依賴破壞 API 的風險。
+- AI 維護指南補充 CI 使用的 Ruff 版本指令。
+
+---
+
 # 2026/06/07 v2.19.0
 
 ## What's Changed

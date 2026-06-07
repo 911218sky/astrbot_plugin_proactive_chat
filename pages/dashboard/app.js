@@ -6,8 +6,10 @@
     sessions: [],
     filter: "all",
     sessionFilter: "all",
+    exactSessionFilter: "all",
     enabledFilter: "all",
     query: "",
+    summary: {},
     timer: null,
   };
 
@@ -166,12 +168,21 @@
     });
   }
 
+  function toDatetimeLocal(value) {
+    const match = String(value || "").match(
+      /^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/
+    );
+    if (!match) return "";
+    return `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}`;
+  }
+
   function openRescheduleDialog(task, currentDescription) {
     const dialog = byId("reschedule-dialog");
     const subtitle = byId("reschedule-subtitle");
     const delayInput = byId("reschedule-delay-input");
     const runAtInput = byId("reschedule-run-at-input");
     const descriptionInput = byId("reschedule-description-input");
+    const timezoneEl = byId("reschedule-timezone");
     const okButton = byId("reschedule-ok");
     const cancelButton = byId("reschedule-cancel");
     const closeButton = byId("reschedule-close");
@@ -190,11 +201,15 @@
     }
 
     subtitle.textContent = `${task.session_label || task.session_id} · ${TYPE_LABELS[task.type] || task.type}`;
-    delayInput.value = "10";
-    runAtInput.value = "";
+    delayInput.value = "";
+    runAtInput.value = toDatetimeLocal(task.next_run_time);
     descriptionInput.value = currentDescription || "";
+    if (timezoneEl) {
+      const timezone = state.summary && state.summary.timezone ? state.summary.timezone : "插件時區";
+      timezoneEl.textContent = `目前以 ${timezone} 解讀指定時間。`;
+    }
     dialog.hidden = false;
-    delayInput.focus();
+    runAtInput.focus();
 
     return new Promise((resolve) => {
       let done = false;
@@ -303,6 +318,7 @@
       if (state.enabledFilter === "disabled" && task.enabled) return false;
       if (state.sessionFilter === "private" && String(task.message_type).toLowerCase().includes("group")) return false;
       if (state.sessionFilter === "group" && !String(task.message_type).toLowerCase().includes("group")) return false;
+      if (state.exactSessionFilter !== "all" && task.session_id !== state.exactSessionFilter) return false;
       if (!query) return true;
       return searchableText(task).includes(query);
     });
@@ -310,6 +326,7 @@
 
   function renderSessionSelect() {
     const select = byId("session-select");
+    const previous = select.value;
     if (!state.sessions.length) {
       select.innerHTML = '<option value="">沒有可用會話</option>';
       return;
@@ -325,9 +342,38 @@
         return `<option value="${escapeHtml(session.session_id)}">${escapeHtml(label)}</option>`;
       })
       .join("");
+    if (previous && enabledSessions.some((session) => session.session_id === previous)) {
+      select.value = previous;
+    }
+  }
+
+  function renderExactSessionFilter() {
+    const select = byId("exact-session-filter");
+    const previous = select.value;
+    const sessions = Array.from(
+      new Map(
+        state.tasks
+          .filter((task) => task.session_id)
+          .map((task) => [task.session_id, task.session_label || task.session_id])
+      ).entries()
+    ).sort((a, b) => String(a[1]).localeCompare(String(b[1]), "zh-Hant"));
+    select.innerHTML = [
+      '<option value="all">所有會話 ID</option>',
+      ...sessions.map(
+        ([sessionId, label]) =>
+          `<option value="${escapeHtml(sessionId)}">${escapeHtml(label)} · ${escapeHtml(sessionId)}</option>`
+      ),
+    ].join("");
+    if (previous !== "all" && sessions.some(([sessionId]) => sessionId === previous)) {
+      select.value = previous;
+    } else {
+      select.value = "all";
+      state.exactSessionFilter = "all";
+    }
   }
 
   function renderSummary(summary) {
+    state.summary = summary || {};
     byId("metric-total").textContent = summary.total_count || 0;
     byId("metric-regular").textContent = summary.regular_count || 0;
     byId("metric-context").textContent = summary.context_count || 0;
@@ -359,6 +405,7 @@
         const target = task.target_id ? escapeHtml(task.target_id) : "";
         const detail = task.detail || (task.extra && task.extra.hint) || "";
         const description = task.description || "";
+        const originalDetail = description ? detail : "";
         const canDelete = ["regular", "context", "context_orphan", "auto_trigger", "group_idle"].includes(task.type);
         const canReschedule = ["regular", "context", "auto_trigger", "group_idle"].includes(task.type);
         const canEditDescription = ["regular", "context", "auto_trigger", "group_idle"].includes(task.type);
@@ -393,11 +440,12 @@
             </td>
             <td><span class="count-pill">${escapeHtml(task.unanswered_count || 0)}</span></td>
             <td class="detail-cell">
-              <textarea class="description-edit" data-role="description" rows="3" maxlength="800" ${canEditDescription ? "" : "disabled"} placeholder="${escapeHtml(detail || "填寫這個任務要提醒或接續的內容")}">${escapeHtml(description)}</textarea>
+              <textarea class="description-edit" data-role="description" rows="3" maxlength="800" ${canEditDescription ? "" : "disabled"} placeholder="填寫這個任務要提醒或接續的內容">${escapeHtml(description)}</textarea>
+              ${originalDetail ? `<div class="description-note">原始判斷：${escapeHtml(originalDetail)}</div>` : ""}
             </td>
             <td>
               <div class="row-actions">
-                <button class="btn btn-secondary btn-sm" type="button" data-action="run-now" ${canRunNow ? "" : "disabled"} title="${canRunNow ? "立即檢查條件，符合時會發送訊息" : "會話未啟用"}">立即執行</button>
+                <button class="btn btn-secondary btn-sm" type="button" data-action="run-now" ${canRunNow ? "" : "disabled"} title="${canRunNow ? "立即檢查條件，符合時會發送訊息" : "會話未啟用"}">立即檢查</button>
                 <button class="btn btn-secondary btn-sm" type="button" data-action="reschedule" ${canReschedule ? "" : "disabled"} title="${escapeHtml(rescheduleTitle)}">改期</button>
                 <button class="btn btn-secondary btn-sm" type="button" data-action="save-description" ${canEditDescription ? "" : "disabled"} title="保存此任務描述">保存描述</button>
                 <button class="btn btn-danger btn-sm" type="button" data-action="delete" ${canDelete ? "" : "disabled"} title="刪除任務">刪除</button>
@@ -465,13 +513,13 @@
 
     if (action === "delete" && !(await askConfirm("確定刪除此任務？", "刪除任務"))) return;
     if (action === "run-now") {
-      if (!(await askConfirm("這會立即檢查發送條件，符合條件時可能真的送出主動訊息。確定執行？", "立即執行任務"))) return;
+      if (!(await askConfirm("這會立即檢查發送條件，符合條件時可能真的送出主動訊息。確定檢查？", "立即檢查任務"))) return;
     }
 
     await withButtonBusy(button, async () => {
       if (action === "run-now") {
         await apiPost("tasks/action", { action: "run_now", ...payload });
-        showToast("已送出立即執行");
+        showToast("已送出立即檢查");
       } else if (action === "reschedule") {
         const textarea = row.querySelector('[data-role="description"]');
         const schedulePayload = await openRescheduleDialog(
@@ -508,6 +556,7 @@
       state.sessions = Array.isArray(data.sessions) ? data.sessions : [];
       renderSummary(data.summary || {});
       renderSessionSelect();
+      renderExactSessionFilter();
       renderTasks();
       if (showDone) showToast("已刷新");
     } catch (error) {
@@ -544,10 +593,12 @@
     byId("reset-filter-button").addEventListener("click", () => {
       state.filter = "all";
       state.sessionFilter = "all";
+      state.exactSessionFilter = "all";
       state.enabledFilter = "all";
       state.query = "";
       byId("type-filter").value = "all";
       byId("session-filter").value = "all";
+      byId("exact-session-filter").value = "all";
       byId("enabled-filter").value = "all";
       byId("search-input").value = "";
       renderTasks();
@@ -560,6 +611,10 @@
       state.sessionFilter = event.target.value;
       renderTasks();
     });
+    byId("exact-session-filter").addEventListener("change", (event) => {
+      state.exactSessionFilter = event.target.value;
+      renderTasks();
+    });
     byId("enabled-filter").addEventListener("change", (event) => {
       state.enabledFilter = event.target.value;
       renderTasks();
@@ -568,7 +623,8 @@
       state.query = event.target.value;
       renderTasks();
     });
-    byId("create-task-button").addEventListener("click", async () => {
+    byId("create-task-form").addEventListener("submit", async (event) => {
+      event.preventDefault();
       const button = byId("create-task-button");
       try {
         await withButtonBusy(button, createTask);
