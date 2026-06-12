@@ -17,7 +17,12 @@ from astrbot.core.message.components import Plain, Record
 from astrbot.core.message.message_event_result import MessageChain
 
 from .config import get_session_config
-from .messaging import calc_segment_interval, send_chain_with_hooks, split_text
+from .messaging import (
+    calc_segment_interval,
+    sanitize_outgoing_text,
+    send_chain_with_hooks,
+    split_text,
+)
 from .utils import is_group_session_id, with_umo_fallback
 
 if TYPE_CHECKING:
@@ -44,6 +49,13 @@ async def send_proactive_message(
     """
     session_config = get_session_config(config, session_id)
     if not session_config:
+        return False
+
+    text = sanitize_outgoing_text(text)
+    if not text:
+        logger.warning(
+            f"{_LOG_TAG} 主動訊息清理後為空，取消發送 | session={session_id}"
+        )
         return False
 
     tts_conf = session_config.get("tts_settings", {})

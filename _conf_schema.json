@@ -48,7 +48,7 @@
                 "description": "🧠 私聊全域動機 Prompt",
                 "type": "text",
                 "default": "[系統任務：主動對話]\n你被授權在私聊中發起一次「主動訊息」。你的回覆必須完全符合你的人格設定，並嚴格遵守所有的輸出規則。\n\n[情景分析]\n- 我們好像已經有一段時間沒有說話了，我應該主動打破沉默，讓他知道我想他了。\n- 當前時間是: {{current_time}}。\n- 我之前已經主動找過他，但他沒有回覆的次數是: {{unanswered_count}} 次。如果這個次數大於 0，我的語氣應該帶上一點點不易察覺的失落和困惑。\n\n[行動指南]\n1. 首先，回顧我們的聊天記錄，看看我們最後在聊什麼。\n2. 如果上次的話題已經結束了，我可以關心一下他現在在做什麼。\n3. 我可以向他提出一個我一直以來都很好奇的問題。\n4. 如果實在不知道該說什麼，就直接表達我想他的心情也可以。\n\n[最終指令]\n請綜合以上所有資訊，用最像你自己的、最自然的方式，生成一句主動聊天的開場白。",
-                "hint": "這段話將指導 LLM 在私聊中發起主動訊息時的思考。你可以使用 {{unanswered_count}}（未回覆次數）、{{current_time}}（當前時間，格式如「2025年06月15日 14:30」）和 {{last_reply_time}}（使用者最後回覆時間，格式如「2025年06月15日 12:00（2小時30分鐘前）」）這三個佔位符。建議在 Prompt 中加入 {{current_time}} 讓模型根據時間點說出對應的話題（例如早上問早安、深夜關心對方是否還沒睡），加入 {{last_reply_time}} 讓模型知道對方沉默了多久"
+                "hint": "這段話將指導 LLM 在私聊中發起主動訊息時的思考。你可以使用 {{unanswered_count}}（未回覆次數）、{{current_time}}（當前時間，格式如「2025年06月15日 14:30」）、{{last_reply_time}}（使用者最後回覆時間，格式如「2025年06月15日 12:00（2小時30分鐘前）」）、{{first_interaction_time}}（首次互動時間）和 {{relationship_duration}}（從首次互動到現在的時長）這五個佔位符。建議在 Prompt 中加入 {{current_time}} 讓模型根據時間點說出對應的話題（例如早上問早安、深夜關心對方是否還沒睡），加入 {{last_reply_time}} 讓模型知道對方沉默了多久"
             },
             "schedule_settings": {
                 "description": "🕒 私聊全域時間與調度設定",
@@ -219,14 +219,82 @@
                         "description": "✅ 啟用習慣時段",
                         "type": "bool",
                         "default": false,
-                        "hint": "開啟後，Bot 會依下方規則在指定時段自然出現。這類訊息預設不累加未回覆次數，可在單條規則中改為累加。"
+                        "hint": "開啟後，Bot 會依 AI 自動學出的私聊習慣時段自然出現。手動規則預設不採用，除非另外開啟進階相容選項。"
+                    },
+                    "enable_auto_learning": {
+                        "description": "🧠 自動學習私聊習慣時段",
+                        "type": "bool",
+                        "default": true,
+                        "hint": "開啟後，插件會記錄此私聊通常在什麼時間互動，樣本足夠後由 AI/插件自動產生內部習慣時段規則，不需要人手寫。"
+                    },
+                    "allow_manual_habit_rules": {
+                        "description": "🛠️ 進階：允許手動習慣規則",
+                        "type": "bool",
+                        "default": false,
+                        "hint": "預設關閉，代表下方手動規則不會被私聊排程採用；只有需要相容舊設定時才開啟。"
+                    },
+                    "auto_learning_min_samples": {
+                        "description": "📊 自動學習最少樣本",
+                        "type": "int",
+                        "default": 5,
+                        "hint": "至少累積幾次私聊時間後才建立自動習慣規則。數字太小會比較容易誤判，建議 5~10。",
+                        "condition": {
+                            "enable_auto_learning": true
+                        },
+                        "slider": {
+                            "min": 2,
+                            "max": 30,
+                            "step": 1
+                        }
+                    },
+                    "auto_learning_history_days": {
+                        "description": "🗓️ 自動學習回看天數",
+                        "type": "int",
+                        "default": 30,
+                        "hint": "只用最近幾天的私聊時間建立習慣，避免很久以前的作息影響現在。",
+                        "condition": {
+                            "enable_auto_learning": true
+                        },
+                        "slider": {
+                            "min": 1,
+                            "max": 120,
+                            "step": 1
+                        }
+                    },
+                    "auto_learning_cluster_window_minutes": {
+                        "description": "🕒 自動學習時段寬度（分鐘）",
+                        "type": "int",
+                        "default": 120,
+                        "hint": "用多大的時間窗尋找常聊天時段。例如 120 代表找出大約兩小時內最常互動的區間。",
+                        "condition": {
+                            "enable_auto_learning": true
+                        },
+                        "slider": {
+                            "min": 30,
+                            "max": 360,
+                            "step": 10
+                        }
+                    },
+                    "auto_learning_appear_chance": {
+                        "description": "🎲 自動習慣出現機率",
+                        "type": "float",
+                        "default": 0.75,
+                        "hint": "自動學出的時段命中時，Bot 在該時段自然出現的機率。0.75 代表約 75%。",
+                        "condition": {
+                            "enable_auto_learning": true
+                        },
+                        "slider": {
+                            "min": 0,
+                            "max": 1,
+                            "step": 0.01
+                        }
                     },
                     "habit_rules": {
-                        "description": "📅 習慣時段規則",
+                        "description": "📅 進階手動習慣規則",
                         "type": "template_list",
-                        "hint": "可新增多條日常出現規則。系統會從符合日期與時間窗的規則中安排下一次任務，並依出現機率、賴床機率與時間抖動製造自然感。",
+                        "hint": "私聊預設不採用這裡的人手寫規則；只有開啟「進階：允許手動習慣規則」才會加入排程。一般建議讓 AI/插件自動學習。可新增多條日常出現規則。",
                         "condition": {
-                            "enable": true
+                            "allow_manual_habit_rules": true
                         },
                         "templates": {
                             "habit_rule": {
@@ -660,7 +728,7 @@
                 "description": "🧠 群聊全域動機 Prompt",
                 "type": "text",
                 "default": "[系統任務：群聊主動破冰]\n你被授權在群聊中發起一次「主動訊息」以活躍氣氛。你的回覆必須完全符合你的人格設定，並嚴格遵守所有的輸出規則。\n\n[情景分析]\n- 這個群聊好像已經冷清了一段時間了，我應該說些什麼來讓大家重新聊起來。\n- 當前時間是: {{current_time}}。\n- 我上次在這個群裡主動說話但沒人理我的次數是: {{unanswered_count}} 次。\n\n[行動指南]\n1. 回顧群聊的聊天記錄，看看大家最後在討論什麼有趣的話題，如果沒有聊完，嘗試延續它。\n2. 向群裡的所有人，提出一個開放性的、大家都能參與進來的問題。\n\n[最終指令]\n請綜合以上所有資訊，用最像你自己的、最自然的方式，生成一句能在群聊中打破僵局、活躍氣氛的開場白。",
-                "hint": "這段話將指導 LLM 在群聊中發起主動訊息時的思考。你可以使用 {{unanswered_count}}（未回覆次數）、{{current_time}}（當前時間，格式如「2025年06月15日 14:30」）和 {{last_reply_time}}（使用者最後回覆時間，格式如「2025年06月15日 12:00（2小時30分鐘前）」）這三個佔位符。建議在 Prompt 中加入 {{current_time}} 讓模型根據時間點說出對應的話題（例如中午聊午餐、晚上聊下班後的事），加入 {{last_reply_time}} 讓模型知道群組沉默了多久"
+                "hint": "這段話將指導 LLM 在群聊中發起主動訊息時的思考。你可以使用 {{unanswered_count}}（未回覆次數）、{{current_time}}（當前時間，格式如「2025年06月15日 14:30」）、{{last_reply_time}}（使用者最後回覆時間，格式如「2025年06月15日 12:00（2小時30分鐘前）」）、{{first_interaction_time}}（首次互動時間）和 {{relationship_duration}}（從首次互動到現在的時長）這五個佔位符。建議在 Prompt 中加入 {{current_time}} 讓模型根據時間點說出對應的話題（例如中午聊午餐、晚上聊下班後的事），加入 {{last_reply_time}} 讓模型知道群組沉默了多久"
             },
             "schedule_settings": {
                 "description": "🕒 群聊全域時間與調度設定",
@@ -1299,7 +1367,7 @@
                         "description": "🧠 私聊動機 Prompt",
                         "type": "text",
                         "default": "[系統任務：主動對話]\n你被授權在私聊中發起一次「主動訊息」。你的回覆必須完全符合你的人格設定，並嚴格遵守所有的輸出規則。\n\n[情景分析]\n- 我們好像已經有一段時間沒有說話了，我應該主動打破沉默，讓他知道我想他了。\n- 當前時間是: {{current_time}}。\n- 我之前已經主動找過他，但他沒有回覆的次數是: {{unanswered_count}} 次。如果這個次數大於 0，我的語氣應該帶上一點點不易察覺的失落和困惑。\n\n[行動指南]\n1. 首先，回顧我們的聊天記錄，看看我們最後在聊什麼。\n2. 如果上次的話題已經結束了，我可以關心一下他現在在做什麼。\n3. 我可以向他提出一個我一直以來都很好奇的問題。\n4. 如果實在不知道該說什麼，就直接表達我想他的心情也可以。\n\n[最終指令]\n請綜合以上所有資訊，用最像你自己的、最自然的方式，生成一句主動聊天的開場白。",
-                        "hint": "這段話將指導 LLM 在私聊中發起主動訊息時的思考。你可以使用 {{unanswered_count}}（未回覆次數）、{{current_time}}（當前時間，格式如「2025年06月15日 14:30」）和 {{last_reply_time}}（使用者最後回覆時間，格式如「2025年06月15日 12:00（2小時30分鐘前）」）這三個佔位符。建議在 Prompt 中加入 {{current_time}} 讓模型根據時間點說出對應的話題（例如早上問早安、深夜關心對方是否還沒睡），加入 {{last_reply_time}} 讓模型知道對方沉默了多久"
+                        "hint": "這段話將指導 LLM 在私聊中發起主動訊息時的思考。你可以使用 {{unanswered_count}}（未回覆次數）、{{current_time}}（當前時間，格式如「2025年06月15日 14:30」）、{{last_reply_time}}（使用者最後回覆時間，格式如「2025年06月15日 12:00（2小時30分鐘前）」）、{{first_interaction_time}}（首次互動時間）和 {{relationship_duration}}（從首次互動到現在的時長）這五個佔位符。建議在 Prompt 中加入 {{current_time}} 讓模型根據時間點說出對應的話題（例如早上問早安、深夜關心對方是否還沒睡），加入 {{last_reply_time}} 讓模型知道對方沉默了多久"
                     },
                     "schedule_settings": {
                         "description": "🕒 時間與調度設定",
@@ -1470,14 +1538,82 @@
                                 "description": "✅ 啟用習慣時段",
                                 "type": "bool",
                                 "default": false,
-                                "hint": "開啟後，Bot 會依下方規則在指定時段自然出現。這類訊息預設不累加未回覆次數，可在單條規則中改為累加。"
+                                "hint": "開啟後，Bot 會依 AI 自動學出的私聊習慣時段自然出現。手動規則預設不採用，除非另外開啟進階相容選項。"
+                            },
+                            "enable_auto_learning": {
+                                "description": "🧠 自動學習私聊習慣時段",
+                                "type": "bool",
+                                "default": true,
+                                "hint": "開啟後，插件會記錄此私聊通常在什麼時間互動，樣本足夠後由 AI/插件自動產生內部習慣時段規則，不需要人手寫。"
+                            },
+                            "allow_manual_habit_rules": {
+                                "description": "🛠️ 進階：允許手動習慣規則",
+                                "type": "bool",
+                                "default": false,
+                                "hint": "預設關閉，代表下方手動規則不會被私聊排程採用；只有需要相容舊設定時才開啟。"
+                            },
+                            "auto_learning_min_samples": {
+                                "description": "📊 自動學習最少樣本",
+                                "type": "int",
+                                "default": 5,
+                                "hint": "至少累積幾次私聊時間後才建立自動習慣規則。數字太小會比較容易誤判，建議 5~10。",
+                                "condition": {
+                                    "enable_auto_learning": true
+                                },
+                                "slider": {
+                                    "min": 2,
+                                    "max": 30,
+                                    "step": 1
+                                }
+                            },
+                            "auto_learning_history_days": {
+                                "description": "🗓️ 自動學習回看天數",
+                                "type": "int",
+                                "default": 30,
+                                "hint": "只用最近幾天的私聊時間建立習慣，避免很久以前的作息影響現在。",
+                                "condition": {
+                                    "enable_auto_learning": true
+                                },
+                                "slider": {
+                                    "min": 1,
+                                    "max": 120,
+                                    "step": 1
+                                }
+                            },
+                            "auto_learning_cluster_window_minutes": {
+                                "description": "🕒 自動學習時段寬度（分鐘）",
+                                "type": "int",
+                                "default": 120,
+                                "hint": "用多大的時間窗尋找常聊天時段。例如 120 代表找出大約兩小時內最常互動的區間。",
+                                "condition": {
+                                    "enable_auto_learning": true
+                                },
+                                "slider": {
+                                    "min": 30,
+                                    "max": 360,
+                                    "step": 10
+                                }
+                            },
+                            "auto_learning_appear_chance": {
+                                "description": "🎲 自動習慣出現機率",
+                                "type": "float",
+                                "default": 0.75,
+                                "hint": "自動學出的時段命中時，Bot 在該時段自然出現的機率。0.75 代表約 75%。",
+                                "condition": {
+                                    "enable_auto_learning": true
+                                },
+                                "slider": {
+                                    "min": 0,
+                                    "max": 1,
+                                    "step": 0.01
+                                }
                             },
                             "habit_rules": {
-                                "description": "📅 習慣時段規則",
+                                "description": "📅 進階手動習慣規則",
                                 "type": "template_list",
-                                "hint": "可新增多條日常出現規則。系統會從符合日期與時間窗的規則中安排下一次任務，並依出現機率、賴床機率與時間抖動製造自然感。",
+                                "hint": "私聊預設不採用這裡的人手寫規則；只有開啟「進階：允許手動習慣規則」才會加入排程。一般建議讓 AI/插件自動學習。可新增多條日常出現規則。",
                                 "condition": {
-                                    "enable": true
+                                    "allow_manual_habit_rules": true
                                 },
                                 "templates": {
                                     "habit_rule": {
@@ -1917,7 +2053,7 @@
                         "description": "🧠 群聊動機 Prompt",
                         "type": "text",
                         "default": "[系統任務：群聊主動破冰]\n你被授權在群聊中發起一次「主動訊息」以活躍氣氛。你的回覆必須完全符合你的人格設定，並嚴格遵守所有的輸出規則。\n\n[情景分析]\n- 這個群聊好像已經冷清了一段時間了，我應該說些什麼來讓大家重新聊起來。\n- 當前時間是: {{current_time}}。\n- 我上次在這個群裡主動說話但沒人理我的次數是: {{unanswered_count}} 次。\n\n[行動指南]\n1. 回顧群聊的聊天記錄，看看大家最後在討論什麼有趣的話題，如果沒有聊完，嘗試延續它。\n2. 向群裡的所有人，提出一個開放性的、大家都能參與進來的問題。\n\n[最終指令]\n請綜合以上所有資訊，用最像你自己的、最自然的方式，生成一句能在群聊中打破僵局、活躍氣氛的開場白。",
-                        "hint": "這段話將指導 LLM 在群聊中發起主動訊息時的思考。你可以使用 {{unanswered_count}}（未回覆次數）、{{current_time}}（當前時間，格式如「2025年06月15日 14:30」）和 {{last_reply_time}}（使用者最後回覆時間，格式如「2025年06月15日 12:00（2小時30分鐘前）」）這三個佔位符。建議在 Prompt 中加入 {{current_time}} 讓模型根據時間點說出對應的話題（例如中午聊午餐、晚上聊下班後的事），加入 {{last_reply_time}} 讓模型知道群組沉默了多久"
+                        "hint": "這段話將指導 LLM 在群聊中發起主動訊息時的思考。你可以使用 {{unanswered_count}}（未回覆次數）、{{current_time}}（當前時間，格式如「2025年06月15日 14:30」）、{{last_reply_time}}（使用者最後回覆時間，格式如「2025年06月15日 12:00（2小時30分鐘前）」）、{{first_interaction_time}}（首次互動時間）和 {{relationship_duration}}（從首次互動到現在的時長）這五個佔位符。建議在 Prompt 中加入 {{current_time}} 讓模型根據時間點說出對應的話題（例如中午聊午餐、晚上聊下班後的事），加入 {{last_reply_time}} 讓模型知道群組沉默了多久"
                     },
                     "schedule_settings": {
                         "description": "🕒 時間與調度設定",

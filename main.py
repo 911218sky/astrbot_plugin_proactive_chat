@@ -48,6 +48,10 @@ _RESTORE_MISSED_GRACE_SECONDS = 30 * 60
 _AUTO_TRIGGER_DEADLINE_KEY = "auto_trigger_deadline"
 _GROUP_IDLE_DEADLINE_KEY = "group_idle_deadline"
 _HABIT_TASK_PREFIX = "habit_"
+_HABIT_LEARNING_KEY = "habit_learning"
+_AUTO_HABIT_RULES_KEY = "auto_habit_rules"
+_AUTO_HABIT_RULE_NAME = "自動學習：常聊天時段"
+_AUTO_HABIT_MAX_OBSERVATIONS = 160
 
 
 class ProactiveChatPlugin(star.Star):
@@ -317,6 +321,7 @@ class ProactiveChatPlugin(star.Star):
             for key, value in old_sd.items():
                 if key in {
                     "unanswered_count",
+                    "first_interaction_time",
                     "last_message_time",
                     "next_trigger_time",
                     _AUTO_TRIGGER_DEADLINE_KEY,
@@ -327,6 +332,12 @@ class ProactiveChatPlugin(star.Star):
                     if key == "unanswered_count":
                         old_value = int(value or 0)
                         new_value = int(new_sd.get(key, 0) or 0)
+                    if key == "first_interaction_time":
+                        if new_value is None or (
+                            old_value is not None and old_value < new_value
+                        ):
+                            new_sd[key] = value
+                        continue
                     if new_value is None or (
                         old_value is not None and old_value > new_value
                     ):
@@ -567,6 +578,225 @@ class ProactiveChatPlugin(star.Star):
         settings = session_config.get("habit_settings", {})
         return settings if isinstance(settings, dict) else {}
 
+    def _effective_habit_settings(self, session_id: str, session_config: dict) -> dict:
+        """合併手動設定與自動學習出的習慣時段規則。"""
+        habit_conf = dict(self._habit_settings(session_config))
+        allow_manual_rules = bool(habit_conf.get("allow_manual_habit_rules", False))
+        if is_group_session_id(session_id):
+            allow_manual_rules = True
+        manual_rules = (
+            [
+                rule
+                for rule in habit_conf.get("habit_rules", [])
+                if isinstance(rule, dict)
+            ]
+            if allow_manual_rules
+            else []
+        )
+        info = self.session_data.get(session_id)
+        learned_rules: list[dict] = []
+        if self._habit_learning_settings(habit_conf)["enable"] and isinstance(
+            info, dict
+        ):
+            learning = info.get(_HABIT_LEARNING_KEY)
+            if isinstance(learning, dict):
+                learned_rules = [
+                    rule
+                    for rule in learning.get(_AUTO_HABIT_RULES_KEY, [])
+                    if isinstance(rule, dict)
+                ]
+
+        habit_conf["habit_rules"] = [*manual_rules, *learned_rules]
+        if learned_rules:
+            habit_conf["enable"] = True
+        return habit_conf
+
+    def _habit_learning_settings(self, habit_conf: dict) -> dict:
+        """取得自動學習設定，並限制在合理範圍。"""
+        return {
+            "enable": bool(habit_conf.get("enable_auto_learning", True)),
+            "min_samples": self._coerce_int(
+                habit_conf.get("auto_learning_min_samples"), 5, 2, 80
+            ),
+            "history_days": self._coerce_int(
+                habit_conf.get("auto_learning_history_days"), 30, 1, 365
+            ),
+            "cluster_window_minutes": self._coerce_int(
+                habit_conf.get("auto_learning_cluster_window_minutes"), 120, 30, 360
+            ),
+            "appear_chance": self._coerce_float(
+                habit_conf.get("auto_learning_appear_chance"), 0.75, 0.0, 1.0
+            ),
+        }
+
+    def _build_auto_habit_rule(
+        self,
+        observations: list[dict],
+        settings: dict,
+        now_ts: float,
+    ) -> dict | None:
+        """依近期私聊時間樣本產生一條內部習慣規則。"""
+        min_samples = int(settings["min_samples"])
+        window = int(settings["cluster_window_minutes"])
+        points: list[dict] = []
+        for item in observations:
+            if not isinstance(item, dict):
+                continue
+            ts = self._coerce_timestamp(item.get("ts"))
+            minute = self._coerce_int(item.get("minute_of_day"), -1, -1, 1439)
+            weekday = self._coerce_int(item.get("weekday"), 0, 0, 7)
+            if ts is None or minute < 0 or weekday <= 0:
+                continue
+            points.append({"ts": ts, "minute": minute, "weekday": weekday})
+        if len(points) < min_samples:
+            return None
+
+        best_cluster: list[dict] = []
+        for anchor in points:
+            cluster = []
+            for item in points:
+                diff = abs(int(item["minute"]) - int(anchor["minute"]))
+                diff = min(diff, 1440 - diff)
+                if diff <= window // 2:
+                    cluster.append(item)
+            if len(cluster) > len(best_cluster):
+                best_cluster = cluster
+        if len(best_cluster) < min_samples:
+            return None
+
+        minutes = sorted(int(item["minute"]) for item in best_cluster)
+        median = minutes[len(minutes) // 2]
+        half_width = max(45, min(120, window // 2))
+        start_minute_total = (median - half_width) % 1440
+        end_minute_total = (median + half_width) % 1440
+        weekdays = sorted({int(item["weekday"]) for item in best_cluster})
+        if start_minute_total > end_minute_total and median < end_minute_total:
+            weekdays = [7 if day <= 1 else day - 1 for day in weekdays]
+        days = ",".join(str(day) for day in weekdays)
+        if len(weekdays) >= 5:
+            days = ""
+
+        updated_at = datetime.fromtimestamp(now_ts, tz=self.timezone).isoformat()
+        return {
+            "name": _AUTO_HABIT_RULE_NAME,
+            "enable": True,
+            "days": days,
+            "start_hour": start_minute_total // 60,
+            "start_minute": start_minute_total % 60,
+            "end_hour": end_minute_total // 60,
+            "end_minute": end_minute_total % 60,
+            "appear_chance": float(settings["appear_chance"]),
+            "jitter_min_minutes": 0,
+            "jitter_max_minutes": 25,
+            "oversleep_chance": 0.05,
+            "oversleep_min_minutes": 10,
+            "oversleep_max_minutes": 45,
+            "message_hint": "根據最近私聊習慣，這個時段對方通常比較有空；像自然剛有空一樣打招呼，不要提到排程或學習規則。",
+            "description": (
+                f"由最近 {len(best_cluster)} 次私聊時間自動學習，更新於 {updated_at}。"
+            ),
+            "count_unanswered": False,
+            "auto_learned": True,
+            "sample_count": len(best_cluster),
+            "updated_at": updated_at,
+        }
+
+    async def _record_private_habit_observation(
+        self, session_id: str, session_config: dict, now_ts: float
+    ) -> None:
+        """記錄私聊發生時段，樣本足夠時自動寫入內部習慣規則。"""
+        habit_conf = self._habit_settings(session_config)
+        settings = self._habit_learning_settings(habit_conf)
+        if not settings["enable"]:
+            return
+
+        current = datetime.fromtimestamp(now_ts, tz=self.timezone)
+        cutoff = now_ts - int(settings["history_days"]) * 86400
+        observation = {
+            "ts": now_ts,
+            "weekday": current.weekday() + 1,
+            "minute_of_day": current.hour * 60 + current.minute,
+        }
+        learned_rule: dict | None = None
+        learned_changed = False
+        async with self.data_lock:
+            sd = self.session_data.setdefault(session_id, {})
+            learning = sd.setdefault(_HABIT_LEARNING_KEY, {})
+            if not isinstance(learning, dict):
+                learning = {}
+                sd[_HABIT_LEARNING_KEY] = learning
+            observations = [
+                item
+                for item in learning.get("observations", [])
+                if isinstance(item, dict)
+                and (self._coerce_timestamp(item.get("ts")) or 0) >= cutoff
+            ]
+            observations.append(observation)
+            observations = observations[-_AUTO_HABIT_MAX_OBSERVATIONS:]
+            learning["observations"] = observations
+
+            learned_rule = self._build_auto_habit_rule(observations, settings, now_ts)
+            if learned_rule is not None:
+                old_rules = [
+                    rule
+                    for rule in learning.get(_AUTO_HABIT_RULES_KEY, [])
+                    if isinstance(rule, dict)
+                ]
+                old_rule = old_rules[0] if old_rules else None
+                comparable_keys = (
+                    "days",
+                    "start_hour",
+                    "start_minute",
+                    "end_hour",
+                    "end_minute",
+                    "appear_chance",
+                )
+                learned_changed = old_rule is None or any(
+                    old_rule.get(key) != learned_rule.get(key)
+                    for key in comparable_keys
+                )
+                learning[_AUTO_HABIT_RULES_KEY] = [learned_rule]
+            await self._save_data()
+
+        if learned_rule is not None and learned_changed:
+            await self._reschedule_auto_habit_rule(session_id, session_config)
+
+    async def _reschedule_auto_habit_rule(
+        self, session_id: str, session_config: dict
+    ) -> None:
+        """自動學習規則變更後，重排同名習慣任務。"""
+        removed = False
+        for task in list(self._pending_habit_tasks.get(session_id, [])):
+            if task.get("rule_name") != _AUTO_HABIT_RULE_NAME:
+                continue
+            job_id = str(task.get("job_id", ""))
+            if self.scheduler and job_id:
+                try:
+                    self.scheduler.remove_job(job_id)
+                except Exception:
+                    pass
+            await self._cleanup_habit_task(session_id, job_id)
+            removed = True
+        if removed or not self._pending_habit_tasks.get(session_id):
+            logger.info(
+                f"{_LOG_TAG} 已更新 {get_session_log_str(session_id, session_config, self.session_data)} "
+                "的自動學習私聊習慣時段。"
+            )
+            await self._schedule_next_habit_task(session_id)
+
+    async def _cleanup_auto_habit_rule_task(self, session_id: str) -> None:
+        """自動學習關閉時移除已排定的自動習慣任務。"""
+        for task in list(self._pending_habit_tasks.get(session_id, [])):
+            if task.get("rule_name") != _AUTO_HABIT_RULE_NAME:
+                continue
+            job_id = str(task.get("job_id", ""))
+            if self.scheduler and job_id:
+                try:
+                    self.scheduler.remove_job(job_id)
+                except Exception:
+                    pass
+            await self._cleanup_habit_task(session_id, job_id)
+
     def _find_habit_task(self, session_id: str, job_id: str) -> dict | None:
         """根據 job_id 查找習慣時段任務。"""
         if not job_id:
@@ -581,7 +811,7 @@ class ProactiveChatPlugin(star.Star):
         session_config = get_session_config(self.config, session_id)
         if not session_config or not session_config.get("enable", False):
             return False
-        habit_conf = self._habit_settings(session_config)
+        habit_conf = self._effective_habit_settings(session_id, session_config)
         run_date, rule, reason = compute_habit_next_run(habit_conf, self.timezone)
         if run_date is None or rule is None:
             logger.debug(f"{_LOG_TAG} 習慣時段未安排 | session={session_id}: {reason}")
@@ -707,7 +937,7 @@ class ProactiveChatPlugin(star.Star):
             session_config = get_session_config(self.config, session_id)
             if not session_config or not session_config.get("enable", False):
                 continue
-            habit_conf = self._habit_settings(session_config)
+            habit_conf = self._effective_habit_settings(session_id, session_config)
             if not habit_conf.get("enable", False):
                 continue
             if self._pending_habit_tasks.get(session_id):
@@ -1098,6 +1328,26 @@ class ProactiveChatPlugin(star.Star):
             return None
         return timestamp if timestamp > 0 else None
 
+    def _coerce_int(
+        self, value: object, default: int, min_value: int, max_value: int
+    ) -> int:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            parsed = default
+        return max(min_value, min(max_value, parsed))
+
+    def _coerce_float(
+        self, value: object, default: float, min_value: float, max_value: float
+    ) -> float:
+        try:
+            parsed = float(value)
+        except (TypeError, ValueError):
+            parsed = default
+        if parsed > 1 and max_value <= 1:
+            parsed = parsed / 100
+        return max(min_value, min(max_value, parsed))
+
     # ═══════════════════════════════════════════════════════════
     #  自動觸發
     #
@@ -1455,6 +1705,7 @@ class ProactiveChatPlugin(star.Star):
             sd = self.session_data.setdefault(session_id, {})
             if self_id:
                 sd["self_id"] = self_id
+            sd.setdefault("first_interaction_time", now)
             if now >= self.plugin_start_time:
                 sd["last_message_time"] = now
             if enabled:
@@ -1495,8 +1746,15 @@ class ProactiveChatPlugin(star.Star):
         else:
             # 私聊：排程本身很輕量，直接保存可避免重啟時短暫丟失下一次任務。
             await self._schedule_next_chat_and_save(session_id, reset_counter=True)
+            habit_conf = self._habit_settings(session_config)
+            if self._habit_learning_settings(habit_conf)["enable"]:
+                await self._record_private_habit_observation(
+                    session_id, session_config, now
+                )
+            else:
+                await self._cleanup_auto_habit_rule_task(session_id)
 
-        habit_settings = self._habit_settings(session_config)
+        habit_settings = self._effective_habit_settings(session_id, session_config)
         if habit_settings.get("enable", False) and not self._pending_habit_tasks.get(
             session_id
         ):

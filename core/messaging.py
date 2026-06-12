@@ -29,6 +29,7 @@ _LOG_TAG = "[主動訊息]"
 
 # 預編譯預設分段正則
 _DEFAULT_SPLIT_RE = re.compile(r".*?[。？！~…\n]+|.+$")
+_RE_LEADING_NOISE = re.compile(r"^\s*(?:[õÕ]+\s*)+")
 
 
 # ── 裝飾鉤子 ─────────────────────────────────────────────
@@ -132,6 +133,15 @@ async def send_chain_with_hooks(
             f"{_LOG_TAG} AstrBot 核心 API 發送失敗 | session={session_id}: {e}"
         )
     return False
+
+
+def sanitize_outgoing_text(text: str) -> str:
+    """清理 LLM 回覆中常見的孤立噪音前綴，避免原樣送進文字或 TTS。"""
+    if not text:
+        return ""
+    cleaned = text.strip()
+    cleaned = _RE_LEADING_NOISE.sub("", cleaned).strip()
+    return cleaned
 
 
 # ── 文本分段 ─────────────────────────────────────────────

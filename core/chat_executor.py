@@ -63,6 +63,13 @@ _AUTH_ERROR_KEYWORDS = frozenset(
 )
 
 _SQLITE_LOCK_KEYWORDS = frozenset({"database is locked", "database table is locked"})
+_RELATIONSHIP_CONTEXT = (
+    "\n\n[關係時間感知]\n"
+    "- 這個會話第一次被你記錄到互動的時間：{first_interaction_time}\n"
+    "- 從第一次互動到現在大約經過：{relationship_duration}\n"
+    "請把這個資訊當成背景感受來調整熟悉程度、關心方式和話題深度；"
+    "不要生硬地報出精確時間，除非使用者正在詢問。"
+)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -656,7 +663,8 @@ def _build_final_prompt(
 ) -> tuple[str, dict | None]:
     """構造最終的 LLM Prompt。
 
-    替換佔位符 ``{{current_time}}``、``{{unanswered_count}}``、``{{last_reply_time}}``，
+    替換佔位符 ``{{current_time}}``、``{{unanswered_count}}``、``{{last_reply_time}}``、
+    ``{{first_interaction_time}}``、``{{relationship_duration}}``，
     並在語境預測觸發時注入原因與跟進提示。
 
     Returns:
@@ -665,11 +673,27 @@ def _build_final_prompt(
     motivation_template = session_config.get("proactive_prompt", "")
     now_str = datetime.now(plugin.timezone).strftime("%Y年%m月%d日 %H:%M")
     last_reply_str = _format_last_reply_time(snapshot_last_msg, plugin.timezone)
+    session_info = plugin.session_data.get(session_id, {})
+    first_interaction_ts = (
+        session_info.get("first_interaction_time")
+        if isinstance(session_info, dict)
+        else None
+    )
+    first_interaction_str = _format_first_interaction_time(
+        first_interaction_ts, plugin.timezone
+    )
+    relationship_duration_str = _format_elapsed_duration(first_interaction_ts)
 
     final_prompt = (
         motivation_template.replace("{{unanswered_count}}", str(unanswered_count))
         .replace("{{current_time}}", now_str)
         .replace("{{last_reply_time}}", last_reply_str)
+        .replace("{{first_interaction_time}}", first_interaction_str)
+        .replace("{{relationship_duration}}", relationship_duration_str)
+    )
+    final_prompt += _RELATIONSHIP_CONTEXT.format(
+        first_interaction_time=first_interaction_str,
+        relationship_duration=relationship_duration_str,
     )
 
     # 若本次觸發來自語境預測，將預測的原因和跟進提示注入 Prompt
@@ -730,6 +754,57 @@ def _format_last_reply_time(
         elapsed_str = f"{hours}小時{mins}分鐘" if mins else f"{hours}小時"
 
     return f"{last_reply_dt.strftime('%Y年%m月%d日 %H:%M')}（{elapsed_str}前）"
+
+
+def _format_first_interaction_time(
+    first_ts: object, timezone: zoneinfo.ZoneInfo | None
+) -> str:
+    """將首次互動時間戳格式化為 prompt 可讀文字。"""
+    ts = _coerce_timestamp(first_ts)
+    if ts is None:
+        return "未知"
+    first_dt = datetime.fromtimestamp(ts, tz=timezone)
+    return first_dt.strftime("%Y年%m月%d日 %H:%M")
+
+
+def _format_elapsed_duration(since_ts: object) -> str:
+    """將起始時間到現在的距離格式化為自然語言。"""
+    ts = _coerce_timestamp(since_ts)
+    if ts is None:
+        return "未知"
+
+    elapsed_seconds = max(0, int(time.time() - ts))
+    minutes = elapsed_seconds // 60
+    if minutes < 1:
+        return "不到1分鐘"
+    if minutes < 60:
+        return f"{minutes}分鐘"
+
+    hours, mins = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours}小時{mins}分鐘" if mins else f"{hours}小時"
+
+    days, hours = divmod(hours, 24)
+    if days < 30:
+        return f"{days}天{hours}小時" if hours else f"{days}天"
+
+    months, days = divmod(days, 30)
+    if months < 12:
+        return f"{months}個月{days}天" if days else f"{months}個月"
+
+    years, months = divmod(months, 12)
+    return f"{years}年{months}個月" if months else f"{years}年"
+
+
+def _coerce_timestamp(value: object) -> float | None:
+    """將持久化狀態中的時間值轉為合法時間戳。"""
+    try:
+        ts = float(value)
+    except (TypeError, ValueError):
+        return None
+    if ts <= 0 or ts > time.time() + 60:
+        return None
+    return ts
 
 
 def _find_context_task(
