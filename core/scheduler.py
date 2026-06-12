@@ -5,11 +5,159 @@ from __future__ import annotations
 
 import random
 import zoneinfo
-from datetime import datetime
+from datetime import date, datetime, timedelta, tzinfo
 
 from astrbot.api import logger
 
 _LOG_TAG = "[主動訊息]"
+
+
+def compute_habit_next_run(
+    habit_conf: dict,
+    timezone: zoneinfo.ZoneInfo | None = None,
+    *,
+    now: datetime | None = None,
+) -> tuple[datetime | None, dict | None, str]:
+    """依習慣時段配置計算下一次主動出現時間。"""
+    if not habit_conf.get("enable", False):
+        return None, None, "習慣時段未啟用"
+
+    current = now or (datetime.now(timezone) if timezone else datetime.now())
+    best_run: datetime | None = None
+    best_rule: dict | None = None
+    best_reason = ""
+
+    for rule in habit_conf.get("habit_rules", ()):
+        if not isinstance(rule, dict) or not rule.get("enable", True):
+            continue
+        candidate, reason = _compute_habit_rule_run(rule, current)
+        if candidate is None:
+            logger.info(f"{_LOG_TAG} 習慣時段略過：{reason}")
+            continue
+        if best_run is None or candidate < best_run:
+            best_run = candidate
+            best_rule = rule
+            best_reason = reason
+
+    if best_run is None:
+        return None, None, "沒有可用的習慣時段規則"
+    return best_run, best_rule, best_reason
+
+
+def _compute_habit_rule_run(rule: dict, now: datetime) -> tuple[datetime | None, str]:
+    """計算單條習慣規則的下一次觸發時間。"""
+    last_skip_reason = ""
+    for day_offset in range(-1, 8):
+        base_day = now.date() + timedelta(days=day_offset)
+        if not _habit_rule_matches_day(rule, base_day):
+            continue
+        start_dt = _combine_rule_time(base_day, rule, "start", now.tzinfo)
+        end_dt = _combine_rule_time(base_day, rule, "end", now.tzinfo)
+        is_cross_day = end_dt <= start_dt
+        if is_cross_day:
+            end_dt += timedelta(days=1)
+        if day_offset < 0 and (not is_cross_day or not start_dt <= now < end_dt):
+            continue
+        if day_offset == 0 and end_dt <= now:
+            continue
+
+        run_dt = _pick_habit_time(rule, start_dt, end_dt, now)
+        if run_dt is None:
+            last_skip_reason = "部分時段依機率沒有出現"
+            continue
+        if run_dt > now:
+            return run_dt, _habit_skip_reason(rule, "已安排")
+    return None, _habit_skip_reason(rule, last_skip_reason or "未來 7 天沒有符合日期")
+
+
+def _habit_rule_matches_day(rule: dict, day: date) -> bool:
+    raw_days = str(rule.get("days", "") or "").strip()
+    if not raw_days:
+        return True
+    allowed: set[int] = set()
+    for part in raw_days.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            value = int(part)
+        except ValueError:
+            continue
+        if 1 <= value <= 7:
+            allowed.add(value - 1)
+    return not allowed or day.weekday() in allowed
+
+
+def _combine_rule_time(
+    day: date, rule: dict, prefix: str, tzinfo_value: tzinfo | None
+) -> datetime:
+    hour = _coerce_int(rule.get(f"{prefix}_hour"), 0, 0, 24)
+    minute = _coerce_int(rule.get(f"{prefix}_minute"), 0, 0, 59)
+    if hour >= 24:
+        return datetime.combine(
+            day + timedelta(days=1), datetime.min.time(), tzinfo_value
+        )
+    return datetime.combine(day, datetime.min.time(), tzinfo_value).replace(
+        hour=hour, minute=minute
+    )
+
+
+def _pick_habit_time(
+    rule: dict, start_dt: datetime, end_dt: datetime, now: datetime
+) -> datetime | None:
+    appear_chance = _coerce_float(rule.get("appear_chance"), 0.85, 0.0, 1.0)
+    if random.random() >= appear_chance:
+        return None
+
+    earliest = max(start_dt, now + timedelta(seconds=30))
+    latest = end_dt
+    if latest <= earliest:
+        return None
+
+    oversleep_chance = _coerce_float(rule.get("oversleep_chance"), 0.1, 0.0, 1.0)
+    if random.random() < oversleep_chance:
+        oversleep_min = _coerce_int(rule.get("oversleep_min_minutes"), 15, 0, 1440)
+        oversleep_max = _coerce_int(rule.get("oversleep_max_minutes"), 120, 0, 1440)
+        if oversleep_max < oversleep_min:
+            oversleep_max = oversleep_min
+        earliest = max(earliest, start_dt + timedelta(minutes=oversleep_min))
+        latest = end_dt + timedelta(minutes=oversleep_max)
+
+    span = int((latest - earliest).total_seconds())
+    picked = earliest + timedelta(seconds=random.randint(0, max(1, span)))
+
+    jitter_min = _coerce_int(rule.get("jitter_min_minutes"), 0, 0, 1440)
+    jitter_max = _coerce_int(rule.get("jitter_max_minutes"), 20, 0, 1440)
+    if jitter_max < jitter_min:
+        jitter_max = jitter_min
+    if jitter_max > 0:
+        picked += timedelta(minutes=random.randint(jitter_min, jitter_max))
+    return min(picked, latest)
+
+
+def _habit_skip_reason(rule: dict, reason: str) -> str:
+    name = str(rule.get("name", "") or "未命名習慣")
+    return f"{name}: {reason}"
+
+
+def _coerce_int(value: object, default: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(min_value, min(max_value, parsed))
+
+
+def _coerce_float(
+    value: object, default: float, min_value: float, max_value: float
+) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if parsed > 1 and max_value <= 1:
+        parsed = parsed / 100
+    return max(min_value, min(max_value, parsed))
 
 
 def compute_weighted_interval(
@@ -102,6 +250,12 @@ def should_trigger_by_unanswered(
     # 嘗試從當前時段的排程規則取得逐次概率列表和時段專屬上限
     prob_list, matched_rule = _resolve_decay_list_and_rule(schedule_conf, timezone)
     idx = unanswered_count - 1  # 第 1 次未回覆 → index 0
+    max_unanswered = _resolve_max_unanswered(schedule_conf, matched_rule)
+
+    if max_unanswered > 0 and unanswered_count >= max_unanswered:
+        return False, (
+            f"硬性上限：未回覆 {unanswered_count} 次，已達上限 {max_unanswered}，暫停"
+        )
 
     # 解析全域預設遞減步長（提前解析，後續多處使用）
     default_step = _parse_single_decay(
@@ -134,18 +288,6 @@ def should_trigger_by_unanswered(
     if (schedule_conf.get("default_decay_rate") or "").strip() == "":
         return _roll_probability(1.0, unanswered_count, "未配置衰減")
 
-    # 回退到硬性上限（優先使用時段專屬上限）
-    max_unanswered = schedule_conf.get("max_unanswered_times", 3)
-    if matched_rule:
-        rule_max = matched_rule.get("max_unanswered_times", 0)
-        if rule_max > 0:
-            max_unanswered = rule_max
-            logger.debug(f"{_LOG_TAG} 使用時段專屬上限: {max_unanswered} 次")
-
-    if max_unanswered > 0 and unanswered_count >= max_unanswered:
-        return False, (
-            f"硬性上限：未回覆 {unanswered_count} 次，已達上限 {max_unanswered}，暫停"
-        )
     return True, ""
 
 
@@ -175,6 +317,41 @@ def get_time_slot_reset_count(
     return None  # inherit
 
 
+def get_current_time_slot_id(
+    schedule_conf: dict, timezone: zoneinfo.ZoneInfo | None = None
+) -> str:
+    """回傳目前命中的時段識別碼，供跨時段重置計數使用。"""
+    _, matched_rule = _resolve_decay_list_and_rule(schedule_conf, timezone)
+    if not matched_rule:
+        return "__default__"
+    return ":".join(
+        str(matched_rule.get(key, default))
+        for key, default in (
+            ("start_hour", 0),
+            ("start_minute", 0),
+            ("end_hour", 24),
+            ("end_minute", 0),
+        )
+    )
+
+
+def is_unanswered_limit_reached(
+    unanswered_count: int,
+    schedule_conf: dict,
+    timezone: zoneinfo.ZoneInfo | None = None,
+) -> tuple[bool, str]:
+    """不擲骰，只檢查目前未回覆次數是否已達硬性上限。"""
+    if unanswered_count <= 0:
+        return False, ""
+    _, matched_rule = _resolve_decay_list_and_rule(schedule_conf, timezone)
+    max_unanswered = _resolve_max_unanswered(schedule_conf, matched_rule)
+    if max_unanswered > 0 and unanswered_count >= max_unanswered:
+        return True, (
+            f"硬性上限：未回覆 {unanswered_count} 次，已達上限 {max_unanswered}，暫停"
+        )
+    return False, ""
+
+
 def _roll_probability(
     probability: float, unanswered_count: int, label: str
 ) -> tuple[bool, str]:
@@ -193,6 +370,19 @@ def _roll_probability(
         f"{label}跳過：未回覆第 {unanswered_count} 次，"
         f"概率 {probability:.0%}，擲骰 {roll:.2f}，跳過"
     )
+
+
+def _resolve_max_unanswered(schedule_conf: dict, matched_rule: dict | None) -> int:
+    """解析目前時段生效的未回覆硬性上限。"""
+    max_unanswered = int(schedule_conf.get("max_unanswered_times", 3) or 0)
+    if not matched_rule:
+        return max_unanswered
+
+    rule_max = int(matched_rule.get("max_unanswered_times", 0) or 0)
+    if rule_max > 0:
+        logger.debug(f"{_LOG_TAG} 使用時段專屬上限: {rule_max} 次")
+        return rule_max
+    return max_unanswered
 
 
 def _resolve_decay_list(

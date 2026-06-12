@@ -109,18 +109,20 @@ async def send_chain_with_hooks(
     components: list,
     context: Context,
     session_data: dict,
-) -> None:
+) -> bool:
     """經裝飾鉤子處理後，透過 AstrBot 核心 API 發送訊息鏈。"""
     processed = await trigger_decorating_hooks(
         session_id, components, context, session_data
     )
     if not processed:
-        return
+        logger.warning(f"{_LOG_TAG} 裝飾後訊息鏈為空，取消發送 | session={session_id}")
+        return False
 
     try:
         ok = await context.send_message(session_id, MessageChain(processed))
         if ok:
             logger.debug(f"{_LOG_TAG} 訊息已透過 AstrBot 核心 API 送達")
+            return True
         else:
             logger.warning(
                 f"{_LOG_TAG} AstrBot 核心 API 回報發送失敗 | session={session_id}"
@@ -129,6 +131,7 @@ async def send_chain_with_hooks(
         logger.error(
             f"{_LOG_TAG} AstrBot 核心 API 發送失敗 | session={session_id}: {e}"
         )
+    return False
 
 
 # ── 文本分段 ─────────────────────────────────────────────

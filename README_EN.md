@@ -23,7 +23,7 @@
 
 A proactive messaging plugin for [AstrBot](https://github.com/AstrBotDevs/AstrBot) that enables your Bot to initiate context-aware, persona-consistent conversations with dynamic emotions at random intervals after session silence.
 
-Current version: `v2.19.1`
+Current version: `v2.20.0`
 
 Recent updates:
 
@@ -154,7 +154,7 @@ Context prediction prompts have been extracted to `core/prompts/` as `.txt` file
 | Command | Description |
 | :--- | :--- |
 | `/proactive help` | Show available commands |
-| `/proactive tasks` | List all pending proactive message scheduled tasks (regular + context-predicted) |
+| `/proactive tasks` | List all pending proactive message scheduled tasks (regular + habit windows + context-predicted) |
 
 ## 📂 Project Structure
 

@@ -16,9 +16,11 @@
   const TYPE_LABELS = {
     regular: "一般排程",
     context: "語境預測",
+    habit: "習慣時段",
     auto_trigger: "自動觸發",
     group_idle: "群聊沉默",
     context_orphan: "未追蹤語境",
+    habit_orphan: "未追蹤習慣",
   };
 
   function endpoint(path) {
@@ -286,6 +288,7 @@
 
   function taskTone(type) {
     if (type === "context" || type === "context_orphan") return "tone-context";
+    if (type === "habit" || type === "habit_orphan") return "tone-context";
     if (type === "auto_trigger" || type === "group_idle") return "tone-waiting";
     return "tone-regular";
   }
@@ -304,6 +307,7 @@
       task.detail,
       task.extra && task.extra.reason,
       task.extra && task.extra.hint,
+      task.extra && task.extra.rule_name,
     ]
       .filter(Boolean)
       .join(" ")
@@ -377,6 +381,7 @@
     byId("metric-total").textContent = summary.total_count || 0;
     byId("metric-regular").textContent = summary.regular_count || 0;
     byId("metric-context").textContent = summary.context_count || 0;
+    byId("metric-habit").textContent = summary.habit_count || 0;
     byId("metric-timers").textContent =
       (summary.auto_trigger_count || 0) + (summary.group_idle_count || 0);
     const pill = byId("scheduler-pill");
@@ -406,9 +411,17 @@
         const detail = task.detail || (task.extra && task.extra.hint) || "";
         const description = task.description || "";
         const originalDetail = description ? detail : "";
-        const canDelete = ["regular", "context", "context_orphan", "auto_trigger", "group_idle"].includes(task.type);
-        const canReschedule = ["regular", "context", "auto_trigger", "group_idle"].includes(task.type);
-        const canEditDescription = ["regular", "context", "auto_trigger", "group_idle"].includes(task.type);
+        const habitMeta = task.type === "habit" || task.type === "habit_orphan"
+          ? [
+              task.extra && task.extra.rule_name ? `規則：${task.extra.rule_name}` : "",
+              task.extra && task.extra.hint ? `提示：${task.extra.hint}` : "",
+              task.extra && task.extra.count_unanswered ? "會累加未回覆" : "不累加未回覆",
+              task.extra && task.extra.tracked === false ? "未追蹤" : "",
+            ].filter(Boolean).join(" · ")
+          : "";
+        const canDelete = ["regular", "context", "context_orphan", "habit", "habit_orphan", "auto_trigger", "group_idle"].includes(task.type);
+        const canReschedule = ["regular", "context", "habit", "auto_trigger", "group_idle"].includes(task.type);
+        const canEditDescription = ["regular", "context", "habit", "auto_trigger", "group_idle"].includes(task.type);
         const canRunNow = Boolean(task.enabled);
         const rescheduleTitle = ["auto_trigger", "group_idle"].includes(task.type)
           ? "開啟彈窗選擇時間，並轉為手動排程"
@@ -441,6 +454,7 @@
             <td><span class="count-pill">${escapeHtml(task.unanswered_count || 0)}</span></td>
             <td class="detail-cell">
               <textarea class="description-edit" data-role="description" rows="3" maxlength="800" ${canEditDescription ? "" : "disabled"} placeholder="填寫這個任務要提醒或接續的內容">${escapeHtml(description)}</textarea>
+              ${habitMeta ? `<div class="description-note">${escapeHtml(habitMeta)}</div>` : ""}
               ${originalDetail ? `<div class="description-note">原始判斷：${escapeHtml(originalDetail)}</div>` : ""}
             </td>
             <td>

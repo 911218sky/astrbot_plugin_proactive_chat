@@ -30,14 +30,26 @@ _LIVINGMEMORY_NAMES = {
     "astrbot_plugin_livingmemory",
 }
 _SQLITE_LOCK_KEYWORDS = frozenset({"database is locked", "database table is locked"})
+_AUTH_ERROR_KEYWORDS = frozenset(
+    {"authentication", "auth", "unauthorized", "forbidden"}
+)
 
 
 class CoreHistoryBusy(RuntimeError):
     """AstrBot Core conversation DB is temporarily busy."""
 
 
+class NonRetryableLLMError(RuntimeError):
+    """LLM 發生不可重試錯誤，避免主動訊息排程無限重試。"""
+
+
 def _is_sqlite_lock_error(exc: Exception) -> bool:
     return any(keyword in str(exc).lower() for keyword in _SQLITE_LOCK_KEYWORDS)
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    error_text = f"{type(exc).__name__} {exc}".lower()
+    return any(keyword in error_text for keyword in _AUTH_ERROR_KEYWORDS)
 
 
 async def _retry_core_conversation_call(
@@ -525,6 +537,8 @@ async def call_llm(
         logger.error(
             f"{_LOG_TAG} call_llm LLM 調用失敗 | session={session_id}: {llm_err}"
         )
+        if _is_auth_error(llm_err):
+            raise NonRetryableLLMError(str(llm_err)) from llm_err
         try:
             provider = context.get_using_provider(umo=session_id)
             if provider:
@@ -534,6 +548,8 @@ async def call_llm(
                     system_prompt=system_prompt,
                 )
         except Exception as fallback_err:
+            if _is_auth_error(fallback_err):
+                raise NonRetryableLLMError(str(fallback_err)) from fallback_err
             logger.debug(
                 f"{_LOG_TAG} call_llm 備用路徑也失敗"
                 f" | session={session_id}: {fallback_err}"

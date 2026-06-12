@@ -36,7 +36,7 @@ async def send_proactive_message(
     session_data: dict,
     reset_group_silence_cb: Callable[[str], Awaitable[None]] | None = None,
     last_bot_message_time_setter: Callable[[float], None] | None = None,
-) -> None:
+) -> bool:
     """發送主動訊息。
 
     流程：嘗試 TTS 語音 → 判斷是否需要文字 → 分段或整段發送 →
@@ -44,15 +44,17 @@ async def send_proactive_message(
     """
     session_config = get_session_config(config, session_id)
     if not session_config:
-        return
+        return False
 
     tts_conf = session_config.get("tts_settings", {})
     seg_conf = session_config.get("segmented_reply_settings", {})
+    sent_any = False
 
     # 嘗試 TTS 發送
     is_tts_sent = False
     if tts_conf.get("enable_tts", True):
         is_tts_sent = await try_send_tts(session_id, text, context)
+        sent_any = sent_any or is_tts_sent
 
     # 判斷是否需要額外發送文字（TTS 失敗時一定發、成功時看 always_send_text）
     should_send_text = not is_tts_sent or tts_conf.get("always_send_text", True)
@@ -60,26 +62,29 @@ async def send_proactive_message(
         enable_seg = seg_conf.get("enable", False)
         threshold = seg_conf.get("words_count_threshold", 150)
 
-        if enable_seg and len(text) <= threshold:
+        if enable_seg and len(text) > threshold:
             segments = split_text(text, seg_conf) or [text]
             for idx, seg in enumerate(segments):
-                await send_chain_with_hooks(
+                sent = await send_chain_with_hooks(
                     session_id, [Plain(text=seg)], context, session_data
                 )
+                sent_any = sent_any or sent
                 if idx < len(segments) - 1:
                     interval = calc_segment_interval(seg, seg_conf)
                     await asyncio.sleep(interval)
         else:
-            await send_chain_with_hooks(
+            sent = await send_chain_with_hooks(
                 session_id, [Plain(text=text)], context, session_data
             )
+            sent_any = sent_any or sent
 
     # 群聊：發送後重設沉默倒計時
-    if is_group_session_id(session_id):
+    if sent_any and is_group_session_id(session_id):
         if reset_group_silence_cb:
             await reset_group_silence_cb(session_id)
         if last_bot_message_time_setter:
             last_bot_message_time_setter(time.time())
+    return sent_any
 
 
 async def try_send_tts(session_id: str, text: str, context: Context) -> bool:
@@ -91,7 +96,12 @@ async def try_send_tts(session_id: str, text: str, context: Context) -> bool:
         audio_path = await tts_provider.get_audio(text)
         if not audio_path:
             return False
-        await context.send_message(session_id, MessageChain([Record(file=audio_path)]))
+        ok = await context.send_message(
+            session_id, MessageChain([Record(file=audio_path)])
+        )
+        if not ok:
+            logger.warning(f"{_LOG_TAG} TTS 語音發送失敗 | session={session_id}")
+            return False
         await asyncio.sleep(0.5)
         return True
     except Exception as e:

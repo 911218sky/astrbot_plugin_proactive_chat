@@ -29,13 +29,18 @@ from astrbot.core.platform.platform import PlatformStatus
 
 from .config import get_session_config
 from .llm_helpers import (
+    NonRetryableLLMError,
     call_llm,
     recall_memories_for_proactive,
     safe_prepare_llm_request,
     truncate_history_for_proactive_llm,
 )
 from .messaging import sanitize_history_content
-from .scheduler import compute_weighted_interval, should_trigger_by_unanswered
+from .scheduler import (
+    compute_weighted_interval,
+    is_unanswered_limit_reached,
+    should_trigger_by_unanswered,
+)
 from .send import send_proactive_message
 from .utils import (
     get_session_log_str,
@@ -74,9 +79,16 @@ async def check_and_chat(
     任何步驟回傳 ``None`` 即表示本次應中止（已在內部處理重新排程）。
     """
     context_finished = False
+    habit_finished = False
     try:
+        habit_task = plugin._find_habit_task(session_id, ctx_job_id)
+        skip_unanswered = bool(
+            habit_task and not habit_task.get("count_unanswered", False)
+        )
         # ── 步驟 1：前置條件檢查（免打擾 / 衰減 / 硬性上限） ──
-        result = await _check_preconditions(plugin, session_id)
+        result = await _check_preconditions(
+            plugin, session_id, skip_unanswered=skip_unanswered
+        )
         if result is None:
             return
         session_config, unanswered_count = result
@@ -85,6 +97,8 @@ async def check_and_chat(
         resolved_id = await _resolve_session_umo(plugin, session_id)
         if resolved_id is None:
             return
+        if resolved_id != session_id:
+            await plugin._merge_session_state(session_id, resolved_id)
         session_id = resolved_id
 
         # ── 步驟 3：準備請求、構造 Prompt、呼叫 LLM ──
@@ -96,7 +110,7 @@ async def check_and_chat(
         response_text, conv_id, final_prompt, _ctx_task = llm_result
 
         # ── 步驟 4：發送訊息、存檔歷史、重新排程 ──
-        await _deliver_and_finalize(
+        delivered = await _deliver_and_finalize(
             plugin,
             session_id,
             session_config,
@@ -106,13 +120,21 @@ async def check_and_chat(
             unanswered_count,
             ctx_job_id,
         )
-        context_finished = True
+        if delivered:
+            context_finished = True
+            habit_finished = True
 
     except Exception as e:
-        await _handle_fatal_error(plugin, session_id, e)
+        await _handle_fatal_error(
+            plugin, session_id, e, skip_reschedule=_is_habit_job(ctx_job_id)
+        )
     finally:
-        if ctx_job_id and not context_finished:
+        if ctx_job_id and not context_finished and not _is_habit_job(ctx_job_id):
             await _cleanup_context_task(plugin, session_id, ctx_job_id)
+        if ctx_job_id and _is_habit_job(ctx_job_id):
+            if not habit_finished:
+                await plugin._cleanup_habit_task(session_id, ctx_job_id)
+            await plugin._schedule_next_habit_task(session_id)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -121,7 +143,7 @@ async def check_and_chat(
 
 
 async def _check_preconditions(
-    plugin: ProactiveChatPlugin, session_id: str
+    plugin: ProactiveChatPlugin, session_id: str, *, skip_unanswered: bool = False
 ) -> tuple[dict, int] | None:
     """檢查免打擾時段與未回覆衰減，決定是否繼續執行。
 
@@ -141,15 +163,20 @@ async def _check_preconditions(
         unanswered_count = plugin.session_data.get(session_id, {}).get(
             "unanswered_count", 0
         )
-        should_trigger, reason = should_trigger_by_unanswered(
-            unanswered_count, schedule_conf, plugin.timezone
-        )
+        if skip_unanswered:
+            should_trigger, reason = True, ""
+        else:
+            should_trigger, reason = should_trigger_by_unanswered(
+                unanswered_count, schedule_conf, plugin.timezone
+            )
 
     # 鎖外處理判定結果（_schedule_next_chat_and_save 內部會取鎖，不可嵌套）
     if not should_trigger:
         logger.info(f"{_LOG_TAG} {log_str} {reason}")
         if "衰減" in reason:
             await plugin._schedule_next_chat_and_save(session_id)
+        elif "硬性上限" in reason:
+            await plugin._clear_regular_job_state(session_id)
         return None
     if reason:
         logger.info(f"{_LOG_TAG} {log_str} {reason}")
@@ -219,17 +246,27 @@ async def _prepare_and_call_llm(
         ``(response_text, conv_id, final_prompt, ctx_task)``；
         LLM 失敗或狀態不一致時回傳 ``None``（已排定重試）。
     """
+    # 先記錄狀態，再做任何 await；避免 history 載入期間使用者回覆後仍用舊上下文發送。
+    snapshot_last_msg = plugin.last_message_times.get(session_id, 0)
+    snapshot_unanswered = plugin.session_data.get(session_id, {}).get(
+        "unanswered_count", unanswered_count
+    )
+
     request_package = await safe_prepare_llm_request(plugin.context, session_id)
     if not request_package:
-        await plugin._schedule_next_chat_and_save(session_id)
+        if not _is_habit_job(ctx_job_id):
+            await plugin._schedule_next_chat_and_save(session_id)
         return None
 
     conv_id = request_package["conv_id"]
     history = request_package["history"]
     system_prompt = request_package["system_prompt"]
 
-    # 記錄任務開始時的狀態快照（用於後續一致性檢查）
-    snapshot_last_msg = plugin.last_message_times.get(session_id, 0)
+    if _state_changed_during_generation(
+        plugin, session_id, snapshot_last_msg, snapshot_unanswered
+    ):
+        logger.info(f"{_LOG_TAG} 使用者在準備 LLM 請求期間發送了新訊息，丟棄本次任務。")
+        return None
 
     # 構造 Prompt
     final_prompt, ctx_task = _build_final_prompt(
@@ -255,21 +292,35 @@ async def _prepare_and_call_llm(
     )
 
     # 呼叫 LLM
-    llm_response = await call_llm(
-        plugin.context, session_id, final_prompt, history, system_prompt
-    )
+    try:
+        llm_response = await call_llm(
+            plugin.context, session_id, final_prompt, history, system_prompt
+        )
+    except NonRetryableLLMError as e:
+        logger.error(
+            f"{_LOG_TAG} LLM 發生不可重試錯誤，停止本輪排程 | session={session_id}: {e}"
+        )
+        if not _is_habit_job(ctx_job_id):
+            await plugin._clear_regular_job_state(session_id)
+        return None
     if not llm_response or not llm_response.completion_text:
-        await plugin._schedule_next_chat_and_save(session_id)
+        if not _is_habit_job(ctx_job_id):
+            await plugin._schedule_next_chat_and_save(session_id)
         return None
 
     response_text = llm_response.completion_text.strip()
+    if not response_text:
+        if not _is_habit_job(ctx_job_id):
+            await plugin._schedule_next_chat_and_save(session_id)
+        return None
     if response_text in _INVALID_RESPONSES:
-        await plugin._schedule_next_chat_and_save(session_id)
+        if not _is_habit_job(ctx_job_id):
+            await plugin._schedule_next_chat_and_save(session_id)
         return None
 
     # 狀態一致性檢查：若 LLM 生成期間使用者發送了新訊息，丟棄本次回應
     if _state_changed_during_generation(
-        plugin, session_id, snapshot_last_msg, unanswered_count
+        plugin, session_id, snapshot_last_msg, snapshot_unanswered
     ):
         logger.info(f"{_LOG_TAG} 使用者在 LLM 生成期間發送了新訊息，丟棄本次回應。")
         return None
@@ -307,13 +358,13 @@ async def _deliver_and_finalize(
     final_prompt: str,
     unanswered_count: int,
     ctx_job_id: str,
-) -> None:
+) -> bool:
     """發送訊息、存檔對話歷史、清理語境任務、重新排程。"""
 
     def _set_bot_time(t: float) -> None:
         plugin.last_bot_message_time = t
 
-    await send_proactive_message(
+    sent = await send_proactive_message(
         session_id=session_id,
         text=response_text,
         config=plugin.config,
@@ -322,6 +373,14 @@ async def _deliver_and_finalize(
         reset_group_silence_cb=plugin._reset_group_silence_timer,
         last_bot_message_time_setter=_set_bot_time,
     )
+    if not sent:
+        logger.warning(
+            f"{_LOG_TAG} 主動訊息發送失敗，清除本輪排程並等待使用者新訊息"
+            f" | session={session_id}"
+        )
+        if not _is_habit_job(ctx_job_id):
+            await plugin._clear_regular_job_state(session_id)
+        return False
 
     await _save_conversation_history(
         plugin, session_config, conv_id, final_prompt, response_text
@@ -331,11 +390,16 @@ async def _deliver_and_finalize(
         session_id,
         session_config,
         unanswered_count,
+        ctx_job_id=ctx_job_id,
         clear_task_description=not bool(ctx_job_id),
     )
 
     if ctx_job_id:
-        await _cleanup_context_task(plugin, session_id, ctx_job_id)
+        if _is_habit_job(ctx_job_id):
+            await plugin._cleanup_habit_task(session_id, ctx_job_id)
+        else:
+            await _cleanup_context_task(plugin, session_id, ctx_job_id)
+    return True
 
 
 async def _save_conversation_history(
@@ -447,15 +511,26 @@ async def _update_unanswered_and_reschedule(
     session_config: dict,
     unanswered_count: int,
     *,
+    ctx_job_id: str = "",
     clear_task_description: bool = False,
 ) -> None:
     """遞增未回覆計數，私聊時安排下一次主動訊息。"""
+    habit_task = plugin._find_habit_task(session_id, ctx_job_id)
+    count_unanswered = not habit_task or bool(habit_task.get("count_unanswered", False))
     async with plugin.data_lock:
         sd = plugin.session_data.setdefault(session_id, {})
-        next_unanswered_count = unanswered_count + 1
+        next_unanswered_count = unanswered_count + (1 if count_unanswered else 0)
         sd["unanswered_count"] = next_unanswered_count
         if clear_task_description:
             sd.pop("task_description", None)
+
+        if habit_task and not count_unanswered:
+            await plugin._save_data()
+            logger.info(
+                f"{_LOG_TAG} {get_session_log_str(session_id, session_config, plugin.session_data)} "
+                "本次習慣時段訊息不累加未回覆次數。"
+            )
+            return
 
         # 私聊：安排下一次；群聊由沉默計時器自行處理
         if is_group_session_id(session_id):
@@ -464,6 +539,18 @@ async def _update_unanswered_and_reschedule(
             return
 
         schedule_conf = session_config.get("schedule_settings", {})
+        limit_reached, reason = is_unanswered_limit_reached(
+            next_unanswered_count, schedule_conf, plugin.timezone
+        )
+        if limit_reached:
+            sd.pop("next_trigger_time", None)
+            await plugin._save_data()
+            logger.info(
+                f"{_LOG_TAG} {get_session_log_str(session_id, session_config, plugin.session_data)} "
+                f"{reason}，不再安排下一次主動訊息。"
+            )
+            return
+
         interval = compute_weighted_interval(
             schedule_conf, plugin.timezone, next_unanswered_count
         )
@@ -511,7 +598,11 @@ async def _cleanup_context_task(
 
 
 async def _handle_fatal_error(
-    plugin: ProactiveChatPlugin, session_id: str, error: Exception
+    plugin: ProactiveChatPlugin,
+    session_id: str,
+    error: Exception,
+    *,
+    skip_reschedule: bool = False,
 ) -> None:
     """統一處理 check_and_chat 中的未預期例外。
 
@@ -526,6 +617,8 @@ async def _handle_fatal_error(
     # 認證錯誤不重試
     error_str = f"{type(error).__name__} {error}".lower()
     if any(kw in error_str for kw in _AUTH_ERROR_KEYWORDS):
+        return
+    if skip_reschedule:
         return
 
     # 清理失敗的排程數據
@@ -594,7 +687,22 @@ def _build_final_prompt(
             final_prompt += f"任務補充描述：{ctx_description}\n"
         final_prompt += "請將這個語境自然地融入你的訊息中。"
     else:
-        task_description = _active_task_description(plugin, session_id)
+        habit_task = plugin._find_habit_task(session_id, ctx_job_id)
+        if habit_task:
+            rule_name = str(habit_task.get("rule_name", "") or "習慣時段")
+            hint = str(habit_task.get("hint", "") or "").strip()
+            description = str(habit_task.get("description", "") or "").strip()
+            final_prompt += (
+                f"\n\n[習慣時段觸發]\n現在符合你的日常習慣時段：{rule_name}。\n"
+            )
+            if hint:
+                final_prompt += f"建議的情緒或話題：{hint}\n"
+            if description:
+                final_prompt += f"補充描述：{description}\n"
+            final_prompt += "請像平常這個時間自然出現一樣回覆，不要提到排程或設定。"
+        task_description = (
+            "" if habit_task else _active_task_description(plugin, session_id)
+        )
         if task_description:
             final_prompt += (
                 f"\n\n[排程任務描述]\n"
@@ -632,6 +740,11 @@ def _find_context_task(
         return None
     task_list = plugin._pending_context_tasks.get(session_id, [])
     return next((t for t in task_list if t.get("job_id") == ctx_job_id), None)
+
+
+def _is_habit_job(job_id: str) -> bool:
+    """判斷 job_id 是否為習慣時段任務。"""
+    return str(job_id).startswith("habit_")
 
 
 def _active_task_description(plugin: ProactiveChatPlugin, session_id: str) -> str:

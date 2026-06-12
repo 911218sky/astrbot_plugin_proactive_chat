@@ -85,6 +85,10 @@
               <div class="stat-pill-label">語境預測</div>
             </div>
             <div class="stat-pill">
+              <div class="stat-pill-value" id="metric-habit">0</div>
+              <div class="stat-pill-label">習慣時段</div>
+            </div>
+            <div class="stat-pill">
               <div class="stat-pill-value" id="metric-timers">0</div>
               <div class="stat-pill-label">等待計時器</div>
             </div>
@@ -104,9 +108,11 @@
                 <option value="all">全部類型</option>
                 <option value="regular">一般排程</option>
                 <option value="context">語境預測</option>
+                <option value="habit">習慣時段</option>
                 <option value="auto_trigger">自動觸發</option>
                 <option value="group_idle">群聊沉默</option>
                 <option value="context_orphan">未追蹤語境</option>
+                <option value="habit_orphan">未追蹤習慣</option>
               </select>
               <select id="session-filter" class="input select" aria-label="會話類型">
                 <option value="all">全部會話</option>

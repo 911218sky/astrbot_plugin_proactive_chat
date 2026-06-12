@@ -7,13 +7,19 @@
                 "description": "✅ 啟用私聊全域主動訊息功能",
                 "type": "bool",
                 "default": true,
-                "hint": "只有在 session_list 中明確配置的私聊才會獲得主動訊息服務，避免給未配置的會話提供服務"
+                "hint": "開啟後，私聊主動訊息功能會依 session_list 或個性化會話生效；若同時開啟 allow_all_sessions，則所有私聊都會使用這份全域設定。"
             },
             "session_list": {
                 "description": "📋 私聊會話 ID 列表",
                 "type": "list",
                 "default": [],
-                "hint": "填寫私聊 ID 列表，可用 QQ 號、Telegram user id 或其他平台私聊 ID，例如：['123456', '789012']。任務頁/API 可解析完整 UMO，但配置中建議填純 ID；只有這些明確配置的私聊會獲得主動訊息服務"
+                "hint": "填寫私聊 ID 列表，可用 QQ 號、Telegram user id 或其他平台私聊 ID，例如：['123456', '789012']。未開啟 allow_all_sessions 時，只有這些明確配置的私聊會獲得主動訊息服務；任務頁/API 可解析完整 UMO，但配置中建議填純 ID。"
+            },
+            "allow_all_sessions": {
+                "description": "🌐 私聊全域無白名單模式",
+                "type": "bool",
+                "default": false,
+                "hint": "開啟後，只要此全域配置已啟用，未列在 session_list 或個性化會話中的新會話也會使用這份全域設定。請確認你真的希望 Bot 對所有此類型會話主動回覆。"
             },
             "auto_trigger_settings": {
                 "description": "🤖 自動主動訊息設定",
@@ -202,6 +208,175 @@
                         "type": "string",
                         "default": "0",
                         "hint": "預設為 0，表示不衰減。想要永遠不衰減：時段衰減率留空，本欄保持 0。這裡是「遞減步長」，不同於上方時段衰減率列表中的「0 = 概率為 0」。填 0~1 的數字可作為每次未回覆後的遞減步長，例如「0.05」代表每次降低 5%。當時段衰減列表用完時，會從列表最後一個概率繼續扣；未設定時段衰減列表時，會從 100% 開始扣"
+                    }
+                }
+            },
+            "habit_settings": {
+                "description": "🌅 私聊習慣時段主動出現",
+                "type": "object",
+                "items": {
+                    "enable": {
+                        "description": "✅ 啟用習慣時段",
+                        "type": "bool",
+                        "default": false,
+                        "hint": "開啟後，Bot 會依下方規則在指定時段自然出現。這類訊息預設不累加未回覆次數，可在單條規則中改為累加。"
+                    },
+                    "habit_rules": {
+                        "description": "📅 習慣時段規則",
+                        "type": "template_list",
+                        "hint": "可新增多條日常出現規則。系統會從符合日期與時間窗的規則中安排下一次任務，並依出現機率、賴床機率與時間抖動製造自然感。",
+                        "condition": {
+                            "enable": true
+                        },
+                        "templates": {
+                            "habit_rule": {
+                                "name": "🌤️ 習慣規則",
+                                "hint": "定義一段 Bot 可能自然出現的時間窗，例如早安、午休、睡前。",
+                                "items": {
+                                    "name": {
+                                        "description": "🏷️ 規則名稱",
+                                        "type": "string",
+                                        "default": "早上出現",
+                                        "hint": "只用於辨識任務與提示 LLM，不會直接告訴使用者。"
+                                    },
+                                    "enable": {
+                                        "description": "✅ 啟用此規則",
+                                        "type": "bool",
+                                        "default": true
+                                    },
+                                    "days": {
+                                        "description": "📆 生效星期",
+                                        "type": "string",
+                                        "default": "",
+                                        "hint": "留空表示每天生效。可填 1-7 的逗號列表，週一=1、週日=7，例如「1,2,3,4,5」只在平日生效。"
+                                    },
+                                    "start_hour": {
+                                        "description": "🕐 開始時間（時）",
+                                        "type": "int",
+                                        "default": 8,
+                                        "hint": "時間窗開始的小時數（0-23），支援跨天，例如 22:30 到 1:00。",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 23,
+                                            "step": 1
+                                        }
+                                    },
+                                    "start_minute": {
+                                        "description": "🕐 開始時間（分）",
+                                        "type": "int",
+                                        "default": 0,
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 59,
+                                            "step": 1
+                                        }
+                                    },
+                                    "end_hour": {
+                                        "description": "🕐 結束時間（時）",
+                                        "type": "int",
+                                        "default": 10,
+                                        "hint": "時間窗結束的小時數（0-24）。填 24 表示午夜，若結束早於開始則視為跨天。",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 24,
+                                            "step": 1
+                                        }
+                                    },
+                                    "end_minute": {
+                                        "description": "🕐 結束時間（分）",
+                                        "type": "int",
+                                        "default": 0,
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 59,
+                                            "step": 1
+                                        }
+                                    },
+                                    "appear_chance": {
+                                        "description": "🎲 出現機率",
+                                        "type": "float",
+                                        "default": 0.85,
+                                        "hint": "0~1，表示這次時間窗內 Bot 會不會出現。例如 0.85 代表 85% 機率出現，15% 機率今天不出現。",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 1,
+                                            "step": 0.01
+                                        }
+                                    },
+                                    "jitter_min_minutes": {
+                                        "description": "🎚️ 最小隨機偏移（分鐘）",
+                                        "type": "int",
+                                        "default": 0,
+                                        "hint": "在時間窗內抽到時間後再增加的最小隨機偏移，通常保持 0 即可。",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 180,
+                                            "step": 1
+                                        }
+                                    },
+                                    "jitter_max_minutes": {
+                                        "description": "🎚️ 最大隨機偏移（分鐘）",
+                                        "type": "int",
+                                        "default": 20,
+                                        "hint": "用來避免每天固定同一分鐘出現。若超出時間窗會自動壓回結束前。",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 240,
+                                            "step": 1
+                                        }
+                                    },
+                                    "oversleep_chance": {
+                                        "description": "😴 賴床或遲到機率",
+                                        "type": "float",
+                                        "default": 0.1,
+                                        "hint": "0~1，命中時會額外延後一段時間，模擬睡過頭、忙到晚點出現。",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 1,
+                                            "step": 0.01
+                                        }
+                                    },
+                                    "oversleep_min_minutes": {
+                                        "description": "😴 最小遲到時間（分鐘）",
+                                        "type": "int",
+                                        "default": 10,
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 360,
+                                            "step": 1
+                                        }
+                                    },
+                                    "oversleep_max_minutes": {
+                                        "description": "😴 最大遲到時間（分鐘）",
+                                        "type": "int",
+                                        "default": 60,
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 720,
+                                            "step": 1
+                                        }
+                                    },
+                                    "message_hint": {
+                                        "description": "💬 情緒或話題提示",
+                                        "type": "string",
+                                        "default": "像剛睡醒或剛有空一樣自然打招呼",
+                                        "hint": "會加入 LLM 提示中，讓 Bot 知道此時段適合的語氣或話題，但會要求不要提到排程或設定。"
+                                    },
+                                    "description": {
+                                        "description": "📝 補充描述",
+                                        "type": "text",
+                                        "default": "",
+                                        "hint": "可寫更完整的習慣設定，例如「週末比較晚醒，語氣放鬆」。"
+                                    },
+                                    "count_unanswered": {
+                                        "description": "🔢 累加未回覆次數",
+                                        "type": "bool",
+                                        "default": false,
+                                        "hint": "預設關閉，代表習慣時段訊息不會增加未回覆次數，也不會因本次發送安排下一輪一般排程。開啟後會像一般主動訊息一樣累加。"
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -433,13 +608,19 @@
                 "description": "✅ 啟用群聊全域主動訊息功能",
                 "type": "bool",
                 "default": false,
-                "hint": "只有在 session_list 中明確配置的群聊才會獲得主動訊息服務，避免給未配置的會話提供服務"
+                "hint": "開啟後，群聊主動訊息功能會依 session_list 或個性化會話生效；若同時開啟 allow_all_sessions，則所有群聊都會使用這份全域設定。"
             },
             "session_list": {
                 "description": "📋 群聊會話 ID 列表",
                 "type": "list",
                 "default": [],
-                "hint": "填寫群聊 ID 列表，可用 QQ 群號、Telegram group/chat id 或其他平台群聊 ID，例如：['123456', '-1001234567890']。任務頁/API 可解析完整 UMO，但配置中建議填純 ID；只有這些明確配置的群聊會獲得主動訊息服務"
+                "hint": "填寫群聊 ID 列表，可用 QQ 群號、Telegram group/chat id 或其他平台群聊 ID，例如：['123456', '-1001234567890']。未開啟 allow_all_sessions 時，只有這些明確配置的群聊會獲得主動訊息服務；任務頁/API 可解析完整 UMO，但配置中建議填純 ID。"
+            },
+            "allow_all_sessions": {
+                "description": "🌐 群聊全域無白名單模式",
+                "type": "bool",
+                "default": false,
+                "hint": "開啟後，只要此全域配置已啟用，未列在 session_list 或個性化會話中的新會話也會使用這份全域設定。請確認你真的希望 Bot 對所有此類型會話主動回覆。"
             },
             "auto_trigger_settings": {
                 "description": "🤖 自動主動訊息設定",
@@ -639,6 +820,175 @@
                         "type": "string",
                         "default": "0",
                         "hint": "預設為 0，表示不衰減。想要永遠不衰減：時段衰減率留空，本欄保持 0。這裡是「遞減步長」，不同於上方時段衰減率列表中的「0 = 概率為 0」。填 0~1 的數字可作為每次未回覆後的遞減步長，例如「0.05」代表每次降低 5%。當時段衰減列表用完時，會從列表最後一個概率繼續扣；未設定時段衰減列表時，會從 100% 開始扣"
+                    }
+                }
+            },
+            "habit_settings": {
+                "description": "🌅 群聊習慣時段主動出現",
+                "type": "object",
+                "items": {
+                    "enable": {
+                        "description": "✅ 啟用習慣時段",
+                        "type": "bool",
+                        "default": false,
+                        "hint": "開啟後，Bot 會依下方規則在指定時段自然出現。這類訊息預設不累加未回覆次數，可在單條規則中改為累加。"
+                    },
+                    "habit_rules": {
+                        "description": "📅 習慣時段規則",
+                        "type": "template_list",
+                        "hint": "可新增多條日常出現規則。系統會從符合日期與時間窗的規則中安排下一次任務，並依出現機率、賴床機率與時間抖動製造自然感。",
+                        "condition": {
+                            "enable": true
+                        },
+                        "templates": {
+                            "habit_rule": {
+                                "name": "🌤️ 習慣規則",
+                                "hint": "定義一段 Bot 可能自然出現的時間窗，例如早安、午休、睡前。",
+                                "items": {
+                                    "name": {
+                                        "description": "🏷️ 規則名稱",
+                                        "type": "string",
+                                        "default": "早上出現",
+                                        "hint": "只用於辨識任務與提示 LLM，不會直接告訴使用者。"
+                                    },
+                                    "enable": {
+                                        "description": "✅ 啟用此規則",
+                                        "type": "bool",
+                                        "default": true
+                                    },
+                                    "days": {
+                                        "description": "📆 生效星期",
+                                        "type": "string",
+                                        "default": "",
+                                        "hint": "留空表示每天生效。可填 1-7 的逗號列表，週一=1、週日=7，例如「1,2,3,4,5」只在平日生效。"
+                                    },
+                                    "start_hour": {
+                                        "description": "🕐 開始時間（時）",
+                                        "type": "int",
+                                        "default": 8,
+                                        "hint": "時間窗開始的小時數（0-23），支援跨天，例如 22:30 到 1:00。",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 23,
+                                            "step": 1
+                                        }
+                                    },
+                                    "start_minute": {
+                                        "description": "🕐 開始時間（分）",
+                                        "type": "int",
+                                        "default": 0,
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 59,
+                                            "step": 1
+                                        }
+                                    },
+                                    "end_hour": {
+                                        "description": "🕐 結束時間（時）",
+                                        "type": "int",
+                                        "default": 10,
+                                        "hint": "時間窗結束的小時數（0-24）。填 24 表示午夜，若結束早於開始則視為跨天。",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 24,
+                                            "step": 1
+                                        }
+                                    },
+                                    "end_minute": {
+                                        "description": "🕐 結束時間（分）",
+                                        "type": "int",
+                                        "default": 0,
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 59,
+                                            "step": 1
+                                        }
+                                    },
+                                    "appear_chance": {
+                                        "description": "🎲 出現機率",
+                                        "type": "float",
+                                        "default": 0.85,
+                                        "hint": "0~1，表示這次時間窗內 Bot 會不會出現。例如 0.85 代表 85% 機率出現，15% 機率今天不出現。",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 1,
+                                            "step": 0.01
+                                        }
+                                    },
+                                    "jitter_min_minutes": {
+                                        "description": "🎚️ 最小隨機偏移（分鐘）",
+                                        "type": "int",
+                                        "default": 0,
+                                        "hint": "在時間窗內抽到時間後再增加的最小隨機偏移，通常保持 0 即可。",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 180,
+                                            "step": 1
+                                        }
+                                    },
+                                    "jitter_max_minutes": {
+                                        "description": "🎚️ 最大隨機偏移（分鐘）",
+                                        "type": "int",
+                                        "default": 20,
+                                        "hint": "用來避免每天固定同一分鐘出現。若超出時間窗會自動壓回結束前。",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 240,
+                                            "step": 1
+                                        }
+                                    },
+                                    "oversleep_chance": {
+                                        "description": "😴 賴床或遲到機率",
+                                        "type": "float",
+                                        "default": 0.1,
+                                        "hint": "0~1，命中時會額外延後一段時間，模擬睡過頭、忙到晚點出現。",
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 1,
+                                            "step": 0.01
+                                        }
+                                    },
+                                    "oversleep_min_minutes": {
+                                        "description": "😴 最小遲到時間（分鐘）",
+                                        "type": "int",
+                                        "default": 10,
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 360,
+                                            "step": 1
+                                        }
+                                    },
+                                    "oversleep_max_minutes": {
+                                        "description": "😴 最大遲到時間（分鐘）",
+                                        "type": "int",
+                                        "default": 60,
+                                        "slider": {
+                                            "min": 0,
+                                            "max": 720,
+                                            "step": 1
+                                        }
+                                    },
+                                    "message_hint": {
+                                        "description": "💬 情緒或話題提示",
+                                        "type": "string",
+                                        "default": "像剛睡醒或剛有空一樣自然打招呼",
+                                        "hint": "會加入 LLM 提示中，讓 Bot 知道此時段適合的語氣或話題，但會要求不要提到排程或設定。"
+                                    },
+                                    "description": {
+                                        "description": "📝 補充描述",
+                                        "type": "text",
+                                        "default": "",
+                                        "hint": "可寫更完整的習慣設定，例如「週末比較晚醒，語氣放鬆」。"
+                                    },
+                                    "count_unanswered": {
+                                        "description": "🔢 累加未回覆次數",
+                                        "type": "bool",
+                                        "default": false,
+                                        "hint": "預設關閉，代表習慣時段訊息不會增加未回覆次數，也不會因本次發送安排下一輪一般排程。開啟後會像一般主動訊息一樣累加。"
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             },
@@ -1112,6 +1462,175 @@
                             }
                         }
                     },
+                    "habit_settings": {
+                        "description": "🌅 私聊習慣時段主動出現",
+                        "type": "object",
+                        "items": {
+                            "enable": {
+                                "description": "✅ 啟用習慣時段",
+                                "type": "bool",
+                                "default": false,
+                                "hint": "開啟後，Bot 會依下方規則在指定時段自然出現。這類訊息預設不累加未回覆次數，可在單條規則中改為累加。"
+                            },
+                            "habit_rules": {
+                                "description": "📅 習慣時段規則",
+                                "type": "template_list",
+                                "hint": "可新增多條日常出現規則。系統會從符合日期與時間窗的規則中安排下一次任務，並依出現機率、賴床機率與時間抖動製造自然感。",
+                                "condition": {
+                                    "enable": true
+                                },
+                                "templates": {
+                                    "habit_rule": {
+                                        "name": "🌤️ 習慣規則",
+                                        "hint": "定義一段 Bot 可能自然出現的時間窗，例如早安、午休、睡前。",
+                                        "items": {
+                                            "name": {
+                                                "description": "🏷️ 規則名稱",
+                                                "type": "string",
+                                                "default": "早上出現",
+                                                "hint": "只用於辨識任務與提示 LLM，不會直接告訴使用者。"
+                                            },
+                                            "enable": {
+                                                "description": "✅ 啟用此規則",
+                                                "type": "bool",
+                                                "default": true
+                                            },
+                                            "days": {
+                                                "description": "📆 生效星期",
+                                                "type": "string",
+                                                "default": "",
+                                                "hint": "留空表示每天生效。可填 1-7 的逗號列表，週一=1、週日=7，例如「1,2,3,4,5」只在平日生效。"
+                                            },
+                                            "start_hour": {
+                                                "description": "🕐 開始時間（時）",
+                                                "type": "int",
+                                                "default": 8,
+                                                "hint": "時間窗開始的小時數（0-23），支援跨天，例如 22:30 到 1:00。",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 23,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "start_minute": {
+                                                "description": "🕐 開始時間（分）",
+                                                "type": "int",
+                                                "default": 0,
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 59,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "end_hour": {
+                                                "description": "🕐 結束時間（時）",
+                                                "type": "int",
+                                                "default": 10,
+                                                "hint": "時間窗結束的小時數（0-24）。填 24 表示午夜，若結束早於開始則視為跨天。",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 24,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "end_minute": {
+                                                "description": "🕐 結束時間（分）",
+                                                "type": "int",
+                                                "default": 0,
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 59,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "appear_chance": {
+                                                "description": "🎲 出現機率",
+                                                "type": "float",
+                                                "default": 0.85,
+                                                "hint": "0~1，表示這次時間窗內 Bot 會不會出現。例如 0.85 代表 85% 機率出現，15% 機率今天不出現。",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 1,
+                                                    "step": 0.01
+                                                }
+                                            },
+                                            "jitter_min_minutes": {
+                                                "description": "🎚️ 最小隨機偏移（分鐘）",
+                                                "type": "int",
+                                                "default": 0,
+                                                "hint": "在時間窗內抽到時間後再增加的最小隨機偏移，通常保持 0 即可。",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 180,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "jitter_max_minutes": {
+                                                "description": "🎚️ 最大隨機偏移（分鐘）",
+                                                "type": "int",
+                                                "default": 20,
+                                                "hint": "用來避免每天固定同一分鐘出現。若超出時間窗會自動壓回結束前。",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 240,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "oversleep_chance": {
+                                                "description": "😴 賴床或遲到機率",
+                                                "type": "float",
+                                                "default": 0.1,
+                                                "hint": "0~1，命中時會額外延後一段時間，模擬睡過頭、忙到晚點出現。",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 1,
+                                                    "step": 0.01
+                                                }
+                                            },
+                                            "oversleep_min_minutes": {
+                                                "description": "😴 最小遲到時間（分鐘）",
+                                                "type": "int",
+                                                "default": 10,
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 360,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "oversleep_max_minutes": {
+                                                "description": "😴 最大遲到時間（分鐘）",
+                                                "type": "int",
+                                                "default": 60,
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 720,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "message_hint": {
+                                                "description": "💬 情緒或話題提示",
+                                                "type": "string",
+                                                "default": "像剛睡醒或剛有空一樣自然打招呼",
+                                                "hint": "會加入 LLM 提示中，讓 Bot 知道此時段適合的語氣或話題，但會要求不要提到排程或設定。"
+                                            },
+                                            "description": {
+                                                "description": "📝 補充描述",
+                                                "type": "text",
+                                                "default": "",
+                                                "hint": "可寫更完整的習慣設定，例如「週末比較晚醒，語氣放鬆」。"
+                                            },
+                                            "count_unanswered": {
+                                                "description": "🔢 累加未回覆次數",
+                                                "type": "bool",
+                                                "default": false,
+                                                "hint": "預設關閉，代表習慣時段訊息不會增加未回覆次數，也不會因本次發送安排下一輪一般排程。開啟後會像一般主動訊息一樣累加。"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
                     "tts_settings": {
                         "description": "🔊 語音合成（TTS）設定",
                         "type": "object",
@@ -1558,6 +2077,175 @@
                                 "type": "string",
                                 "default": "0",
                                 "hint": "預設為 0，表示不衰減。想要永遠不衰減：時段衰減率留空，本欄保持 0。這裡是「遞減步長」，不同於上方時段衰減率列表中的「0 = 概率為 0」。填 0~1 的數字可作為每次未回覆後的遞減步長，例如「0.05」代表每次降低 5%。當時段衰減列表用完時，會從列表最後一個概率繼續扣；未設定時段衰減列表時，會從 100% 開始扣"
+                            }
+                        }
+                    },
+                    "habit_settings": {
+                        "description": "🌅 群聊習慣時段主動出現",
+                        "type": "object",
+                        "items": {
+                            "enable": {
+                                "description": "✅ 啟用習慣時段",
+                                "type": "bool",
+                                "default": false,
+                                "hint": "開啟後，Bot 會依下方規則在指定時段自然出現。這類訊息預設不累加未回覆次數，可在單條規則中改為累加。"
+                            },
+                            "habit_rules": {
+                                "description": "📅 習慣時段規則",
+                                "type": "template_list",
+                                "hint": "可新增多條日常出現規則。系統會從符合日期與時間窗的規則中安排下一次任務，並依出現機率、賴床機率與時間抖動製造自然感。",
+                                "condition": {
+                                    "enable": true
+                                },
+                                "templates": {
+                                    "habit_rule": {
+                                        "name": "🌤️ 習慣規則",
+                                        "hint": "定義一段 Bot 可能自然出現的時間窗，例如早安、午休、睡前。",
+                                        "items": {
+                                            "name": {
+                                                "description": "🏷️ 規則名稱",
+                                                "type": "string",
+                                                "default": "早上出現",
+                                                "hint": "只用於辨識任務與提示 LLM，不會直接告訴使用者。"
+                                            },
+                                            "enable": {
+                                                "description": "✅ 啟用此規則",
+                                                "type": "bool",
+                                                "default": true
+                                            },
+                                            "days": {
+                                                "description": "📆 生效星期",
+                                                "type": "string",
+                                                "default": "",
+                                                "hint": "留空表示每天生效。可填 1-7 的逗號列表，週一=1、週日=7，例如「1,2,3,4,5」只在平日生效。"
+                                            },
+                                            "start_hour": {
+                                                "description": "🕐 開始時間（時）",
+                                                "type": "int",
+                                                "default": 8,
+                                                "hint": "時間窗開始的小時數（0-23），支援跨天，例如 22:30 到 1:00。",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 23,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "start_minute": {
+                                                "description": "🕐 開始時間（分）",
+                                                "type": "int",
+                                                "default": 0,
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 59,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "end_hour": {
+                                                "description": "🕐 結束時間（時）",
+                                                "type": "int",
+                                                "default": 10,
+                                                "hint": "時間窗結束的小時數（0-24）。填 24 表示午夜，若結束早於開始則視為跨天。",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 24,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "end_minute": {
+                                                "description": "🕐 結束時間（分）",
+                                                "type": "int",
+                                                "default": 0,
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 59,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "appear_chance": {
+                                                "description": "🎲 出現機率",
+                                                "type": "float",
+                                                "default": 0.85,
+                                                "hint": "0~1，表示這次時間窗內 Bot 會不會出現。例如 0.85 代表 85% 機率出現，15% 機率今天不出現。",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 1,
+                                                    "step": 0.01
+                                                }
+                                            },
+                                            "jitter_min_minutes": {
+                                                "description": "🎚️ 最小隨機偏移（分鐘）",
+                                                "type": "int",
+                                                "default": 0,
+                                                "hint": "在時間窗內抽到時間後再增加的最小隨機偏移，通常保持 0 即可。",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 180,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "jitter_max_minutes": {
+                                                "description": "🎚️ 最大隨機偏移（分鐘）",
+                                                "type": "int",
+                                                "default": 20,
+                                                "hint": "用來避免每天固定同一分鐘出現。若超出時間窗會自動壓回結束前。",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 240,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "oversleep_chance": {
+                                                "description": "😴 賴床或遲到機率",
+                                                "type": "float",
+                                                "default": 0.1,
+                                                "hint": "0~1，命中時會額外延後一段時間，模擬睡過頭、忙到晚點出現。",
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 1,
+                                                    "step": 0.01
+                                                }
+                                            },
+                                            "oversleep_min_minutes": {
+                                                "description": "😴 最小遲到時間（分鐘）",
+                                                "type": "int",
+                                                "default": 10,
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 360,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "oversleep_max_minutes": {
+                                                "description": "😴 最大遲到時間（分鐘）",
+                                                "type": "int",
+                                                "default": 60,
+                                                "slider": {
+                                                    "min": 0,
+                                                    "max": 720,
+                                                    "step": 1
+                                                }
+                                            },
+                                            "message_hint": {
+                                                "description": "💬 情緒或話題提示",
+                                                "type": "string",
+                                                "default": "像剛睡醒或剛有空一樣自然打招呼",
+                                                "hint": "會加入 LLM 提示中，讓 Bot 知道此時段適合的語氣或話題，但會要求不要提到排程或設定。"
+                                            },
+                                            "description": {
+                                                "description": "📝 補充描述",
+                                                "type": "text",
+                                                "default": "",
+                                                "hint": "可寫更完整的習慣設定，例如「週末比較晚醒，語氣放鬆」。"
+                                            },
+                                            "count_unanswered": {
+                                                "description": "🔢 累加未回覆次數",
+                                                "type": "bool",
+                                                "default": false,
+                                                "hint": "預設關閉，代表習慣時段訊息不會增加未回覆次數，也不會因本次發送安排下一輪一般排程。開啟後會像一般主動訊息一樣累加。"
+                                            }
+                                        }
+                                    }
+                                }
                             }
                         }
                     },

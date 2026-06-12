@@ -34,7 +34,8 @@ async def validate_config(config: AstrBotConfig) -> None:
                 sc.get("enable") and sc.get("session_id") for sc in sessions
             )
             has_list = bool(settings.get("session_list"))
-            if not has_personal and not has_list:
+            allow_all = bool(settings.get("allow_all_sessions", False))
+            if not has_personal and not has_list and not allow_all:
                 logger.warning(
                     f"{_LOG_TAG} {label}主動訊息已啟用但未配置任何會話"
                     f"（既無個性化配置也無 session_list）。"
@@ -69,6 +70,8 @@ def get_session_config(config: AstrBotConfig, session_id: str) -> dict | None:
     if is_private_session(msg_type):
         return _match_session(
             config,
+            session_id,
+            parsed,
             target_id,
             sessions_key="private_sessions",
             settings_key="private_settings",
@@ -77,6 +80,8 @@ def get_session_config(config: AstrBotConfig, session_id: str) -> dict | None:
     if MSG_TYPE_KEYWORD_GROUP in msg_type:
         return _match_session(
             config,
+            session_id,
+            parsed,
             target_id,
             sessions_key="group_sessions",
             settings_key="group_settings",
@@ -86,7 +91,7 @@ def get_session_config(config: AstrBotConfig, session_id: str) -> dict | None:
 
 
 def _is_target_match(target_id: str, config_id: str) -> bool:
-    """精確比對 target_id 與配置中的 session_id。
+    """精確比對 target_id 與純 ID 配置。
 
     支援完全匹配或以分隔符 ':' 為邊界的尾部匹配，
     避免 '123' 誤匹配 '4123'。
@@ -97,18 +102,29 @@ def _is_target_match(target_id: str, config_id: str) -> bool:
     return target_id.endswith(f":{config_id}")
 
 
-def _extract_config_target_id(config_id: str) -> str:
-    """把配置中的純 ID 或完整 UMO 統一轉成 target_id 後再比對。"""
+def _is_config_session_match(
+    session_id: str,
+    parsed_session: tuple[str, str, str],
+    target_id: str,
+    config_id: str,
+) -> bool:
+    """比對會話配置。
+
+    完整 UMO 配置必須完整比對平台、訊息類型與目標 ID；純 ID 配置才允許
+    只以 target_id 比對，避免跨平台同 ID 誤啟用。
+    """
     from .utils import parse_session_id
 
     parsed = parse_session_id(config_id)
     if parsed:
-        return parsed[2]
-    return config_id
+        return parsed == parsed_session or config_id == session_id
+    return _is_target_match(target_id, config_id)
 
 
 def _match_session(
     config: AstrBotConfig,
+    session_id: str,
+    parsed_session: tuple[str, str, str],
     target_id: str,
     *,
     sessions_key: str,
@@ -119,7 +135,7 @@ def _match_session(
     # 1) 個性化配置
     for sc in config.get(sessions_key, ()):
         cid = str(sc.get("session_id", ""))
-        if cid and _is_target_match(target_id, _extract_config_target_id(cid)):
+        if cid and _is_config_session_match(session_id, parsed_session, target_id, cid):
             if not sc.get("enable", False):
                 return None
             out = sc.copy()
@@ -131,8 +147,13 @@ def _match_session(
     settings = config.get(settings_key, {})
     if not settings.get("enable", False):
         return None
+    if settings.get("allow_all_sessions", False):
+        out = settings.copy()
+        out["_session_type"] = session_type
+        out["_allow_all_sessions"] = True
+        return out
     if any(
-        _is_target_match(target_id, _extract_config_target_id(str(config_id)))
+        _is_config_session_match(session_id, parsed_session, target_id, str(config_id))
         for config_id in settings.get("session_list", ())
     ):
         out = settings.copy()

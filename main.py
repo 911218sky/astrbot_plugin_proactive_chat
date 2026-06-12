@@ -21,7 +21,13 @@ from .core.context_scheduling import (
     handle_context_aware_scheduling,
     restore_pending_context_tasks,
 )
-from .core.scheduler import compute_weighted_interval
+from .core.scheduler import (
+    compute_habit_next_run,
+    compute_weighted_interval,
+    get_current_time_slot_id,
+    get_time_slot_reset_count,
+    is_unanswered_limit_reached,
+)
 from .core.state_store import ProactiveStateStore, StateStoreCorruptionError
 
 # ── 核心模組匯入（使用相對匯入，避免與 AstrBot 自身的 core 衝突） ──
@@ -41,6 +47,7 @@ _LOG_TAG = "[主動訊息]"
 _RESTORE_MISSED_GRACE_SECONDS = 30 * 60
 _AUTO_TRIGGER_DEADLINE_KEY = "auto_trigger_deadline"
 _GROUP_IDLE_DEADLINE_KEY = "group_idle_deadline"
+_HABIT_TASK_PREFIX = "habit_"
 
 
 class ProactiveChatPlugin(star.Star):
@@ -76,6 +83,7 @@ class ProactiveChatPlugin(star.Star):
         "first_message_logged",
         "_cleanup_counter",
         "_pending_context_tasks",
+        "_pending_habit_tasks",
         "_context_analysis_tasks",
         "_context_analysis_semaphore",
         "_ctx_task_counter",
@@ -125,6 +133,8 @@ class ProactiveChatPlugin(star.Star):
         # 語境預測的待執行任務追蹤: { session_id: [ { job_id, reason, hint, ... }, ... ] }
         # 每個會話可同時存在多個語境任務（如短期跟進 + 長期早安問候）
         self._pending_context_tasks: dict[str, list[dict]] = {}
+        # 習慣時段任務追蹤: { session_id: [ { job_id, reason, prompt, ... }, ... ] }
+        self._pending_habit_tasks: dict[str, list[dict]] = {}
         # 語境分析背景任務：同一會話只保留最新一次，避免連續訊息時並發讀取 Core history。
         self._context_analysis_tasks: dict[str, asyncio.Task] = {}
         # 全域限流：避免多會話語境分析同時讀 AstrBot Core history，降低 SQLite 壓力尖峰。
@@ -280,6 +290,125 @@ class ProactiveChatPlugin(star.Star):
             if changed:
                 await self._save_data()
 
+    async def _merge_session_state(
+        self, old_session_id: str, new_session_id: str
+    ) -> None:
+        """合併平台前綴變更造成的同一會話狀態，避免重複排程。"""
+        if old_session_id == new_session_id:
+            return
+
+        try:
+            if self.scheduler and self.scheduler.get_job(old_session_id):
+                self.scheduler.remove_job(old_session_id)
+        except Exception as e:
+            logger.debug(
+                f"{_LOG_TAG} 移除舊平台排程失敗 | session={old_session_id}: {e}"
+            )
+
+        async with self.data_lock:
+            old_sd = self.session_data.get(old_session_id)
+            if not isinstance(old_sd, dict):
+                return
+            new_sd = self.session_data.setdefault(new_session_id, {})
+            if not isinstance(new_sd, dict):
+                new_sd = {}
+                self.session_data[new_session_id] = new_sd
+
+            for key, value in old_sd.items():
+                if key in {
+                    "unanswered_count",
+                    "last_message_time",
+                    "next_trigger_time",
+                    _AUTO_TRIGGER_DEADLINE_KEY,
+                    _GROUP_IDLE_DEADLINE_KEY,
+                }:
+                    old_value = self._coerce_timestamp(value)
+                    new_value = self._coerce_timestamp(new_sd.get(key))
+                    if key == "unanswered_count":
+                        old_value = int(value or 0)
+                        new_value = int(new_sd.get(key, 0) or 0)
+                    if new_value is None or (
+                        old_value is not None and old_value > new_value
+                    ):
+                        new_sd[key] = value
+                    continue
+                if key == "pending_context_tasks":
+                    merged = list(new_sd.get(key) or [])
+                    seen = {
+                        task.get("job_id") for task in merged if isinstance(task, dict)
+                    }
+                    for task in value or []:
+                        if not isinstance(task, dict):
+                            continue
+                        job_id = task.get("job_id")
+                        if job_id in seen:
+                            continue
+                        merged.append(task)
+                        seen.add(job_id)
+                    if merged:
+                        new_sd[key] = merged
+                    continue
+                if key == "pending_habit_tasks":
+                    merged = list(new_sd.get(key) or [])
+                    seen = {
+                        task.get("job_id") for task in merged if isinstance(task, dict)
+                    }
+                    for task in value or []:
+                        if not isinstance(task, dict):
+                            continue
+                        job_id = task.get("job_id")
+                        if job_id in seen:
+                            continue
+                        merged.append(task)
+                        seen.add(job_id)
+                    if merged:
+                        new_sd[key] = merged
+                    continue
+                new_sd.setdefault(key, value)
+
+            self.session_data.pop(old_session_id, None)
+            await self._save_data()
+
+        old_last = self.last_message_times.pop(old_session_id, 0)
+        if old_last:
+            self.last_message_times[new_session_id] = max(
+                self.last_message_times.get(new_session_id, 0), old_last
+            )
+
+        old_tasks = self._pending_context_tasks.pop(old_session_id, [])
+        if old_tasks:
+            merged_tasks = self._pending_context_tasks.setdefault(new_session_id, [])
+            seen_jobs = {
+                task.get("job_id") for task in merged_tasks if isinstance(task, dict)
+            }
+            for task in old_tasks:
+                if not isinstance(task, dict):
+                    continue
+                job_id = task.get("job_id")
+                if job_id in seen_jobs:
+                    continue
+                merged_tasks.append(task)
+                seen_jobs.add(job_id)
+
+        old_habit_tasks = self._pending_habit_tasks.pop(old_session_id, [])
+        if old_habit_tasks:
+            merged_habit_tasks = self._pending_habit_tasks.setdefault(
+                new_session_id, []
+            )
+            seen_jobs = {
+                task.get("job_id")
+                for task in merged_habit_tasks
+                if isinstance(task, dict)
+            }
+            for task in old_habit_tasks:
+                if not isinstance(task, dict):
+                    continue
+                job_id = task.get("job_id")
+                if job_id in seen_jobs:
+                    continue
+                merged_habit_tasks.append(task)
+                seen_jobs.add(job_id)
+
     # ═══════════════════════════════════════════════════════════
     #  生命週期
     # ═══════════════════════════════════════════════════════════
@@ -308,13 +437,13 @@ class ProactiveChatPlugin(star.Star):
 
         # 從持久化數據恢復「最後訊息時間」到記憶體快取
         restored = 0
-        start = self.plugin_start_time
+        now = time.time()
         for sid, info in self.session_data.items():
             if not isinstance(info, dict):
                 continue
             ts = info.get("last_message_time")
-            # 只恢復插件啟動後的時間戳（避免過期數據干擾自動觸發判斷）
-            if isinstance(ts, (int, float)) and ts >= start:
+            # 恢復合法時間戳；只過濾未來過多或無效數據。
+            if isinstance(ts, (int, float)) and 0 < ts <= now + 60:
                 self.last_message_times[sid] = ts
                 restored += 1
         if restored:
@@ -335,8 +464,10 @@ class ProactiveChatPlugin(star.Star):
         if restore_pending_context_tasks(self):
             async with self.data_lock:
                 await self._save_data()
+        await self._restore_pending_habit_tasks()
         await self._restore_waiting_timers_from_data()
         await self._setup_auto_triggers_for_enabled_sessions()
+        await self._setup_habit_tasks_for_known_sessions()
         logger.info(f"{_LOG_TAG} 初始化完成。")
 
     async def terminate(self) -> None:
@@ -415,6 +546,177 @@ class ProactiveChatPlugin(star.Star):
         )
         return run_date
 
+    def _add_habit_job_at(
+        self, session_id: str, job_id: str, run_date: datetime
+    ) -> datetime:
+        """依指定時間建立習慣時段一次性任務。"""
+        self.scheduler.add_job(
+            self.check_and_chat,
+            "date",
+            run_date=run_date,
+            args=[session_id],
+            kwargs={"ctx_job_id": job_id},
+            id=job_id,
+            replace_existing=True,
+            misfire_grace_time=120,
+        )
+        return run_date
+
+    def _habit_settings(self, session_config: dict) -> dict:
+        """取得會話的習慣時段配置。"""
+        settings = session_config.get("habit_settings", {})
+        return settings if isinstance(settings, dict) else {}
+
+    def _find_habit_task(self, session_id: str, job_id: str) -> dict | None:
+        """根據 job_id 查找習慣時段任務。"""
+        if not job_id:
+            return None
+        tasks = self._pending_habit_tasks.get(session_id, [])
+        return next((task for task in tasks if task.get("job_id") == job_id), None)
+
+    async def _schedule_next_habit_task(self, session_id: str) -> bool:
+        """依習慣配置安排下一次習慣時段主動訊息。"""
+        if not self.scheduler:
+            return False
+        session_config = get_session_config(self.config, session_id)
+        if not session_config or not session_config.get("enable", False):
+            return False
+        habit_conf = self._habit_settings(session_config)
+        run_date, rule, reason = compute_habit_next_run(habit_conf, self.timezone)
+        if run_date is None or rule is None:
+            logger.debug(f"{_LOG_TAG} 習慣時段未安排 | session={session_id}: {reason}")
+            return False
+
+        rule_name = str(rule.get("name", "") or "習慣時段")
+        job_id = f"{_HABIT_TASK_PREFIX}{session_id}_{int(run_date.timestamp())}"
+        task_info = {
+            "job_id": job_id,
+            "type": "habit",
+            "rule_name": rule_name,
+            "reason": reason,
+            "hint": str(rule.get("message_hint", "") or "").strip(),
+            "description": str(rule.get("description", "") or "").strip(),
+            "count_unanswered": bool(rule.get("count_unanswered", False)),
+            "created_at": time.time(),
+            "run_at": run_date.isoformat(),
+        }
+
+        async with self.data_lock:
+            tasks = [
+                task
+                for task in self._pending_habit_tasks.get(session_id, [])
+                if isinstance(task, dict)
+                and str(task.get("rule_name", "")) != rule_name
+            ]
+            tasks.append(task_info)
+            self._pending_habit_tasks[session_id] = tasks
+            self.session_data.setdefault(session_id, {})["pending_habit_tasks"] = tasks
+            await self._save_data()
+
+        self._add_habit_job_at(session_id, job_id, run_date)
+        logger.info(
+            f"{_LOG_TAG} 已為 {get_session_log_str(session_id, session_config, self.session_data)} "
+            f"安排習慣時段「{rule_name}」，時間：{run_date.strftime('%Y-%m-%d %H:%M:%S')}。"
+        )
+        return True
+
+    async def _cleanup_habit_task(self, session_id: str, job_id: str) -> None:
+        """清理已完成或失效的習慣時段任務。"""
+        tasks = self._pending_habit_tasks.get(session_id)
+        if not tasks:
+            return
+        remaining = [task for task in tasks if task.get("job_id") != job_id]
+        if remaining:
+            self._pending_habit_tasks[session_id] = remaining
+        else:
+            self._pending_habit_tasks.pop(session_id, None)
+
+        async with self.data_lock:
+            sd = self.session_data.get(session_id)
+            if isinstance(sd, dict):
+                if remaining:
+                    sd["pending_habit_tasks"] = remaining
+                else:
+                    sd.pop("pending_habit_tasks", None)
+                await self._save_data()
+
+    async def _restore_pending_habit_tasks(self) -> None:
+        """從持久化狀態恢復習慣時段任務。"""
+        if not self.scheduler:
+            return
+        now = time.time()
+        restored = 0
+        stale: set[str] = set()
+        for session_id, info in list(self.session_data.items()):
+            if not isinstance(info, dict):
+                continue
+            tasks = [
+                t for t in info.get("pending_habit_tasks", []) if isinstance(t, dict)
+            ]
+            if tasks:
+                self._pending_habit_tasks[session_id] = tasks
+            for task in tasks:
+                job_id = str(task.get("job_id", ""))
+                run_at = str(task.get("run_at", ""))
+                if not job_id or not run_at:
+                    continue
+                try:
+                    run_date = datetime.fromisoformat(run_at)
+                except ValueError:
+                    continue
+                if run_date.timestamp() < now - _RESTORE_MISSED_GRACE_SECONDS:
+                    stale.add(job_id)
+                    continue
+                if run_date.timestamp() < now:
+                    run_date = datetime.fromtimestamp(now + 1, tz=self.timezone)
+                    task["run_at"] = run_date.isoformat()
+                self._add_habit_job_at(session_id, job_id, run_date)
+                restored += 1
+
+        if stale:
+            for session_id, tasks in list(self._pending_habit_tasks.items()):
+                self._pending_habit_tasks[session_id] = [
+                    task for task in tasks if task.get("job_id") not in stale
+                ]
+                if not self._pending_habit_tasks[session_id]:
+                    self._pending_habit_tasks.pop(session_id, None)
+            async with self.data_lock:
+                for session_id, info in self.session_data.items():
+                    if not isinstance(info, dict):
+                        continue
+                    tasks = [
+                        task
+                        for task in info.get("pending_habit_tasks", [])
+                        if isinstance(task, dict) and task.get("job_id") not in stale
+                    ]
+                    if tasks:
+                        info["pending_habit_tasks"] = tasks
+                    else:
+                        info.pop("pending_habit_tasks", None)
+                await self._save_data()
+
+        if restored:
+            logger.info(f"{_LOG_TAG} 已恢復 {restored} 個習慣時段任務。")
+
+    async def _setup_habit_tasks_for_known_sessions(self) -> None:
+        """為已知且啟用的會話補上習慣時段任務。"""
+        count = 0
+        for session_id, info in list(self.session_data.items()):
+            if not isinstance(info, dict):
+                continue
+            session_config = get_session_config(self.config, session_id)
+            if not session_config or not session_config.get("enable", False):
+                continue
+            habit_conf = self._habit_settings(session_config)
+            if not habit_conf.get("enable", False):
+                continue
+            if self._pending_habit_tasks.get(session_id):
+                continue
+            if await self._schedule_next_habit_task(session_id):
+                count += 1
+        if count:
+            logger.info(f"{_LOG_TAG} 已為 {count} 個既有會話安排習慣時段任務。")
+
     async def _create_auto_trigger_job(
         self,
         session_id: str,
@@ -469,21 +771,31 @@ class ProactiveChatPlugin(star.Star):
         job_id = ctx_job_id or session_id
         async with self.data_lock:
             if ctx_job_id:
+                pending_tasks = (
+                    self._pending_habit_tasks.get(session_id, [])
+                    if ctx_job_id.startswith(_HABIT_TASK_PREFIX)
+                    else self._pending_context_tasks.get(session_id, [])
+                )
                 found = False
-                for task in self._pending_context_tasks.get(session_id, []):
+                for task in pending_tasks:
                     if (
                         isinstance(task, dict)
                         and str(task.get("job_id", "")) == ctx_job_id
                     ):
                         task["run_at"] = run_date.isoformat()
-                        self.session_data.setdefault(session_id, {})[
-                            "pending_context_tasks"
-                        ] = self._pending_context_tasks.get(session_id, [])
+                        key = (
+                            "pending_habit_tasks"
+                            if ctx_job_id.startswith(_HABIT_TASK_PREFIX)
+                            else "pending_context_tasks"
+                        )
+                        self.session_data.setdefault(session_id, {})[key] = (
+                            pending_tasks
+                        )
                         found = True
                         break
                 if not found:
                     logger.warning(
-                        f"{_LOG_TAG} 找不到語境任務 {ctx_job_id}，略過重試排程。"
+                        f"{_LOG_TAG} 找不到特殊任務 {ctx_job_id}，略過重試排程。"
                     )
                     return
             else:
@@ -521,15 +833,16 @@ class ProactiveChatPlugin(star.Star):
 
         async with self.data_lock:
             sd = self.session_data.setdefault(session_id, {})
+            current_slot_id = get_current_time_slot_id(schedule_conf, self.timezone)
 
             if reset_counter:
                 sd["unanswered_count"] = 0
+                sd["last_schedule_slot_id"] = current_slot_id
             else:
                 # 檢查當前時段是否需要重置未回覆計數
-                from .core.scheduler import get_time_slot_reset_count
-
+                previous_slot_id = sd.get("last_schedule_slot_id")
                 reset_count = get_time_slot_reset_count(schedule_conf, self.timezone)
-                if reset_count is not None:
+                if reset_count is not None and previous_slot_id != current_slot_id:
                     old_count = sd.get("unanswered_count", 0)
                     sd["unanswered_count"] = reset_count
                     if old_count != reset_count:
@@ -537,6 +850,21 @@ class ProactiveChatPlugin(star.Star):
                             f"{_LOG_TAG} 時段切換：未回覆計數從 {old_count} "
                             f"{'重置為' if reset_count == 0 else '調整為'} {reset_count}"
                         )
+                sd["last_schedule_slot_id"] = current_slot_id
+
+                limit_reached, reason = is_unanswered_limit_reached(
+                    int(sd.get("unanswered_count", 0) or 0),
+                    schedule_conf,
+                    self.timezone,
+                )
+                if limit_reached:
+                    sd.pop("next_trigger_time", None)
+                    await self._save_data()
+                    logger.info(
+                        f"{_LOG_TAG} {get_session_log_str(session_id, session_config, self.session_data)} "
+                        f"{reason}，不再安排下一次主動訊息。"
+                    )
+                    return
 
             # 計算加權隨機間隔
             unanswered_count = sd.get("unanswered_count", 0)
@@ -606,6 +934,19 @@ class ProactiveChatPlugin(star.Star):
                 continue
             cfg = get_session_config(self.config, sid)
             if not cfg or not cfg.get("enable", False):
+                continue
+            schedule_conf = cfg.get("schedule_settings", {})
+            unanswered_count = int(info.get("unanswered_count", 0) or 0)
+            limit_reached, reason = is_unanswered_limit_reached(
+                unanswered_count, schedule_conf, self.timezone
+            )
+            if limit_reached:
+                if info.pop("next_trigger_time", None) is not None:
+                    needs_save = True
+                logger.info(
+                    f"{_LOG_TAG} {get_session_log_str(sid, cfg, self.session_data)} "
+                    f"{reason}，跳過恢復排程。"
+                )
                 continue
             raw_next_t = info.get("next_trigger_time")
             if not raw_next_t:
@@ -885,12 +1226,30 @@ class ProactiveChatPlugin(star.Star):
         if not auto_settings.get("enable_auto_trigger", False):
             return 0
 
+        # 解析 target_id（可能本身就是完整 UMO 格式）
+        parsed = parse_session_id(target_id)
+        preferred_platform = parsed[0] if parsed else None
+        real_message_type = parsed[1] if parsed else message_type
+        real_target_id = parsed[2] if parsed else target_id
+        suffix = f":{real_message_type}:{real_target_id}"
+
         # 若該會話已有尚未過期的持久化任務，則跳過（避免重複排程）
         now = time.time()
-        suffix = f":{message_type}:{target_id}"
         for sid, info in self.session_data.items():
             if not isinstance(info, dict):
                 continue
+            if sid.endswith(suffix):
+                if self.last_message_times.get(sid, 0) or info.get("last_message_time"):
+                    logger.info(f"{_LOG_TAG} {log_str} 已有歷史訊息，跳過自動觸發。")
+                    return 0
+                limit_reached, reason = is_unanswered_limit_reached(
+                    int(info.get("unanswered_count", 0) or 0),
+                    settings.get("schedule_settings", {}),
+                    self.timezone,
+                )
+                if limit_reached:
+                    logger.info(f"{_LOG_TAG} {log_str} {reason}，跳過自動觸發。")
+                    return 0
             if sid.endswith(suffix) and info.get("next_trigger_time"):
                 try:
                     next_trigger_time = float(info["next_trigger_time"])
@@ -914,15 +1273,10 @@ class ProactiveChatPlugin(star.Star):
                     )
                     return 0
 
-        # 解析 target_id（可能本身就是完整 UMO 格式）
-        parsed = parse_session_id(target_id)
-        preferred_platform = parsed[0] if parsed else None
-        real_target_id = parsed[2] if parsed else target_id
-
         # 動態解析完整的 UMO（找到存活的平台）
         session_id = resolve_full_umo(
             real_target_id,
-            message_type,
+            real_message_type,
             self.context.platform_manager,
             self.session_data,
             preferred_platform,
@@ -1142,6 +1496,12 @@ class ProactiveChatPlugin(star.Star):
             # 私聊：排程本身很輕量，直接保存可避免重啟時短暫丟失下一次任務。
             await self._schedule_next_chat_and_save(session_id, reset_counter=True)
 
+        habit_settings = self._habit_settings(session_config)
+        if habit_settings.get("enable", False) and not self._pending_habit_tasks.get(
+            session_id
+        ):
+            await self._schedule_next_habit_task(session_id)
+
         # 語境感知排程：在背景執行，避免阻塞訊息回覆流程
         if ctx_enabled:
             self._schedule_context_analysis(session_id, message_text, ctx_settings, now)
@@ -1211,8 +1571,15 @@ class ProactiveChatPlugin(star.Star):
 
         # ── 1. APScheduler 一般排程任務 ──
         scheduled_jobs = self.scheduler.get_jobs() if self.scheduler else []
-        regular_jobs = [j for j in scheduled_jobs if not j.id.startswith("ctx_")]
+        regular_jobs = [
+            j
+            for j in scheduled_jobs
+            if not str(j.id).startswith(("ctx_", _HABIT_TASK_PREFIX))
+        ]
         ctx_jobs = [j for j in scheduled_jobs if j.id.startswith("ctx_")]
+        habit_jobs = [
+            j for j in scheduled_jobs if str(j.id).startswith(_HABIT_TASK_PREFIX)
+        ]
 
         lines.append(f"【一般排程】共 {len(regular_jobs)} 個")
         if regular_jobs:
@@ -1225,7 +1592,28 @@ class ProactiveChatPlugin(star.Star):
         else:
             lines.append("  （無）")
 
-        # ── 2. 語境預測任務 ──
+        # ── 2. 習慣時段任務 ──
+        total_habit = sum(len(tasks) for tasks in self._pending_habit_tasks.values())
+        lines.append(f"\n【習慣時段】共 {total_habit} 個")
+        if self._pending_habit_tasks:
+            for sid, tasks in self._pending_habit_tasks.items():
+                session_config = get_session_config(self.config, sid)
+                log_str = get_session_log_str(sid, session_config, self.session_data)
+                for t in tasks:
+                    run_at = t.get("run_at", "")
+                    rule_name = t.get("rule_name", "習慣時段")
+                    hint = t.get("hint", "")
+                    try:
+                        dt = datetime.fromisoformat(run_at)
+                        time_str = dt.strftime("%m/%d %H:%M:%S")
+                    except (ValueError, TypeError):
+                        time_str = run_at or "未知"
+                    lines.append(f"  • {log_str} → {time_str}")
+                    lines.append(f"    規則: {rule_name} / 提示: {hint or '無'}")
+        else:
+            lines.append("  （無）")
+
+        # ── 3. 語境預測任務 ──
         total_ctx = sum(len(tasks) for tasks in self._pending_context_tasks.values())
         lines.append(f"\n【語境預測】共 {total_ctx} 個")
         if self._pending_context_tasks:
@@ -1248,7 +1636,20 @@ class ProactiveChatPlugin(star.Star):
         else:
             lines.append("  （無）")
 
-        # ── 3. APScheduler 中的語境 job（補充顯示未被追蹤的） ──
+        # ── 4. APScheduler 中的特殊 job（補充顯示未被追蹤的） ──
+        tracked_habit_ids = {
+            t.get("job_id")
+            for tasks in self._pending_habit_tasks.values()
+            for t in tasks
+        }
+        orphan_habit = [j for j in habit_jobs if j.id not in tracked_habit_ids]
+        if orphan_habit:
+            lines.append(f"\n【未追蹤的習慣時段排程】共 {len(orphan_habit)} 個")
+            for job in orphan_habit:
+                run_time = job.next_run_time
+                time_str = run_time.strftime("%m/%d %H:%M:%S") if run_time else "未知"
+                lines.append(f"  • {job.id} → {time_str}")
+
         tracked_ids = {
             t.get("job_id")
             for tasks in self._pending_context_tasks.values()

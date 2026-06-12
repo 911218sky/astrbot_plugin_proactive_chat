@@ -100,9 +100,11 @@ class PluginPageApi:
     def _build_snapshot(self, *, include_tasks: bool) -> dict[str, Any]:
         now_ts = time.time()
         jobs = self.plugin.scheduler.get_jobs() if self.plugin.scheduler else []
-        regular_jobs = [j for j in jobs if not str(j.id).startswith("ctx_")]
+        regular_jobs = [j for j in jobs if not str(j.id).startswith(("ctx_", "habit_"))]
         scheduler_ctx_jobs = [j for j in jobs if str(j.id).startswith("ctx_")]
+        scheduler_habit_jobs = [j for j in jobs if str(j.id).startswith("habit_")]
         context_tasks = self._collect_context_tasks(scheduler_ctx_jobs)
+        habit_tasks = self._collect_habit_tasks(scheduler_habit_jobs)
         auto_timers = self._collect_timers(
             self.plugin.auto_trigger_timers,
             "auto_trigger",
@@ -127,11 +129,13 @@ class PluginPageApi:
             "session_count": session_count,
             "regular_count": len(regular_jobs),
             "context_count": len(context_tasks),
+            "habit_count": len(habit_tasks),
             "auto_trigger_count": len(auto_timers),
             "group_idle_count": len(group_timers),
             "total_count": (
                 len(regular_jobs)
                 + len(context_tasks)
+                + len(habit_tasks)
                 + len(auto_timers)
                 + len(group_timers)
             ),
@@ -143,6 +147,7 @@ class PluginPageApi:
             tasks = []
             tasks.extend(self._collect_scheduler_jobs(regular_jobs, "regular"))
             tasks.extend(context_tasks)
+            tasks.extend(habit_tasks)
             tasks.extend(auto_timers)
             tasks.extend(group_timers)
             tasks.sort(key=lambda item: item.get("sort_time") or float("inf"))
@@ -164,6 +169,10 @@ class PluginPageApi:
             task_type = str(payload.get("task_type") or "").strip()
             if task_type == "context":
                 return await self._reschedule_context_task(
+                    task_id, session_id, run_date, description
+                )
+            if task_type == "habit":
+                return await self._reschedule_habit_task(
                     task_id, session_id, run_date, description
                 )
             if task_type in {"auto_trigger", "group_idle"}:
@@ -249,6 +258,42 @@ class PluginPageApi:
             "next_run_time": self._format_datetime(run_date),
         }
 
+    async def _reschedule_habit_task(
+        self,
+        task_id: str,
+        session_id: str,
+        run_date: datetime,
+        description: str,
+    ) -> dict[str, Any]:
+        if not task_id:
+            raise ValueError("缺少任務 ID")
+        if not self.plugin.scheduler:
+            raise ValueError("排程器尚未啟動")
+
+        async with self.plugin.data_lock:
+            found = False
+            for task in self.plugin._pending_habit_tasks.get(session_id, []):
+                if isinstance(task, dict) and str(task.get("job_id", "")) == task_id:
+                    task["run_at"] = run_date.isoformat()
+                    if description:
+                        task["description"] = description
+                    else:
+                        task.pop("description", None)
+                    found = True
+                    break
+            if not found:
+                raise ValueError("找不到指定習慣時段任務")
+            sd = self.plugin.session_data.setdefault(session_id, {})
+            sd["pending_habit_tasks"] = self.plugin._pending_habit_tasks.get(
+                session_id, []
+            )
+            await self.plugin._save_data()
+        self.plugin._add_habit_job_at(session_id, task_id, run_date)
+        return {
+            "session_id": session_id,
+            "next_run_time": self._format_datetime(run_date),
+        }
+
     async def _delete_task(self, payload: dict[str, Any]) -> dict[str, Any]:
         task_id = str(payload.get("task_id") or "").strip()
         task_type = str(payload.get("task_type") or "").strip()
@@ -318,6 +363,42 @@ class PluginPageApi:
                     raise
             if scheduler_has_job:
                 self.plugin.scheduler.remove_job(task_id)
+        elif task_type in {"habit", "habit_orphan"}:
+            scheduler_has_job = bool(
+                self.plugin.scheduler and self.plugin.scheduler.get_job(task_id)
+            )
+            original_pending = list(
+                self.plugin._pending_habit_tasks.get(session_id, [])
+            )
+            new_pending = [
+                task
+                for task in original_pending
+                if not isinstance(task, dict) or str(task.get("job_id", "")) != task_id
+            ]
+            removed = len(new_pending) != len(original_pending) or scheduler_has_job
+            if not removed:
+                raise ValueError("找不到可刪除的任務")
+            async with self.plugin.data_lock:
+                try:
+                    if new_pending:
+                        self.plugin._pending_habit_tasks[session_id] = new_pending
+                    else:
+                        self.plugin._pending_habit_tasks.pop(session_id, None)
+                    sd = self.plugin.session_data.get(session_id)
+                    if isinstance(sd, dict):
+                        if new_pending:
+                            sd["pending_habit_tasks"] = new_pending
+                        else:
+                            sd.pop("pending_habit_tasks", None)
+                    await self.plugin._save_data()
+                except Exception:
+                    if original_pending:
+                        self.plugin._pending_habit_tasks[session_id] = original_pending
+                    else:
+                        self.plugin._pending_habit_tasks.pop(session_id, None)
+                    raise
+            if scheduler_has_job:
+                self.plugin.scheduler.remove_job(task_id)
         elif task_type in {"auto_trigger", "group_idle"} and session_id:
             has_memory_timer = self._has_memory_timer(task_type, session_id)
             session_info = self.plugin.session_data.get(session_id)
@@ -376,6 +457,27 @@ class PluginPageApi:
                     raise ValueError("找不到指定語境任務")
                 sd = self.plugin.session_data.setdefault(session_id, {})
                 sd["pending_context_tasks"] = self.plugin._pending_context_tasks.get(
+                    session_id, []
+                )
+                await self.plugin._save_data()
+        elif task_type == "habit":
+            async with self.plugin.data_lock:
+                found = False
+                for task in self.plugin._pending_habit_tasks.get(session_id, []):
+                    if (
+                        isinstance(task, dict)
+                        and str(task.get("job_id", "")) == task_id
+                    ):
+                        if description:
+                            task["description"] = description
+                        else:
+                            task.pop("description", None)
+                        found = True
+                        break
+                if not found:
+                    raise ValueError("找不到指定習慣時段任務")
+                sd = self.plugin.session_data.setdefault(session_id, {})
+                sd["pending_habit_tasks"] = self.plugin._pending_habit_tasks.get(
                     session_id, []
                 )
                 await self.plugin._save_data()
@@ -529,6 +631,68 @@ class PluginPageApi:
                     next_run_time=next_run_time,
                     detail=description or "依照排程設定觸發",
                     description=description,
+                )
+            )
+        return result
+
+    def _collect_habit_tasks(self, scheduler_habit_jobs: list[Any]) -> list[dict]:
+        result = []
+        tracked_job_ids = set()
+        scheduler_index = {str(job.id): job for job in scheduler_habit_jobs}
+
+        for session_id, tasks in self.plugin._pending_habit_tasks.items():
+            session_config = get_session_config(self.plugin.config, session_id)
+            for task in tasks:
+                if not isinstance(task, dict):
+                    continue
+                job_id = str(task.get("job_id", ""))
+                tracked_job_ids.add(job_id)
+                job = scheduler_index.get(job_id)
+                run_at = self._parse_datetime(task.get("run_at"))
+                next_run_time = getattr(job, "next_run_time", None) or run_at
+                description = str(task.get("description") or "").strip()
+                reason = str(task.get("reason") or "").strip()
+                hint = str(task.get("hint") or "").strip()
+                rule_name = str(task.get("rule_name") or "習慣時段")
+                result.append(
+                    self._task_base(
+                        session_id=session_id,
+                        task_id=job_id or f"habit:{session_id}",
+                        task_type="habit",
+                        title=f"習慣時段：{rule_name}",
+                        next_run_time=next_run_time,
+                        session_config=session_config,
+                        detail=description or hint or reason or "依照習慣時段觸發",
+                        description=description,
+                        extra={
+                            "rule_name": rule_name,
+                            "reason": reason,
+                            "hint": hint,
+                            "count_unanswered": bool(
+                                task.get("count_unanswered", False)
+                            ),
+                            "created_at": self._format_timestamp(
+                                task.get("created_at")
+                            ),
+                            "tracked": True,
+                        },
+                    )
+                )
+
+        for job in scheduler_habit_jobs:
+            job_id = str(job.id)
+            if job_id in tracked_job_ids:
+                continue
+            result.append(
+                self._task_base(
+                    session_id=self._session_from_special_job(job, "habit_"),
+                    task_id=job_id,
+                    task_type="habit_orphan",
+                    title="未追蹤的習慣時段排程",
+                    next_run_time=getattr(job, "next_run_time", None),
+                    detail="APScheduler 中存在，但 pending_habit_tasks 未追蹤",
+                    description="",
+                    extra={"tracked": False},
                 )
             )
         return result
@@ -791,8 +955,17 @@ class PluginPageApi:
             return str(args[0])
         job_id = str(getattr(job, "id", ""))
         if job_id.startswith("ctx_"):
+            return self._session_from_special_job(job, "ctx_")
+        return job_id
+
+    def _session_from_special_job(self, job: Any, prefix: str) -> str:
+        args = getattr(job, "args", None) or ()
+        if args:
+            return str(args[0])
+        job_id = str(getattr(job, "id", ""))
+        if job_id.startswith(prefix):
             parts = job_id.rsplit("_", 1)
-            return parts[0][4:] if parts else job_id
+            return parts[0][len(prefix) :] if parts else job_id
         return job_id
 
     def _remaining_seconds(self, value: datetime | None) -> int | None:
