@@ -586,17 +586,6 @@
                         "default": false,
                         "hint": "開啟後，Bot 回覆的文字將被切分為多條短訊息發送"
                     },
-                    "words_count_threshold": {
-                        "description": "📏 不分段字數閾值",
-                        "type": "int",
-                        "default": 150,
-                        "hint": "如果回覆內容字數超過此值，則不進行分段",
-                        "slider": {
-                            "min": 0,
-                            "max": 1000,
-                            "step": 1
-                        }
-                    },
                     "split_mode": {
                         "description": "Ⓜ️ 分段模式",
                         "type": "string",
@@ -1197,17 +1186,6 @@
                         "type": "bool",
                         "default": false,
                         "hint": "開啟後，Bot 回覆的文字將被切分為多條短訊息發送"
-                    },
-                    "words_count_threshold": {
-                        "description": "📏 不分段字數閾值",
-                        "type": "int",
-                        "default": 150,
-                        "hint": "如果回覆內容字數超過此值，則不進行分段",
-                        "slider": {
-                            "min": 0,
-                            "max": 1000,
-                            "step": 1
-                        }
                     },
                     "split_mode": {
                         "description": "Ⓜ️ 分段模式",
@@ -1905,17 +1883,6 @@
                                 "default": false,
                                 "hint": "開啟後，Bot 回覆的文字將被切分為多條短訊息發送"
                             },
-                            "words_count_threshold": {
-                                "description": "📏 不分段字數閾值",
-                                "type": "int",
-                                "default": 150,
-                                "hint": "如果回覆內容字數超過此值，則不進行分段",
-                                "slider": {
-                                    "min": 0,
-                                    "max": 1000,
-                                    "step": 1
-                                }
-                            },
                             "split_mode": {
                                 "description": "Ⓜ️ 分段模式",
                                 "type": "string",
@@ -2522,17 +2489,6 @@
                                 "type": "bool",
                                 "default": false,
                                 "hint": "開啟後，Bot 回覆的文字將被切分為多條短訊息發送"
-                            },
-                            "words_count_threshold": {
-                                "description": "📏 不分段字數閾值",
-                                "type": "int",
-                                "default": 150,
-                                "hint": "如果回覆內容字數超過此值，則不進行分段",
-                                "slider": {
-                                    "min": 0,
-                                    "max": 1000,
-                                    "step": 1
-                                }
                             },
                             "split_mode": {
                                 "description": "Ⓜ️ 分段模式",

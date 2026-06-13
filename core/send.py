@@ -72,9 +72,8 @@ async def send_proactive_message(
     should_send_text = not is_tts_sent or tts_conf.get("always_send_text", True)
     if should_send_text:
         enable_seg = seg_conf.get("enable", False)
-        threshold = seg_conf.get("words_count_threshold", 150)
 
-        if enable_seg and len(text) > threshold:
+        if enable_seg:
             segments = split_text(text, seg_conf) or [text]
             for idx, seg in enumerate(segments):
                 sent = await send_chain_with_hooks(
