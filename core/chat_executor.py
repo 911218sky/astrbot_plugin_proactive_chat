@@ -87,6 +87,7 @@ async def check_and_chat(
     """
     context_finished = False
     habit_finished = False
+    limit_reached = False
     try:
         habit_task = plugin._find_habit_task(session_id, ctx_job_id)
         skip_unanswered = bool(
@@ -97,8 +98,9 @@ async def check_and_chat(
             plugin, session_id, skip_unanswered=skip_unanswered
         )
         if result is None:
+            limit_reached = True
             return
-        session_config, unanswered_count = result
+        session_config, unanswered_count, _ = result
 
         # ── 步驟 2：動態修正 UMO（平台重啟容錯） ──
         resolved_id = await _resolve_session_umo(plugin, session_id)
@@ -141,7 +143,13 @@ async def check_and_chat(
         if ctx_job_id and _is_habit_job(ctx_job_id):
             if not habit_finished:
                 await plugin._cleanup_habit_task(session_id, ctx_job_id)
-            await plugin._schedule_next_habit_task(session_id)
+            if not limit_reached:
+                await plugin._schedule_next_habit_task(session_id)
+            else:
+                logger.info(
+                    f"{_LOG_TAG} {get_session_log_str(session_id, None, plugin.session_data)} "
+                    "未回覆已達硬性上限，暫停排程下一次習慣時段任務。"
+                )
 
 
 # ═══════════════════════════════════════════════════════════
@@ -151,11 +159,14 @@ async def check_and_chat(
 
 async def _check_preconditions(
     plugin: ProactiveChatPlugin, session_id: str, *, skip_unanswered: bool = False
-) -> tuple[dict, int] | None:
+) -> tuple[dict, int, bool] | None:
     """檢查免打擾時段與未回覆衰減，決定是否繼續執行。
 
     Returns:
-        ``(session_config, unanswered_count)``；不應繼續時回傳 ``None``。
+        ``(session_config, unanswered_count, limit_reached)``；
+        不應繼續時回傳 ``None``。
+        ``limit_reached`` 為 ``True`` 表示未回覆次數已達硬性上限，
+        呼叫方不應再為該會話排程新的主動訊息（包括習慣時段任務）。
     """
     session_config = get_session_config(plugin.config, session_id)
     if not await plugin._is_chat_allowed(session_id, session_config):
@@ -171,7 +182,15 @@ async def _check_preconditions(
             "unanswered_count", 0
         )
         if skip_unanswered:
-            should_trigger, reason = True, ""
+            # 即使習慣時段任務不計入未回覆次數，
+            # 仍需檢查硬性上限，確保達到上限後所有主動訊息都會停止。
+            limit_reached, limit_reason = is_unanswered_limit_reached(
+                unanswered_count, schedule_conf, plugin.timezone
+            )
+            if limit_reached:
+                should_trigger, reason = False, limit_reason
+            else:
+                should_trigger, reason = True, ""
         else:
             should_trigger, reason = should_trigger_by_unanswered(
                 unanswered_count, schedule_conf, plugin.timezone
@@ -188,7 +207,7 @@ async def _check_preconditions(
     if reason:
         logger.info(f"{_LOG_TAG} {log_str} {reason}")
 
-    return session_config, unanswered_count
+    return session_config, unanswered_count, False
 
 
 # ═══════════════════════════════════════════════════════════
