@@ -97,8 +97,8 @@ async def check_and_chat(
         result = await _check_preconditions(
             plugin, session_id, skip_unanswered=skip_unanswered
         )
-        if result is None:
-            limit_reached = True
+        if result[0] is None:
+            limit_reached = result[2]
             return
         session_config, unanswered_count, _ = result
 
@@ -159,19 +159,19 @@ async def check_and_chat(
 
 async def _check_preconditions(
     plugin: ProactiveChatPlugin, session_id: str, *, skip_unanswered: bool = False
-) -> tuple[dict, int, bool] | None:
+) -> tuple[dict | None, int, bool]:
     """檢查免打擾時段與未回覆衰減，決定是否繼續執行。
 
     Returns:
-        ``(session_config, unanswered_count, limit_reached)``；
-        不應繼續時回傳 ``None``。
+        ``(session_config, unanswered_count, limit_reached)``。
+        不應繼續時 ``session_config`` 為 ``None``。
         ``limit_reached`` 為 ``True`` 表示未回覆次數已達硬性上限，
         呼叫方不應再為該會話排程新的主動訊息（包括習慣時段任務）。
     """
     session_config = get_session_config(plugin.config, session_id)
     if not await plugin._is_chat_allowed(session_id, session_config):
         await plugin._schedule_next_chat_and_save(session_id)
-        return None
+        return None, 0, False
 
     schedule_conf = session_config.get("schedule_settings", {})
     log_str = get_session_log_str(session_id, session_config, plugin.session_data)
@@ -203,7 +203,8 @@ async def _check_preconditions(
             await plugin._schedule_next_chat_and_save(session_id)
         elif "硬性上限" in reason:
             await plugin._clear_regular_job_state(session_id)
-        return None
+            return None, 0, True
+        return None, 0, False
     if reason:
         logger.info(f"{_LOG_TAG} {log_str} {reason}")
 
