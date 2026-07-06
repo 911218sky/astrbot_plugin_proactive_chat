@@ -1,6 +1,6 @@
 # 本插件依賴 APScheduler、aiofiles 與 aiosqlite。
 # aiosqlite 用於插件自己的 proactive_state.db，避免把任務狀態寫入 AstrBot 核心資料庫。
 # 上限避免未來大版本破壞 API；需要升級時請先在 AstrBot 環境測試。
-apscheduler>=3.10.0,<4
-aiofiles>=23.0.0,<25
-aiosqlite>=0.20.0,<1
+apscheduler>=3.11.3,<4
+aiofiles>=25.1.0,<26
+aiosqlite>=0.22.1,<1
