@@ -7,6 +7,7 @@ import functools
 import math
 import random
 import re
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from astrbot.api import logger
@@ -20,6 +21,7 @@ from astrbot.core.platform.astrbot_message import (
 from astrbot.core.platform.message_type import MessageType
 from astrbot.core.star.star_handler import EventType, star_handlers_registry
 
+from .delivery import GateVerdict
 from .utils import MSG_TYPE_KEYWORD_GROUP, parse_session_id
 
 if TYPE_CHECKING:
@@ -110,11 +112,14 @@ async def send_chain_with_hooks(
     components: list,
     context: Context,
     session_data: dict,
+    gate_check: Callable[[], GateVerdict] | None = None,
 ) -> bool:
     """經裝飾鉤子處理後，透過 AstrBot 核心 API 發送訊息鏈。"""
     processed = await trigger_decorating_hooks(
         session_id, components, context, session_data
     )
+    if gate_check and gate_check() is not GateVerdict.CURRENT:
+        return False
     if not processed:
         logger.warning(f"{_LOG_TAG} 裝飾後訊息鏈為空，取消發送 | session={session_id}")
         return False
@@ -122,7 +127,7 @@ async def send_chain_with_hooks(
     try:
         ok = await context.send_message(session_id, MessageChain(processed))
         if ok:
-            logger.debug(f"{_LOG_TAG} 訊息已透過 AstrBot 核心 API 送達")
+            logger.debug(f"{_LOG_TAG} AstrBot 核心 API 已接受訊息")
             return True
         else:
             logger.warning(

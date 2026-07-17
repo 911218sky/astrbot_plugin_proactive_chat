@@ -576,6 +576,40 @@
                     }
                 }
             },
+            "immediate_follow_up_settings": {
+                "description": "即時跟進設定",
+                "type": "object",
+                "items": {
+                    "enable": {
+                        "description": "啟用即時跟進",
+                        "type": "bool",
+                        "default": false,
+                        "hint": "開啟後，Bot 可在同一次主動訊息後產生有限次即時跟進。預設關閉，舊有會話設定不會自動啟用。"
+                    },
+                    "max_follow_ups": {
+                        "description": "最多跟進次數",
+                        "type": "int",
+                        "default": 1,
+                        "hint": "單次主動訊息最多追加幾次跟進，執行時限制在 0 到 3 次。",
+                        "slider": {
+                            "min": 0,
+                            "max": 3,
+                            "step": 1
+                        }
+                    },
+                    "delay_seconds": {
+                        "description": "跟進前等待秒數",
+                        "type": "int",
+                        "default": 2,
+                        "hint": "每次即時跟進前等待的秒數，執行時限制在 0 到 10 秒。",
+                        "slider": {
+                            "min": 0,
+                            "max": 10,
+                            "step": 1
+                        }
+                    }
+                }
+            },
             "segmented_reply_settings": {
                 "description": "🔪 分段回覆設定",
                 "type": "object",
@@ -1172,6 +1206,40 @@
                         "slider": {
                             "min": 1,
                             "max": 20,
+                            "step": 1
+                        }
+                    }
+                }
+            },
+            "immediate_follow_up_settings": {
+                "description": "即時跟進設定",
+                "type": "object",
+                "items": {
+                    "enable": {
+                        "description": "啟用即時跟進",
+                        "type": "bool",
+                        "default": false,
+                        "hint": "開啟後，Bot 可在同一次主動訊息後產生有限次即時跟進。預設關閉，舊有會話設定不會自動啟用。"
+                    },
+                    "max_follow_ups": {
+                        "description": "最多跟進次數",
+                        "type": "int",
+                        "default": 1,
+                        "hint": "單次主動訊息最多追加幾次跟進，執行時限制在 0 到 3 次。",
+                        "slider": {
+                            "min": 0,
+                            "max": 3,
+                            "step": 1
+                        }
+                    },
+                    "delay_seconds": {
+                        "description": "跟進前等待秒數",
+                        "type": "int",
+                        "default": 2,
+                        "hint": "每次即時跟進前等待的秒數，執行時限制在 0 到 10 秒。",
+                        "slider": {
+                            "min": 0,
+                            "max": 10,
                             "step": 1
                         }
                     }
@@ -1873,6 +1941,40 @@
                             }
                         }
                     },
+                    "immediate_follow_up_settings": {
+                        "description": "即時跟進設定",
+                        "type": "object",
+                        "items": {
+                            "enable": {
+                                "description": "啟用即時跟進",
+                                "type": "bool",
+                                "default": false,
+                                "hint": "開啟後，Bot 可在同一次主動訊息後產生有限次即時跟進。預設關閉，舊有會話設定不會自動啟用。"
+                            },
+                            "max_follow_ups": {
+                                "description": "最多跟進次數",
+                                "type": "int",
+                                "default": 1,
+                                "hint": "單次主動訊息最多追加幾次跟進，執行時限制在 0 到 3 次。",
+                                "slider": {
+                                    "min": 0,
+                                    "max": 3,
+                                    "step": 1
+                                }
+                            },
+                            "delay_seconds": {
+                                "description": "跟進前等待秒數",
+                                "type": "int",
+                                "default": 2,
+                                "hint": "每次即時跟進前等待的秒數，執行時限制在 0 到 10 秒。",
+                                "slider": {
+                                    "min": 0,
+                                    "max": 10,
+                                    "step": 1
+                                }
+                            }
+                        }
+                    },
                     "segmented_reply_settings": {
                         "description": "🔪 分段回覆設定",
                         "type": "object",
@@ -2475,6 +2577,40 @@
                                 "slider": {
                                     "min": 1,
                                     "max": 20,
+                                    "step": 1
+                                }
+                            }
+                        }
+                    },
+                    "immediate_follow_up_settings": {
+                        "description": "即時跟進設定",
+                        "type": "object",
+                        "items": {
+                            "enable": {
+                                "description": "啟用即時跟進",
+                                "type": "bool",
+                                "default": false,
+                                "hint": "開啟後，Bot 可在同一次主動訊息後產生有限次即時跟進。預設關閉，舊有會話設定不會自動啟用。"
+                            },
+                            "max_follow_ups": {
+                                "description": "最多跟進次數",
+                                "type": "int",
+                                "default": 1,
+                                "hint": "單次主動訊息最多追加幾次跟進，執行時限制在 0 到 3 次。",
+                                "slider": {
+                                    "min": 0,
+                                    "max": 3,
+                                    "step": 1
+                                }
+                            },
+                            "delay_seconds": {
+                                "description": "跟進前等待秒數",
+                                "type": "int",
+                                "default": 2,
+                                "hint": "每次即時跟進前等待的秒數，執行時限制在 0 到 10 秒。",
+                                "slider": {
+                                    "min": 0,
+                                    "max": 10,
                                     "step": 1
                                 }
                             }

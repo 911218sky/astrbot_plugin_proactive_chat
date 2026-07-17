@@ -21,6 +21,11 @@ from .core.context_scheduling import (
     handle_context_aware_scheduling,
     restore_pending_context_tasks,
 )
+from .core.delivery import (
+    DeliveryCoordinatorRegistry,
+    DispatchGate,
+    GateVerdict,
+)
 from .core.scheduler import (
     compute_habit_next_run,
     compute_weighted_interval,
@@ -91,7 +96,7 @@ class ProactiveChatPlugin(star.Star):
         "_context_analysis_tasks",
         "_context_analysis_semaphore",
         "_ctx_task_counter",
-        "_active_chat_locks",
+        "_delivery_coordinators",
         "_chat_run_semaphore",
         "_history_save_lock",
         "page_api",
@@ -145,8 +150,7 @@ class ProactiveChatPlugin(star.Star):
         self._context_analysis_semaphore: asyncio.Semaphore = asyncio.Semaphore(2)
         # 語境任務計數器，用於生成唯一 job_id
         self._ctx_task_counter: int = 0
-        # 同一會話的主動訊息流程不可重入，避免並發 agent/DB 寫入放大 SQLite lock。
-        self._active_chat_locks: dict[str, asyncio.Lock] = {}
+        self._delivery_coordinators = DeliveryCoordinatorRegistry()
         # 全域限流：避免多個會話同時觸發主動訊息，一起打進 AstrBot agent/history 流程。
         self._chat_run_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
         # 主動訊息寫回 AstrBot 主對話歷史時使用，避免本插件自己並發搶同一個 SQLite。
@@ -300,6 +304,7 @@ class ProactiveChatPlugin(star.Star):
         """合併平台前綴變更造成的同一會話狀態，避免重複排程。"""
         if old_session_id == new_session_id:
             return
+        self._delivery_coordinators.merge_aliases(old_session_id, new_session_id)
 
         try:
             if self.scheduler and self.scheduler.get_job(old_session_id):
@@ -1137,6 +1142,34 @@ class ProactiveChatPlugin(star.Star):
             return False
         return True
 
+    def _canonical_delivery_session(self, session_id: str) -> str:
+        parsed = parse_session_id(session_id)
+        if not parsed:
+            return session_id
+        platform_id, message_type, target_id = parsed
+        return resolve_full_umo(
+            target_id,
+            message_type,
+            self.context.platform_manager,
+            self.session_data,
+            platform_id,
+        )
+
+    def _gate_verdict(self, gate: DispatchGate) -> GateVerdict:
+        session_config = get_session_config(self.config, gate.canonical_session_id)
+        enabled = bool(session_config and session_config.get("enable", False))
+        quiet_hours = False
+        if session_config:
+            quiet = session_config.get("schedule_settings", {}).get(
+                "quiet_hours", "1-7"
+            )
+            quiet_hours = is_quiet_time(quiet, self.timezone)
+        return self._delivery_coordinators.verdict(
+            gate,
+            enabled=enabled,
+            quiet_hours=quiet_hours,
+        )
+
     async def _init_jobs_from_data(self) -> None:
         """
         從持久化數據恢復定時任務。
@@ -1687,82 +1720,95 @@ class ProactiveChatPlugin(star.Star):
         if not event.get_messages():
             return
 
-        session_id = event.unified_msg_origin
-        now = time.time()
+        alias_session_id = event.unified_msg_origin
+        session_id = self._canonical_delivery_session(alias_session_id)
+        gate = self._delivery_coordinators.record_activity(alias_session_id, session_id)
+        coordinator = self._delivery_coordinators.coordinator_for(session_id)
+        try:
+            async with coordinator.lease():
+                now = time.time()
 
-        # 記錄機器人自身 ID（用於構建模擬事件時的 self_id 欄位）
-        self_id = event.get_self_id()
-        self.last_message_times[session_id] = now
-        if is_group:
-            # 群聊額外記錄臨時狀態（用於 after_message_sent 的過期清理）
-            self.session_temp_state[session_id] = {"last_user_time": now}
+                # 記錄機器人自身 ID（用於構建模擬事件時的 self_id 欄位）
+                self_id = event.get_self_id()
+                self.last_message_times[session_id] = now
+                if is_group:
+                    # 群聊額外記錄臨時狀態（用於 after_message_sent 的過期清理）
+                    self.session_temp_state[session_id] = {"last_user_time": now}
 
-        session_config = get_session_config(self.config, session_id)
-        enabled = bool(session_config and session_config.get("enable", False))
+                session_config = get_session_config(self.config, session_id)
+                enabled = bool(session_config and session_config.get("enable", False))
 
-        # 先把使用者已回覆這件事落盤：舊任務不應在重啟後又被恢復。
-        async with self.data_lock:
-            sd = self.session_data.setdefault(session_id, {})
-            if self_id:
-                sd["self_id"] = self_id
-            sd.setdefault("first_interaction_time", now)
-            if now >= self.plugin_start_time:
-                sd["last_message_time"] = now
-            if enabled:
-                sd["unanswered_count"] = 0
-            await self._save_data()
+                # 先把使用者已回覆這件事落盤：舊任務不應在重啟後又被恢復。
+                async with self.data_lock:
+                    sd = self.session_data.setdefault(session_id, {})
+                    if self_id:
+                        sd["self_id"] = self_id
+                    sd.setdefault("first_interaction_time", now)
+                    if now >= self.plugin_start_time:
+                        sd["last_message_time"] = now
+                    if enabled:
+                        sd["unanswered_count"] = 0
+                    await self._save_data()
 
-        # 首次訊息日誌（每個會話只記錄一次）
-        if enabled and session_id not in self.first_message_logged:
-            self.first_message_logged.add(session_id)
-            logger.info(
-                f"{_LOG_TAG} 已記錄 "
-                f"{get_session_log_str(session_id, session_config, self.session_data)} 的訊息時間。"
-            )
+                # 首次訊息日誌（每個會話只記錄一次）
+                if enabled and session_id not in self.first_message_logged:
+                    self.first_message_logged.add(session_id)
+                    logger.info(
+                        f"{_LOG_TAG} 已記錄 "
+                        f"{get_session_log_str(session_id, session_config, self.session_data)} 的訊息時間。"
+                    )
 
-        if not enabled:
-            return
+                if not enabled:
+                    return
 
-        # 使用者已活躍，取消自動觸發計時器並保存，避免重啟後又恢復等待任務。
-        await self._cancel_all_related_auto_triggers(session_id)
+                # 使用者已活躍，取消自動觸發計時器並保存，避免重啟後又恢復等待任務。
+                await self._cancel_all_related_auto_triggers(session_id)
 
-        # 先提取語境感知所需的資訊，再進行排程操作
-        ctx_settings = session_config.get("context_aware_settings", {})
-        ctx_enabled = ctx_settings.get("enable", False)
-        message_text = event.message_str or "" if ctx_enabled else ""
+                # 先提取語境感知所需的資訊，再進行排程操作
+                ctx_settings = session_config.get("context_aware_settings", {})
+                ctx_enabled = ctx_settings.get("enable", False)
+                message_text = event.message_str or "" if ctx_enabled else ""
 
-        if is_group:
-            # 群聊：重設沉默倒計時，等群組再次安靜後才排定主動訊息。
-            await self._reset_group_silence_timer(session_id)
-            await self._clear_regular_job_state(session_id)
-            try:
-                if self.scheduler and self.scheduler.get_job(session_id):
-                    self.scheduler.remove_job(session_id)
-            except Exception as e:
-                logger.debug(
-                    f"{_LOG_TAG} _handle_message 移除舊排程任務失敗"
-                    f" | session={session_id}: {e}"
+                if is_group:
+                    # 群聊：重設沉默倒計時，等群組再次安靜後才排定主動訊息。
+                    await self._reset_group_silence_timer(session_id)
+                    await self._clear_regular_job_state(session_id)
+                    try:
+                        if self.scheduler and self.scheduler.get_job(session_id):
+                            self.scheduler.remove_job(session_id)
+                    except Exception as e:
+                        logger.debug(
+                            f"{_LOG_TAG} _handle_message 移除舊排程任務失敗"
+                            f" | session={session_id}: {e}"
+                        )
+                else:
+                    # 私聊：排程本身很輕量，直接保存可避免重啟時短暫丟失下一次任務。
+                    await self._schedule_next_chat_and_save(
+                        session_id, reset_counter=True
+                    )
+                    habit_conf = self._habit_settings(session_config)
+                    if self._habit_learning_settings(habit_conf)["enable"]:
+                        await self._record_private_habit_observation(
+                            session_id, session_config, now
+                        )
+                    else:
+                        await self._cleanup_auto_habit_rule_task(session_id)
+
+                habit_settings = self._effective_habit_settings(
+                    session_id, session_config
                 )
-        else:
-            # 私聊：排程本身很輕量，直接保存可避免重啟時短暫丟失下一次任務。
-            await self._schedule_next_chat_and_save(session_id, reset_counter=True)
-            habit_conf = self._habit_settings(session_config)
-            if self._habit_learning_settings(habit_conf)["enable"]:
-                await self._record_private_habit_observation(
-                    session_id, session_config, now
-                )
-            else:
-                await self._cleanup_auto_habit_rule_task(session_id)
+                if habit_settings.get(
+                    "enable", False
+                ) and not self._pending_habit_tasks.get(session_id):
+                    await self._schedule_next_habit_task(session_id)
 
-        habit_settings = self._effective_habit_settings(session_id, session_config)
-        if habit_settings.get("enable", False) and not self._pending_habit_tasks.get(
-            session_id
-        ):
-            await self._schedule_next_habit_task(session_id)
-
-        # 語境感知排程：在背景執行，避免阻塞訊息回覆流程
-        if ctx_enabled:
-            self._schedule_context_analysis(session_id, message_text, ctx_settings, now)
+                # 語境感知排程：在背景執行，避免阻塞訊息回覆流程
+                if ctx_enabled:
+                    self._schedule_context_analysis(
+                        session_id, message_text, ctx_settings, now
+                    )
+        finally:
+            self._delivery_coordinators.retire(gate)
 
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE, priority=998)
     async def on_private_message(self, event: AstrMessageEvent) -> None:
@@ -2031,8 +2077,19 @@ class ProactiveChatPlugin(star.Star):
         manual: bool = False,
     ) -> None:
         """由定時任務觸發的核心函數，委派至 core.chat_executor。"""
-        lock = self._active_chat_locks.setdefault(session_id, asyncio.Lock())
-        if lock.locked():
+        alias_session_id = session_id
+        resolved_session_id = chat_executor.resolve_session_umo(self, alias_session_id)
+        if resolved_session_id is None:
+            await self._schedule_next_chat_and_save(alias_session_id)
+            return
+        session_id = resolved_session_id
+        coordinator = self._delivery_coordinators.merge_aliases(
+            alias_session_id, session_id
+        )
+        gate = self._delivery_coordinators.snapshot(alias_session_id, session_id)
+        if alias_session_id != session_id:
+            await self._merge_session_state(alias_session_id, session_id)
+        if coordinator.locked:
             if manual:
                 logger.info(
                     f"{_LOG_TAG} {get_session_log_str(session_id, None, self.session_data)} "
@@ -2046,7 +2103,7 @@ class ProactiveChatPlugin(star.Star):
             await self._retry_chat_job(session_id, ctx_job_id)
             return
         try:
-            async with lock:
+            async with coordinator.lease():
                 if self._chat_run_semaphore.locked():
                     if manual:
                         logger.info(
@@ -2061,7 +2118,8 @@ class ProactiveChatPlugin(star.Star):
                     await self._retry_chat_job(session_id, ctx_job_id)
                     return
                 async with self._chat_run_semaphore:
-                    await chat_executor.check_and_chat(self, session_id, ctx_job_id)
+                    await chat_executor.check_and_chat(
+                        self, session_id, ctx_job_id, gate=gate
+                    )
         finally:
-            if self._active_chat_locks.get(session_id) is lock and not lock.locked():
-                self._active_chat_locks.pop(session_id, None)
+            self._delivery_coordinators.retire(gate)
