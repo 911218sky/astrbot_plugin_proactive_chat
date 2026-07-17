@@ -61,7 +61,7 @@ def resolve_immediate_follow_up_settings(
             raw.get("max_follow_ups"),
             default=1,
             minimum=0,
-            maximum=3,
+            maximum=10,
         ),
         delay_seconds=_bounded_int(
             raw.get("delay_seconds"),

@@ -12,6 +12,7 @@
 ### 新增 (Feature)
 
 - 新增 `immediate_follow_up_settings` 的 `decision_mode`，可在 LLM 判斷與隨機機率之間切換；隨機模式支援初始機率與逐句下降幅度，跟進 LLM 優先使用語境分析設定的同一個 Provider。
+- `max_follow_ups` 上限由 3 提升至 10，仍只計算初始訊息之外的追加句數。
 - 可設定每次判斷前等待 0 到 10 秒；預設關閉，既有配置與發送行為維持不變。
 
 ### 修復 (Fix)

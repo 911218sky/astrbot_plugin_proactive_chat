@@ -27,7 +27,7 @@ Current version: `v2.22.0`
 
 Recent updates:
 
-- Added optional AI-decided immediate follow-ups. After each proactive message, the AI can stop or append another message, up to 0-3 follow-ups per burst.
+- Added optional AI-decided immediate follow-ups. After each proactive message, the AI can stop or append another message, up to 0-10 follow-ups per burst.
 - A new user activity, disabled session, quiet hours, incomplete send, invalid controller output, or an AI stop decision ends the burst before any future message is sent.
 - Added a plugin-owned SQLite state store, `proactive_state.db`, for the latest task/session state.
 - Hardened create, reschedule, delete, and context-cancel flows so task state is saved before scheduler/timer changes.
@@ -112,7 +112,7 @@ Added `schedule_rules` (`template_list` type) to all `schedule_settings`, enabli
 
 ### Immediate AI-Decided Follow-Ups
 
-`immediate_follow_up_settings` is disabled by default. When enabled, the AI decides after every successfully delivered proactive message whether one more message is useful. `max_follow_ups` defaults to 1 and is bounded to 0-3 additional messages; `delay_seconds` defaults to 2 and is bounded to 0-10 seconds. A stop decision, malformed controller output, incomplete send, user activity, disabled session, or quiet-hours gate ends the burst immediately.
+`immediate_follow_up_settings` is disabled by default. When enabled, the AI decides after every successfully delivered proactive message whether one more message is useful. `max_follow_ups` defaults to 1 and is bounded to 0-10 additional messages; `delay_seconds` defaults to 2 and is bounded to 0-10 seconds. A stop decision, malformed controller output, incomplete send, user activity, disabled session, or quiet-hours gate ends the burst immediately.
 
 ### 4. livingmemory Integration
 

@@ -170,7 +170,7 @@ def test_red_initial_status_controls_controller_and_history(
 def test_red_controller_stop_matrix_preserves_successful_initial(
     monkeypatch: pytest.MonkeyPatch, decision: str | BaseException
 ) -> None:
-    result = run_burst(monkeypatch, decisions=(decision,), maximum=3)
+    result = run_burst(monkeypatch, decisions=(decision,), maximum=10)
     assert result.completed, (
         "PCF-03 RED: false/malformed/duplicate/controller fault must not fail the initial"
     )
@@ -192,7 +192,7 @@ def test_red_noncomplete_follow_up_stops_without_failing_initial(
         monkeypatch,
         decisions=('{"send_follow_up":true,"message":"second"}',),
         follow_up_turns=(text_turn("second", accepted=accepted, intended=intended),),
-        maximum=3,
+        maximum=10,
     )
     assert result.completed, (
         f"PCF-03 RED: {follow_status.value} follow-up must preserve initial success"
@@ -203,8 +203,10 @@ def test_red_noncomplete_follow_up_stops_without_failing_initial(
     ], "PCF-03 RED: partial/failed follow-up must stop the controller loop"
 
 
-@pytest.mark.parametrize(("configured", "expected"), ((-4, 0), (0, 0), (1, 1), (8, 3)))
-def test_red_follow_up_maximum_is_clamped_zero_through_three(
+@pytest.mark.parametrize(
+    ("configured", "expected"), ((-4, 0), (0, 0), (1, 1), (8, 8), (99, 10))
+)
+def test_red_follow_up_maximum_is_clamped_zero_through_ten(
     monkeypatch: pytest.MonkeyPatch, configured: int, expected: int
 ) -> None:
     messages = tuple(f"follow-{index}" for index in range(expected))
@@ -219,7 +221,7 @@ def test_red_follow_up_maximum_is_clamped_zero_through_three(
         maximum=configured,
     )
     assert len(result.controller_inputs) == expected, (
-        "PCF-03 RED: configured maximum must clamp to exactly 0..3 controller calls"
+        "PCF-03 RED: configured maximum must clamp to exactly 0..10 controller calls"
     )
     assert len(result.sent_messages) == expected + 1
 

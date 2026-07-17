@@ -122,7 +122,7 @@ def test_schema_defines_exact_follow_up_defaults_and_bounds() -> None:
         assert items["max_follow_ups"]["default"] == 1
         assert items["max_follow_ups"]["slider"] == {
             "min": 0,
-            "max": 3,
+            "max": 10,
             "step": 1,
         }
         assert items["delay_seconds"]["type"] == "int"
@@ -180,7 +180,7 @@ def test_schema_defines_exact_follow_up_defaults_and_bounds() -> None:
                     "random_decay": -2,
                 }
             },
-            (True, "random", 3, 0, 100, 0),
+            (True, "random", 10, 0, 100, 0),
         ),
         (
             {
