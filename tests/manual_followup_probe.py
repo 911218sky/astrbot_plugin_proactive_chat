@@ -61,8 +61,11 @@ def _run_happy(module: ModuleType) -> None:
         {
             "immediate_follow_up_settings": {
                 "enable": True,
+                "decision_mode": "random",
                 "max_follow_ups": 8,
                 "delay_seconds": -1,
+                "random_probability": 80,
+                "random_decay": 20,
             }
         }
     )
@@ -73,10 +76,19 @@ def _run_happy(module: ModuleType) -> None:
     schema_blocks = _schema_block_count()
     if (
         schema_blocks != 4
-        or (settings.enable, settings.max_follow_ups, settings.delay_seconds)
-        != (True, 3, 0)
+        or (
+            settings.enable,
+            settings.decision_mode,
+            settings.max_follow_ups,
+            settings.delay_seconds,
+            settings.random_probability,
+            settings.random_decay,
+        )
+        != (True, "random", 3, 0, 80, 20)
         or decision is None
         or decision.message != "Next thought"
+        or not module.should_send_random_follow_up(settings, 0, 0.79)
+        or module.should_send_random_follow_up(settings, 1, 0.80)
     ):
         raise RuntimeError("happy probe failed")
     print("PCF-01 PASS case=happy schema_blocks=4 external_sends=0")

@@ -519,6 +519,7 @@ async def call_llm(
     prompt: str,
     contexts: list,
     system_prompt: str,
+    provider_id: str | None = None,
 ) -> Any:
     """呼叫 LLM 生成回應。
 
@@ -526,9 +527,13 @@ async def call_llm(
     備用路徑：若主要路徑失敗，回退到 ``get_using_provider().text_chat()``。
     """
     try:
-        provider_id = await context.get_current_chat_provider_id(session_id)
+        selected_provider_id = (
+            provider_id.strip()
+            if isinstance(provider_id, str) and provider_id.strip()
+            else await context.get_current_chat_provider_id(session_id)
+        )
         return await context.llm_generate(
-            chat_provider_id=provider_id,
+            chat_provider_id=selected_provider_id,
             prompt=prompt,
             contexts=contexts,
             system_prompt=system_prompt,

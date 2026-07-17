@@ -11,7 +11,7 @@
 
 ### 新增 (Feature)
 
-- 新增 `immediate_follow_up_settings`。開啟後，AI 會在每次已成功發送的主動訊息後判斷是否立即追加下一句，單輪最多追加 0 到 3 句。
+- 新增 `immediate_follow_up_settings` 的 `decision_mode`，可在 LLM 判斷與隨機機率之間切換；隨機模式支援初始機率與逐句下降幅度，跟進 LLM 優先使用語境分析設定的同一個 Provider。
 - 可設定每次判斷前等待 0 到 10 秒；預設關閉，既有配置與發送行為維持不變。
 
 ### 修復 (Fix)

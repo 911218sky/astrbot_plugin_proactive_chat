@@ -2,26 +2,27 @@ from __future__ import annotations
 
 import json
 import unicodedata
-from collections.abc import Awaitable, Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, assert_never
-
-from astrbot.api import logger
+from typing import TYPE_CHECKING, Literal
 
 if TYPE_CHECKING:
     from .delivery import AcceptedTurn, DispatchGate
 
 
 _DECISION_KEYS = frozenset(("send_follow_up", "message"))
-_LOG_TAG = "[主動訊息]"
-Sleep = Callable[[float], Awaitable[None]]
+RandomSource = Callable[[], float]
+FollowUpMode = Literal["llm", "random"]
 
 
 @dataclass(frozen=True, slots=True)
 class ImmediateFollowUpSettings:
     enable: bool = False
+    decision_mode: FollowUpMode = "llm"
     max_follow_ups: int = 1
     delay_seconds: int = 2
+    random_probability: int = 100
+    random_decay: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,8 +52,11 @@ def resolve_immediate_follow_up_settings(
         return ImmediateFollowUpSettings()
 
     enable_value = raw.get("enable", False)
+    mode_value = raw.get("decision_mode", "llm")
+    decision_mode: FollowUpMode = "random" if mode_value == "random" else "llm"
     return ImmediateFollowUpSettings(
         enable=enable_value if type(enable_value) is bool else False,
+        decision_mode=decision_mode,
         max_follow_ups=_bounded_int(
             raw.get("max_follow_ups"),
             default=1,
@@ -65,7 +69,31 @@ def resolve_immediate_follow_up_settings(
             minimum=0,
             maximum=10,
         ),
+        random_probability=_bounded_int(
+            raw.get("random_probability"),
+            default=100,
+            minimum=0,
+            maximum=100,
+        ),
+        random_decay=_bounded_int(
+            raw.get("random_decay"),
+            default=0,
+            minimum=0,
+            maximum=100,
+        ),
     )
+
+
+def should_send_random_follow_up(
+    settings: ImmediateFollowUpSettings,
+    follow_up_index: int,
+    random_value: float,
+) -> bool:
+    probability = max(
+        0,
+        settings.random_probability - settings.random_decay * follow_up_index,
+    )
+    return random_value < probability / 100
 
 
 def sanitize_follow_up_message(message: str) -> str:
@@ -135,150 +163,18 @@ async def request_follow_up_decision(
     return await request(plugin, session_id, accepted_turns, gate)
 
 
-async def _collect_follow_ups(
+async def request_follow_up_message(
     plugin,
     session_id: str,
-    session_config: dict,
-    gate: DispatchGate,
     accepted_turns: tuple[AcceptedTurn, ...],
-    *,
-    dispatch,
-    controller,
-    sleep: Sleep,
-) -> tuple[AcceptedTurn, ...]:
-    from .delivery import DispatchStatus, GateVerdict, accepted_turn_text
-
-    settings = resolve_immediate_follow_up_settings(session_config)
-    if not settings.enable:
-        return accepted_turns
-    turns = accepted_turns
-    for _index in range(settings.max_follow_ups):
-        if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:
-            break
-        if settings.delay_seconds:
-            await sleep(settings.delay_seconds)
-            if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:
-                break
-        try:
-            raw = await controller(plugin, session_id, turns, gate)
-        except Exception as error:
-            logger.info(f"{_LOG_TAG} 即時跟進控制器失敗，停止本輪: {error}")
-            break
-        if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:
-            break
-        decision = parse_follow_up_decision(
-            raw,
-            accepted_turns=tuple(accepted_turn_text(turn) for turn in turns),
-        )
-        if decision is None or not decision.send_follow_up:
-            break
-        turn = await dispatch(
-            session_id=session_id,
-            text=decision.message,
-            config=plugin.config,
-            context=plugin.context,
-            session_data=plugin.session_data,
-            reset_group_silence_cb=plugin._reset_group_silence_timer,
-            last_bot_message_time_setter=lambda value: setattr(
-                plugin, "last_bot_message_time", value
-            ),
-            gate_check=lambda: plugin._gate_verdict(gate),
-        )
-        if turn.accepted_components:
-            turns = (*turns, turn)
-        if turn.status is not DispatchStatus.COMPLETE:
-            break
-    return turns
-
-
-async def deliver_and_finalize(
-    plugin,
-    session_id: str,
-    session_config: dict,
-    response_text: str,
-    conv_id: str,
-    final_prompt: str,
-    unanswered_count: int,
-    ctx_job_id: str,
     gate: DispatchGate,
-    *,
-    dispatch,
-    controller,
-    finalize,
-    save_history,
-    cleanup_context,
-    clear_failed,
-    reschedule_quiet,
-    is_habit_job,
-    sleep: Sleep,
-) -> bool:
-    from .delivery import DispatchStatus, GateVerdict
+) -> str | None:
+    from .proactive_prompt import request_follow_up_message as request
 
-    initial = await dispatch(
-        session_id=session_id,
-        text=response_text,
-        config=plugin.config,
-        context=plugin.context,
-        session_data=plugin.session_data,
-        reset_group_silence_cb=plugin._reset_group_silence_timer,
-        last_bot_message_time_setter=lambda value: setattr(
-            plugin, "last_bot_message_time", value
-        ),
-        gate_check=lambda: plugin._gate_verdict(gate),
-    )
-    if initial.status is DispatchStatus.FAILED:
-        if initial.verdict is GateVerdict.QUIET_HOURS:
-            await reschedule_quiet(plugin, session_id, ctx_job_id)
-            return True
-        if (
-            initial.verdict is GateVerdict.CURRENT
-            and plugin._gate_verdict(gate) is GateVerdict.CURRENT
-            and not is_habit_job(ctx_job_id)
-        ):
-            await clear_failed(plugin, session_id, gate)
-        return False
-    finalized = await finalize(
-        plugin,
-        session_id,
-        session_config,
-        unanswered_count,
-        ctx_job_id=ctx_job_id,
-        clear_task_description=not bool(ctx_job_id),
-        gate=gate,
-    )
-    if not finalized:
-        return False
-    turns = (initial,)
-    if initial.status is DispatchStatus.COMPLETE:
-        turns = await _collect_follow_ups(
-            plugin,
-            session_id,
-            session_config,
-            gate,
-            turns,
-            dispatch=dispatch,
-            controller=controller,
-            sleep=sleep,
-        )
-    gate_check = getattr(plugin, "_gate_verdict", None)
-    verdict = gate_check(gate) if callable(gate_check) else initial.verdict
-    match verdict:
-        case GateVerdict.CURRENT | GateVerdict.QUIET_HOURS:
-            try:
-                await save_history(
-                    plugin, session_config, conv_id, final_prompt, turns, gate
-                )
-            except Exception as error:
-                logger.info(
-                    f"{_LOG_TAG} 即時跟進歷史寫回失敗，已保留已完成發送: {error}"
-                )
-        case GateVerdict.ACTIVITY_CHANGED | GateVerdict.DISABLED:
-            pass
-        case unreachable:
-            assert_never(unreachable)
-    if ctx_job_id:
-        if is_habit_job(ctx_job_id):
-            await plugin._cleanup_habit_task(session_id, ctx_job_id)
-        else:
-            await cleanup_context(plugin, session_id, ctx_job_id)
-    return True
+    return await request(plugin, session_id, accepted_turns, gate)
+
+
+async def deliver_and_finalize(*args, **kwargs):
+    from .follow_up_delivery import deliver_and_finalize as deliver
+
+    return await deliver(*args, **kwargs)

@@ -108,6 +108,26 @@ def test_red_happy_burst_has_exact_single_owner_order(
     assert result.sent_messages == ["initial", "second"]
 
 
+def test_random_mode_uses_probability_for_send_and_llm_only_for_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result = run_burst(
+        monkeypatch,
+        decisions=('{"send_follow_up":true,"message":"second"}',),
+        follow_up_turns=(text_turn("second", accepted=("second",)),),
+        maximum=2,
+        decision_mode="random",
+        random_probability=80,
+        random_decay=20,
+        random_values=(0.79, 0.80),
+    )
+
+    assert result.sent_messages == ["initial", "second"]
+    assert result.events.count("random-followup") == 1
+    assert result.controller_inputs == []
+    assert len(result.message_controller_inputs) == 1
+
+
 @pytest.mark.parametrize(
     ("status", "expected_controller", "expected_history"),
     (

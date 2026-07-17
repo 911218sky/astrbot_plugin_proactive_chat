@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 from astrbot.api import logger
 
 from .delivery import AcceptedTurn, DispatchGate, GateVerdict, accepted_turn_text
+from .config import get_session_config
 from .llm_helpers import (
     NonRetryableLLMError,
     call_llm,
@@ -34,6 +35,11 @@ _CONTROLLER_PROMPT = (
     "判斷是否應立即補充一則自然且不重複的訊息。只輸出完整 JSON："
     '{"send_follow_up":true|false,"message":"..."}。'
     "不需要補充時 message 必須是空字串。已接受的助理訊息："
+)
+_MESSAGE_PROMPT = (
+    "請根據目前對話自然地補充一則不重複的訊息。你已經被隨機策略選中，"
+    "不要判斷是否追加，必須產生一則訊息。只輸出完整 JSON："
+    '{"send_follow_up":true,"message":"..."}。已接受的助理訊息：'
 )
 _RELATIONSHIP_CONTEXT = (
     "\n\n[關係時間感知]\n"
@@ -95,11 +101,12 @@ async def prepare_and_call_llm(
     return response_text, request["conv_id"], final_prompt, ctx_task
 
 
-async def request_follow_up_decision(
+async def _request_follow_up_completion(
     plugin: ProactiveChatPlugin,
     session_id: str,
     accepted_turns: tuple[AcceptedTurn, ...],
     gate: DispatchGate,
+    controller_prompt: str,
 ) -> str | None:
     if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:
         return None
@@ -119,8 +126,15 @@ async def request_follow_up_decision(
     )
     if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:
         return None
-    prompt = _CONTROLLER_PROMPT + json.dumps(
+    prompt = controller_prompt + json.dumps(
         [accepted_turn_text(turn) for turn in accepted_turns], ensure_ascii=False
+    )
+    session_config = get_session_config(plugin.config, session_id) or {}
+    context_settings = session_config.get("context_aware_settings", {})
+    provider_id = (
+        context_settings.get("llm_provider_id")
+        if isinstance(context_settings, dict)
+        else None
     )
     try:
         response = await call_llm(
@@ -129,6 +143,7 @@ async def request_follow_up_decision(
             prompt,
             history,
             request["system_prompt"],
+            provider_id=provider_id if isinstance(provider_id, str) else None,
         )
     except NonRetryableLLMError:
         return None
@@ -136,6 +151,28 @@ async def request_follow_up_decision(
         return None
     completion = getattr(response, "completion_text", None)
     return completion.strip() if isinstance(completion, str) else None
+
+
+async def request_follow_up_decision(
+    plugin: ProactiveChatPlugin,
+    session_id: str,
+    accepted_turns: tuple[AcceptedTurn, ...],
+    gate: DispatchGate,
+) -> str | None:
+    return await _request_follow_up_completion(
+        plugin, session_id, accepted_turns, gate, _CONTROLLER_PROMPT
+    )
+
+
+async def request_follow_up_message(
+    plugin: ProactiveChatPlugin,
+    session_id: str,
+    accepted_turns: tuple[AcceptedTurn, ...],
+    gate: DispatchGate,
+) -> str | None:
+    return await _request_follow_up_completion(
+        plugin, session_id, accepted_turns, gate, _MESSAGE_PROMPT
+    )
 
 
 def build_final_prompt(

@@ -44,6 +44,10 @@ def run_burst(
     maximum: int = 1,
     history_fault: bool = False,
     context_job: str = "context-1",
+    decision_mode: str = "llm",
+    random_probability: int = 100,
+    random_decay: int = 0,
+    random_values: tuple[float, ...] = (),
 ) -> SimpleNamespace:
     async def scenario() -> SimpleNamespace:
         session_id = "platform:FriendMessage:42"
@@ -52,6 +56,7 @@ def run_burst(
         events: list[str] = []
         sent_messages: list[str] = []
         controller_inputs: list[tuple[AcceptedTurn, ...]] = []
+        message_controller_inputs: list[tuple[AcceptedTurn, ...]] = []
         history_payloads: list[object] = []
         turns = list(
             (initial_turn or text_turn("initial", accepted=("initial",)),)
@@ -77,6 +82,16 @@ def run_burst(
                 raise raw
             return raw
 
+        async def message_controller(
+            _plugin, _session_id, accepted, _gate
+        ) -> str | None:
+            events.append("random-followup")
+            message_controller_inputs.append(accepted)
+            raw = queued_decisions.pop(0)
+            if isinstance(raw, BaseException):
+                raise raw
+            return raw
+
         async def save_history(*args, **_kwargs) -> bool:
             events.append("history")
             history_payloads.append(args[4])
@@ -95,6 +110,7 @@ def run_burst(
             ("_update_unanswered_and_reschedule", finalize),
             ("_save_conversation_history", save_history),
             ("_request_follow_up_decision", controller),
+            ("_request_follow_up_message", message_controller),
             ("_cleanup_context_task", cleanup),
             ("_clear_regular_job_state_if_current", clear_failed),
         )
@@ -111,14 +127,22 @@ def run_burst(
             ),
             _reset_group_silence_timer=lambda *_args: None,
         )
+        values = list(random_values)
+
+        def random_source() -> float:
+            return values.pop(0) if values else 0.0
+
         completed = await chat_executor._deliver_and_finalize(
             plugin,
             session_id,
             {
                 "immediate_follow_up_settings": {
                     "enable": True,
+                    "decision_mode": decision_mode,
                     "max_follow_ups": maximum,
                     "delay_seconds": 0,
+                    "random_probability": random_probability,
+                    "random_decay": random_decay,
                 }
             },
             "initial",
@@ -127,12 +151,14 @@ def run_burst(
             0,
             context_job,
             gate,
+            random_source=random_source,
         )
         return SimpleNamespace(
             completed=completed,
             events=events,
             sent_messages=sent_messages,
             controller_inputs=controller_inputs,
+            message_controller_inputs=message_controller_inputs,
             history_payloads=history_payloads,
         )
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio  # noqa: ANYIO_OK - compatibility seam patched by PCF-02/03 tests
+import random
 from typing import TYPE_CHECKING
 
 from astrbot.api import logger
@@ -117,12 +118,13 @@ async def _prepare_and_call_llm(plugin, *args):
     return await proactive_prompt.prepare_and_call_llm(plugin, *args)
 
 
-async def _deliver_and_finalize(plugin, *args):
+async def _deliver_and_finalize(plugin, *args, random_source=random.random):
     return await immediate_follow_up.deliver_and_finalize(
         plugin,
         *args,
         dispatch=dispatch_proactive_message,
         controller=_request_follow_up_decision,
+        message_controller=_request_follow_up_message,
         finalize=_update_unanswered_and_reschedule,
         save_history=_save_conversation_history,
         cleanup_context=_cleanup_context_task,
@@ -130,11 +132,16 @@ async def _deliver_and_finalize(plugin, *args):
         reschedule_quiet=_reschedule_quiet_source,
         is_habit_job=_is_habit_job,
         sleep=asyncio.sleep,
+        random_source=random_source,
     )
 
 
 async def _request_follow_up_decision(plugin, *args):
     return await immediate_follow_up.request_follow_up_decision(plugin, *args)
+
+
+async def _request_follow_up_message(plugin, *args):
+    return await immediate_follow_up.request_follow_up_message(plugin, *args)
 
 
 async def _save_conversation_history(plugin, *args):

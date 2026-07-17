@@ -586,6 +586,16 @@
                         "default": false,
                         "hint": "開啟後，Bot 可在同一次主動訊息後產生有限次即時跟進。預設關閉，舊有會話設定不會自動啟用。"
                     },
+                    "decision_mode": {
+                        "description": "跟進判斷方式",
+                        "type": "string",
+                        "options": [
+                            "llm",
+                            "random"
+                        ],
+                        "default": "llm",
+                        "hint": "llm 與隨機模式的文字生成都優先使用上方「語境分析用 LLM 平台」；該欄位留空時使用會話預設。"
+                    },
                     "max_follow_ups": {
                         "description": "最多跟進次數",
                         "type": "int",
@@ -605,6 +615,34 @@
                         "slider": {
                             "min": 0,
                             "max": 10,
+                            "step": 1
+                        }
+                    },
+                    "random_probability": {
+                        "description": "隨機模式初始機率 (%)",
+                        "type": "int",
+                        "default": 100,
+                        "hint": "random 模式第 1 句跟進的發送機率，限制為 0 到 100%。",
+                        "condition": {
+                            "decision_mode": "random"
+                        },
+                        "slider": {
+                            "min": 0,
+                            "max": 100,
+                            "step": 1
+                        }
+                    },
+                    "random_decay": {
+                        "description": "隨機機率每次下降 (%)",
+                        "type": "int",
+                        "default": 0,
+                        "hint": "每追加一則後，下一則機率下降的百分點；例如初始 80、下降 20 會是 80% → 60% → 40%。",
+                        "condition": {
+                            "decision_mode": "random"
+                        },
+                        "slider": {
+                            "min": 0,
+                            "max": 100,
                             "step": 1
                         }
                     }
@@ -1221,6 +1259,16 @@
                         "default": false,
                         "hint": "開啟後，Bot 可在同一次主動訊息後產生有限次即時跟進。預設關閉，舊有會話設定不會自動啟用。"
                     },
+                    "decision_mode": {
+                        "description": "跟進判斷方式",
+                        "type": "string",
+                        "options": [
+                            "llm",
+                            "random"
+                        ],
+                        "default": "llm",
+                        "hint": "llm 與隨機模式的文字生成都優先使用上方「語境分析用 LLM 平台」；該欄位留空時使用會話預設。"
+                    },
                     "max_follow_ups": {
                         "description": "最多跟進次數",
                         "type": "int",
@@ -1240,6 +1288,34 @@
                         "slider": {
                             "min": 0,
                             "max": 10,
+                            "step": 1
+                        }
+                    },
+                    "random_probability": {
+                        "description": "隨機模式初始機率 (%)",
+                        "type": "int",
+                        "default": 100,
+                        "hint": "random 模式第 1 句跟進的發送機率，限制為 0 到 100%。",
+                        "condition": {
+                            "decision_mode": "random"
+                        },
+                        "slider": {
+                            "min": 0,
+                            "max": 100,
+                            "step": 1
+                        }
+                    },
+                    "random_decay": {
+                        "description": "隨機機率每次下降 (%)",
+                        "type": "int",
+                        "default": 0,
+                        "hint": "每追加一則後，下一則機率下降的百分點；例如初始 80、下降 20 會是 80% → 60% → 40%。",
+                        "condition": {
+                            "decision_mode": "random"
+                        },
+                        "slider": {
+                            "min": 0,
+                            "max": 100,
                             "step": 1
                         }
                     }
@@ -1951,6 +2027,16 @@
                                 "default": false,
                                 "hint": "開啟後，Bot 可在同一次主動訊息後產生有限次即時跟進。預設關閉，舊有會話設定不會自動啟用。"
                             },
+                            "decision_mode": {
+                                "description": "跟進判斷方式",
+                                "type": "string",
+                                "options": [
+                                    "llm",
+                                    "random"
+                                ],
+                                "default": "llm",
+                                "hint": "llm 與隨機模式的文字生成都優先使用上方「語境分析用 LLM 平台」；該欄位留空時使用會話預設。"
+                            },
                             "max_follow_ups": {
                                 "description": "最多跟進次數",
                                 "type": "int",
@@ -1970,6 +2056,34 @@
                                 "slider": {
                                     "min": 0,
                                     "max": 10,
+                                    "step": 1
+                                }
+                            },
+                            "random_probability": {
+                                "description": "隨機模式初始機率 (%)",
+                                "type": "int",
+                                "default": 100,
+                                "hint": "random 模式第 1 句跟進的發送機率，限制為 0 到 100%。",
+                                "condition": {
+                                    "decision_mode": "random"
+                                },
+                                "slider": {
+                                    "min": 0,
+                                    "max": 100,
+                                    "step": 1
+                                }
+                            },
+                            "random_decay": {
+                                "description": "隨機機率每次下降 (%)",
+                                "type": "int",
+                                "default": 0,
+                                "hint": "每追加一則後，下一則機率下降的百分點；例如初始 80、下降 20 會是 80% → 60% → 40%。",
+                                "condition": {
+                                    "decision_mode": "random"
+                                },
+                                "slider": {
+                                    "min": 0,
+                                    "max": 100,
                                     "step": 1
                                 }
                             }
@@ -2592,6 +2706,16 @@
                                 "default": false,
                                 "hint": "開啟後，Bot 可在同一次主動訊息後產生有限次即時跟進。預設關閉，舊有會話設定不會自動啟用。"
                             },
+                            "decision_mode": {
+                                "description": "跟進判斷方式",
+                                "type": "string",
+                                "options": [
+                                    "llm",
+                                    "random"
+                                ],
+                                "default": "llm",
+                                "hint": "llm 與隨機模式的文字生成都優先使用上方「語境分析用 LLM 平台」；該欄位留空時使用會話預設。"
+                            },
                             "max_follow_ups": {
                                 "description": "最多跟進次數",
                                 "type": "int",
@@ -2611,6 +2735,34 @@
                                 "slider": {
                                     "min": 0,
                                     "max": 10,
+                                    "step": 1
+                                }
+                            },
+                            "random_probability": {
+                                "description": "隨機模式初始機率 (%)",
+                                "type": "int",
+                                "default": 100,
+                                "hint": "random 模式第 1 句跟進的發送機率，限制為 0 到 100%。",
+                                "condition": {
+                                    "decision_mode": "random"
+                                },
+                                "slider": {
+                                    "min": 0,
+                                    "max": 100,
+                                    "step": 1
+                                }
+                            },
+                            "random_decay": {
+                                "description": "隨機機率每次下降 (%)",
+                                "type": "int",
+                                "default": 0,
+                                "hint": "每追加一則後，下一則機率下降的百分點；例如初始 80、下降 20 會是 80% → 60% → 40%。",
+                                "condition": {
+                                    "decision_mode": "random"
+                                },
+                                "slider": {
+                                    "min": 0,
+                                    "max": 100,
                                     "step": 1
                                 }
                             }

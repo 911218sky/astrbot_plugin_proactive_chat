@@ -105,9 +105,19 @@ def test_schema_defines_exact_follow_up_defaults_and_bounds() -> None:
         assert block["type"] == "object"
         items = block["items"]
         assert isinstance(items, dict)
-        assert set(items) == {"enable", "max_follow_ups", "delay_seconds"}
+        assert set(items) == {
+            "enable",
+            "decision_mode",
+            "max_follow_ups",
+            "delay_seconds",
+            "random_probability",
+            "random_decay",
+        }
         assert items["enable"]["type"] == "bool"
         assert items["enable"]["default"] is False
+        assert items["decision_mode"]["type"] == "string"
+        assert items["decision_mode"]["options"] == ["llm", "random"]
+        assert items["decision_mode"]["default"] == "llm"
         assert items["max_follow_ups"]["type"] == "int"
         assert items["max_follow_ups"]["default"] == 1
         assert items["max_follow_ups"]["slider"] == {
@@ -122,43 +132,68 @@ def test_schema_defines_exact_follow_up_defaults_and_bounds() -> None:
             "max": 10,
             "step": 1,
         }
+        assert items["random_probability"]["type"] == "int"
+        assert items["random_probability"]["default"] == 100
+        assert items["random_probability"]["condition"] == {"decision_mode": "random"}
+        assert items["random_probability"]["slider"] == {
+            "min": 0,
+            "max": 100,
+            "step": 1,
+        }
+        assert items["random_decay"]["type"] == "int"
+        assert items["random_decay"]["default"] == 0
+        assert items["random_decay"]["condition"] == {"decision_mode": "random"}
+        assert items["random_decay"]["slider"] == {
+            "min": 0,
+            "max": 100,
+            "step": 1,
+        }
 
 
 @pytest.mark.parametrize(
     ("session_config", "expected"),
     (
-        ({}, (False, 1, 2)),
-        ({"enable": True, "max_follow_ups": 3}, (False, 1, 2)),
-        ({"immediate_follow_up_settings": None}, (False, 1, 2)),
+        ({}, (False, "llm", 1, 2, 100, 0)),
+        ({"enable": True, "max_follow_ups": 3}, (False, "llm", 1, 2, 100, 0)),
+        ({"immediate_follow_up_settings": None}, (False, "llm", 1, 2, 100, 0)),
         (
             {
                 "immediate_follow_up_settings": {
                     "enable": True,
+                    "decision_mode": "random",
                     "max_follow_ups": -7,
                     "delay_seconds": 99,
+                    "random_probability": -1,
+                    "random_decay": 101,
                 }
             },
-            (True, 0, 10),
+            (True, "random", 0, 10, 0, 100),
         ),
         (
             {
                 "immediate_follow_up_settings": {
                     "enable": True,
+                    "decision_mode": "random",
                     "max_follow_ups": 99,
                     "delay_seconds": -4,
+                    "random_probability": 101,
+                    "random_decay": -2,
                 }
             },
-            (True, 3, 0),
+            (True, "random", 3, 0, 100, 0),
         ),
         (
             {
                 "immediate_follow_up_settings": {
                     "enable": "true",
+                    "decision_mode": "other",
                     "max_follow_ups": True,
                     "delay_seconds": "5",
+                    "random_probability": True,
+                    "random_decay": "5",
                 }
             },
-            (False, 1, 2),
+            (False, "llm", 1, 2, 100, 0),
         ),
     ),
 )
@@ -172,8 +207,11 @@ def test_settings_default_off_and_clamp_exact_integers(
 
     assert (
         settings.enable,
+        settings.decision_mode,
         settings.max_follow_ups,
         settings.delay_seconds,
+        settings.random_probability,
+        settings.random_decay,
     ) == expected
 
 
@@ -184,6 +222,38 @@ def test_settings_value_object_is_frozen_and_slotted() -> None:
     assert not hasattr(settings, "__dict__")
     with pytest.raises(FrozenInstanceError):
         settings.enable = True
+
+
+@pytest.mark.parametrize(
+    ("probability", "decay", "index", "random_value", "expected"),
+    (
+        (100, 0, 0, 0.99, True),
+        (0, 0, 0, 0.0, False),
+        (80, 20, 0, 0.79, True),
+        (80, 20, 1, 0.80, False),
+        (80, 20, 2, 0.60, False),
+    ),
+)
+def test_random_strategy_uses_probability_and_linear_decay(
+    probability: int,
+    decay: int,
+    index: int,
+    random_value: float,
+    expected: bool,
+) -> None:
+    module = _load_follow_up_module()
+    settings = module.ImmediateFollowUpSettings(
+        enable=True,
+        decision_mode="random",
+        max_follow_ups=3,
+        delay_seconds=0,
+        random_probability=probability,
+        random_decay=decay,
+    )
+
+    assert (
+        module.should_send_random_follow_up(settings, index, random_value) is expected
+    )
 
 
 @pytest.mark.parametrize(
