@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import unicodedata
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
@@ -172,6 +173,35 @@ async def request_follow_up_message(
     from .proactive_prompt import request_follow_up_message as request
 
     return await request(plugin, session_id, accepted_turns, gate)
+
+
+async def collect_follow_ups(
+    plugin,
+    session_id: str,
+    session_config: dict,
+    gate: DispatchGate,
+    accepted_turns: tuple[AcceptedTurn, ...],
+    *,
+    dispatch,
+    controller,
+    message_controller,
+    sleep,
+    random_source: RandomSource = random.random,
+) -> tuple[AcceptedTurn, ...]:
+    from .follow_up_delivery import collect_follow_ups as collect
+
+    return await collect(
+        plugin,
+        session_id,
+        session_config,
+        gate,
+        accepted_turns,
+        dispatch=dispatch,
+        controller=controller,
+        message_controller=message_controller,
+        sleep=sleep,
+        random_source=random_source,
+    )
 
 
 async def deliver_and_finalize(*args, **kwargs):

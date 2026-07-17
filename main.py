@@ -22,9 +22,13 @@ from .core.context_scheduling import (
     restore_pending_context_tasks,
 )
 from .core.delivery import (
+    AcceptedComponent,
+    AcceptedComponentKind,
+    AcceptedTurn,
     DeliveryCoordinatorRegistry,
     DispatchGate,
     GateVerdict,
+    make_accepted_turn,
 )
 from .core.scheduler import (
     compute_habit_next_run,
@@ -97,6 +101,7 @@ class ProactiveChatPlugin(star.Star):
         "_context_analysis_semaphore",
         "_ctx_task_counter",
         "_delivery_coordinators",
+        "_reply_follow_up_tasks",
         "_chat_run_semaphore",
         "_history_save_lock",
         "page_api",
@@ -151,6 +156,7 @@ class ProactiveChatPlugin(star.Star):
         # 語境任務計數器，用於生成唯一 job_id
         self._ctx_task_counter: int = 0
         self._delivery_coordinators = DeliveryCoordinatorRegistry()
+        self._reply_follow_up_tasks: dict[str, asyncio.Task] = {}
         # 全域限流：避免多個會話同時觸發主動訊息，一起打進 AstrBot agent/history 流程。
         self._chat_run_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
         # 主動訊息寫回 AstrBot 主對話歷史時使用，避免本插件自己並發搶同一個 SQLite。
@@ -507,6 +513,14 @@ class ProactiveChatPlugin(star.Star):
                 *self._context_analysis_tasks.values(), return_exceptions=True
             )
             self._context_analysis_tasks.clear()
+
+        if self._reply_follow_up_tasks:
+            for task in self._reply_follow_up_tasks.values():
+                task.cancel()
+            await asyncio.gather(
+                *self._reply_follow_up_tasks.values(), return_exceptions=True
+            )
+            self._reply_follow_up_tasks.clear()
 
         if self.scheduler and self.scheduler.running:
             try:
@@ -1170,6 +1184,56 @@ class ProactiveChatPlugin(star.Star):
             quiet_hours=quiet_hours,
         )
 
+    def _cancel_reply_follow_up_task(self, session_id: str) -> None:
+        task = self._reply_follow_up_tasks.pop(session_id, None)
+        if task and not task.done():
+            task.cancel()
+
+    @staticmethod
+    def _accepted_turn_from_result(result: object) -> AcceptedTurn | None:
+        chain = getattr(result, "chain", None)
+        if not isinstance(chain, list):
+            return None
+        components = tuple(
+            AcceptedComponent(AcceptedComponentKind.TEXT, text)
+            for component in chain
+            if isinstance(text := getattr(component, "text", None), str) and text
+        )
+        if not components:
+            return None
+        return make_accepted_turn(
+            "".join(component.content for component in components),
+            components,
+            intended_components=len(components),
+        )
+
+    async def _run_reply_follow_ups(
+        self,
+        session_id: str,
+        session_config: dict,
+        gate: DispatchGate,
+        accepted_turn: AcceptedTurn,
+    ) -> None:
+        task = asyncio.current_task()
+        coordinator = self._delivery_coordinators.coordinator_for(session_id)
+        try:
+            async with coordinator.lease():
+                await chat_executor.collect_follow_ups(
+                    self,
+                    session_id,
+                    session_config,
+                    gate,
+                    (accepted_turn,),
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            logger.error(f"{_LOG_TAG} 一般回覆即時跟進失敗 | session={session_id}: {error}")
+        finally:
+            if self._reply_follow_up_tasks.get(session_id) is task:
+                self._reply_follow_up_tasks.pop(session_id, None)
+            self._delivery_coordinators.retire(gate)
+
     async def _init_jobs_from_data(self) -> None:
         """
         從持久化數據恢復定時任務。
@@ -1722,6 +1786,9 @@ class ProactiveChatPlugin(star.Star):
 
         alias_session_id = event.unified_msg_origin
         session_id = self._canonical_delivery_session(alias_session_id)
+        cancel_follow_up = getattr(self, "_cancel_reply_follow_up_task", None)
+        if callable(cancel_follow_up):
+            cancel_follow_up(session_id)
         gate = self._delivery_coordinators.record_activity(alias_session_id, session_id)
         coordinator = self._delivery_coordinators.coordinator_for(session_id)
         try:
@@ -1828,27 +1895,49 @@ class ProactiveChatPlugin(star.Star):
 
     @filter.after_message_sent()
     async def on_after_message_sent(self, event: AstrMessageEvent) -> None:
-        """
-        機器人發送訊息後的回調（僅處理群聊）。
-
-        用途：機器人回覆群聊訊息後，重設沉默倒計時，
-        確保從「最後一條訊息」開始計算沉默時間。
-        同時定期清理過期的 session_temp_state。
-        """
         session_id = event.unified_msg_origin
-        if not is_group_session_id(session_id):
-            return
+        result = event.get_result()
 
-        # 每 10 次清理一次過期的臨時狀態（避免記憶體洩漏）
-        self._cleanup_counter += 1
-        if self._cleanup_counter % 10 == 0:
-            self._cleanup_expired_session_states(time.time())
+        if is_group_session_id(session_id):
+            self._cleanup_counter += 1
+            if self._cleanup_counter % 10 == 0:
+                self._cleanup_expired_session_states(time.time())
 
         try:
-            await self._reset_group_silence_timer(session_id)
-            self.session_temp_state.pop(session_id, None)
+            if is_group_session_id(session_id):
+                await self._reset_group_silence_timer(session_id)
+                self.session_temp_state.pop(session_id, None)
         except Exception as e:
             logger.error(f"{_LOG_TAG} after_message_sent 處理異常: {e}")
+
+        if result is None:
+            return
+        is_llm_result = getattr(result, "is_llm_result", None)
+        if not callable(is_llm_result) or not is_llm_result():
+            return
+        accepted_turn = self._accepted_turn_from_result(result)
+        if accepted_turn is None:
+            return
+
+        canonical_session_id = self._canonical_delivery_session(session_id)
+        self._cancel_reply_follow_up_task(canonical_session_id)
+        gate = self._delivery_coordinators.record_activity(
+            session_id, canonical_session_id
+        )
+        session_config = get_session_config(self.config, canonical_session_id)
+        if not session_config or not session_config.get("enable", False):
+            self._delivery_coordinators.retire(gate)
+            return
+
+        task = asyncio.create_task(
+            self._run_reply_follow_ups(
+                canonical_session_id,
+                session_config,
+                gate,
+                accepted_turn,
+            )
+        )
+        self._reply_follow_up_tasks[canonical_session_id] = task
 
     # ═══════════════════════════════════════════════════════════
     #  指令處理（指令組 /proactive）

@@ -144,6 +144,29 @@ async def _request_follow_up_message(plugin, *args):
     return await immediate_follow_up.request_follow_up_message(plugin, *args)
 
 
+async def collect_follow_ups(
+    plugin,
+    session_id: str,
+    session_config: dict,
+    gate,
+    accepted_turns: tuple[AcceptedTurn, ...],
+    *,
+    random_source=random.random,
+) -> tuple[AcceptedTurn, ...]:
+    return await immediate_follow_up.collect_follow_ups(
+        plugin,
+        session_id,
+        session_config,
+        gate,
+        accepted_turns,
+        dispatch=dispatch_proactive_message,
+        controller=_request_follow_up_decision,
+        message_controller=_request_follow_up_message,
+        sleep=asyncio.sleep,
+        random_source=random_source,
+    )
+
+
 async def _save_conversation_history(plugin, *args):
     return await proactive_history.save_conversation_history(
         plugin,

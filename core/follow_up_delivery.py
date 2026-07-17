@@ -17,7 +17,7 @@ _LOG_TAG = "[主動訊息]"
 Sleep = Callable[[float], Awaitable[None]]
 
 
-async def _collect_follow_ups(
+async def collect_follow_ups(
     plugin,
     session_id: str,
     session_config: dict,
@@ -78,6 +78,9 @@ async def _collect_follow_ups(
         if turn.status is not DispatchStatus.COMPLETE:
             break
     return turns
+
+
+_collect_follow_ups = collect_follow_ups
 
 
 async def deliver_and_finalize(
@@ -141,7 +144,7 @@ async def deliver_and_finalize(
         return False
     turns = (initial,)
     if initial.status is DispatchStatus.COMPLETE:
-        turns = await _collect_follow_ups(
+        turns = await collect_follow_ups(
             plugin,
             session_id,
             session_config,
