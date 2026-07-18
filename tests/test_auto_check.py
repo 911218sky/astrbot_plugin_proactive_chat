@@ -56,6 +56,12 @@ def test_schema_defines_private_auto_check_settings_and_presets() -> None:
             "max": 2880,
             "step": 1,
         }
+        schedule = node["schedule_settings"]["items"]
+        assert schedule["interval_mode"]["default"] == "adaptive"
+        assert schedule["interval_mode"]["options"] == [
+            "adaptive",
+            "weighted_random",
+        ]
 
 
 @pytest.mark.parametrize(
@@ -165,6 +171,20 @@ def test_auto_check_interval_clamps_existing_schedule_interval() -> None:
     assert module.clamp_auto_check_interval(5 * 60, settings) == 10 * 60
     assert module.clamp_auto_check_interval(90 * 60, settings) == 60 * 60
     assert module.clamp_auto_check_interval(30 * 60, settings) == 30 * 60
+
+
+def test_adaptive_interval_is_stable_and_respects_unanswered_count() -> None:
+    settings_module = _load_module()
+    settings = settings_module.resolve_auto_check_settings(
+        {"auto_check_settings": {"enable": True, "profile": "normal"}}
+    )
+
+    first = settings_module.compute_adaptive_interval(settings, 0)
+    repeated = settings_module.compute_adaptive_interval(settings, 0)
+    after_unanswered = settings_module.compute_adaptive_interval(settings, 3)
+
+    assert first == repeated == 75 * 60
+    assert 75 * 60 < after_unanswered <= 120 * 60
 
 
 def test_persisted_future_trigger_is_bounded_after_config_change() -> None:

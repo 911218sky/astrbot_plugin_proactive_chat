@@ -143,13 +143,27 @@ def compute_auto_check_interval(
     timezone: zoneinfo.ZoneInfo | None,
     unanswered_count: int,
 ) -> int:
-    """Use the existing weighted schedule, bounded by the check profile."""
     from .scheduler import compute_weighted_interval
 
-    base_interval = compute_weighted_interval(
-        schedule_settings, timezone, unanswered_count
-    )
+    interval_mode = schedule_settings.get("interval_mode", "adaptive")
+    if interval_mode == "weighted_random":
+        base_interval = compute_weighted_interval(
+            schedule_settings, timezone, unanswered_count
+        )
+    else:
+        base_interval = compute_adaptive_interval(settings, unanswered_count)
     return clamp_auto_check_interval(base_interval, settings)
+
+
+def compute_adaptive_interval(
+    settings: AutoCheckSettings, unanswered_count: int
+) -> int:
+    minimum = settings.min_interval_minutes * 60
+    maximum = settings.max_interval_minutes * 60
+    midpoint = minimum + (maximum - minimum) // 2
+    unanswered = max(0, int(unanswered_count))
+    extra = min(maximum - midpoint, (maximum - minimum) * min(unanswered, 4) // 8)
+    return midpoint + extra
 
 
 def compute_session_interval(
@@ -159,16 +173,22 @@ def compute_session_interval(
     unanswered_count: int,
 ) -> int:
     """Select the legacy interval or the private auto-check bounded interval."""
-    from .scheduler import compute_weighted_interval
+    from .scheduler import (
+        compute_adaptive_interval as compute_schedule_adaptive_interval,
+        compute_weighted_interval,
+    )
 
     settings = resolve_auto_check_settings(session_config)
-    if settings.enable and session_config.get("_session_type") == "private":
-        return compute_auto_check_interval(
-            schedule_settings,
-            settings,
-            timezone,
-            unanswered_count,
-        )
+    if session_config.get("_session_type") == "private":
+        if settings.enable:
+            return compute_auto_check_interval(
+                schedule_settings,
+                settings,
+                timezone,
+                unanswered_count,
+            )
+        if schedule_settings.get("interval_mode", "adaptive") != "weighted_random":
+            return compute_schedule_adaptive_interval(schedule_settings, unanswered_count)
     return compute_weighted_interval(schedule_settings, timezone, unanswered_count)
 
 

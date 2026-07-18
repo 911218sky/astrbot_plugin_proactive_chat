@@ -30,7 +30,9 @@ def compute_habit_next_run(
     for rule in habit_conf.get("habit_rules", ()):
         if not isinstance(rule, dict) or not rule.get("enable", True):
             continue
-        candidate, reason = _compute_habit_rule_run(rule, current)
+        candidate, reason = _compute_habit_rule_run(
+            rule, current, bool(habit_conf.get("adaptive_timing", False))
+        )
         if candidate is None:
             logger.info(f"{_LOG_TAG} 習慣時段略過：{reason}")
             continue
@@ -44,7 +46,9 @@ def compute_habit_next_run(
     return best_run, best_rule, best_reason
 
 
-def _compute_habit_rule_run(rule: dict, now: datetime) -> tuple[datetime | None, str]:
+def _compute_habit_rule_run(
+    rule: dict, now: datetime, adaptive_timing: bool
+) -> tuple[datetime | None, str]:
     """計算單條習慣規則的下一次觸發時間。"""
     last_skip_reason = ""
     for day_offset in range(-1, 8):
@@ -61,7 +65,7 @@ def _compute_habit_rule_run(rule: dict, now: datetime) -> tuple[datetime | None,
         if day_offset == 0 and end_dt <= now:
             continue
 
-        run_dt = _pick_habit_time(rule, start_dt, end_dt, now)
+        run_dt = _pick_habit_time(rule, start_dt, end_dt, now, adaptive_timing)
         if run_dt is None:
             last_skip_reason = "部分時段依機率沒有出現"
             continue
@@ -103,15 +107,21 @@ def _combine_rule_time(
 
 
 def _pick_habit_time(
-    rule: dict, start_dt: datetime, end_dt: datetime, now: datetime
+    rule: dict,
+    start_dt: datetime,
+    end_dt: datetime,
+    now: datetime,
+    adaptive_timing: bool = False,
 ) -> datetime | None:
-    appear_chance = _coerce_float(rule.get("appear_chance"), 0.85, 0.0, 1.0)
-    if random.random() >= appear_chance:
-        return None
-
     earliest = max(start_dt, now + timedelta(seconds=30))
     latest = end_dt
     if latest <= earliest:
+        return None
+    if adaptive_timing:
+        return earliest + (latest - earliest) / 2
+
+    appear_chance = _coerce_float(rule.get("appear_chance"), 0.85, 0.0, 1.0)
+    if random.random() >= appear_chance:
         return None
 
     oversleep_chance = _coerce_float(rule.get("oversleep_chance"), 0.1, 0.0, 1.0)
@@ -158,6 +168,15 @@ def _coerce_float(
     if parsed > 1 and max_value <= 1:
         parsed = parsed / 100
     return max(min_value, min(max_value, parsed))
+
+
+def compute_adaptive_interval(schedule_conf: dict, unanswered_count: int = 0) -> int:
+    min_seconds = max(60, int(schedule_conf.get("min_interval_minutes", 30)) * 60)
+    max_seconds = max(min_seconds, int(schedule_conf.get("max_interval_minutes", 900)) * 60)
+    midpoint = min_seconds + (max_seconds - min_seconds) // 2
+    unanswered = max(0, int(unanswered_count))
+    extra = min(max_seconds - midpoint, (max_seconds - midpoint) * min(unanswered, 4) // 4)
+    return midpoint + extra
 
 
 def compute_weighted_interval(

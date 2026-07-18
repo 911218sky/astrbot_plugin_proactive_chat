@@ -100,6 +100,50 @@ def test_auto_check_send_uses_existing_delivery_pipeline(monkeypatch) -> None:
     anyio.run(scenario)
 
 
+def test_habit_auto_check_no_send_keeps_single_habit_schedule(monkeypatch) -> None:
+    async def scenario() -> None:
+        plugin = _plugin()
+        scheduled: list[str] = []
+        cleaned: list[str] = []
+        plugin._find_habit_task = lambda *_args: {"count_unanswered": False}
+
+        async def schedule(session_id: str) -> None:
+            scheduled.append(session_id)
+
+        async def cleanup(session_id: str, job_id: str) -> None:
+            cleaned.append(f"{session_id}:{job_id}")
+
+        plugin._schedule_next_habit_task = schedule
+        plugin._cleanup_habit_task = cleanup
+
+        async def preconditions(*_args, **_kwargs):
+            return (
+                {
+                    "_session_type": "private",
+                    "auto_check_settings": {"enable": True},
+                },
+                0,
+                False,
+            )
+
+        async def auto_check(*_args):
+            return AutoCheckDecision(False, ""), "conv", "prompt", None
+
+        monkeypatch.setattr(chat_executor, "_check_preconditions", preconditions)
+        monkeypatch.setattr(chat_executor, "_prepare_and_call_auto_check", auto_check)
+        await chat_executor.check_and_chat(
+            plugin,
+            "platform:FriendMessage:42",
+            ctx_job_id="habit_platform:FriendMessage:42_1",
+            gate=plugin._test_gate,
+        )
+
+        assert scheduled == ["platform:FriendMessage:42"]
+        assert cleaned == ["platform:FriendMessage:42:habit_platform:FriendMessage:42_1"]
+
+    anyio.run(scenario)
+
+
 def test_auto_check_uses_context_analysis_provider(monkeypatch) -> None:
     async def scenario() -> None:
         plugin = SimpleNamespace(

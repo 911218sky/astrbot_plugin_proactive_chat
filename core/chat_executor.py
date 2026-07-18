@@ -52,18 +52,24 @@ async def check_and_chat(
         parsed_session = parse_session_id(session_id)
         is_private = bool(parsed_session and is_private_session(parsed_session[1]))
         auto_settings = auto_check.resolve_auto_check_settings(session_config)
-        if is_private and auto_settings.enable and not ctx_job_id:
+        if is_private and auto_settings.enable and (not ctx_job_id or habit_task):
             auto_result = await _prepare_and_call_auto_check(
                 plugin, session_id, session_config, unanswered_count, ctx_job_id
             )
             if auto_result is None:
-                if plugin._gate_verdict(current_gate) is GateVerdict.CURRENT:
+                if (
+                    not habit_task
+                    and plugin._gate_verdict(current_gate) is GateVerdict.CURRENT
+                ):
                     await plugin._schedule_next_chat_and_save(session_id)
                 return
             decision, conv_id, final_prompt, context_task = auto_result
             if not decision.send_message:
                 logger.info("[主動訊息] 自動查看判斷目前不需要發送，已安排下一次回訪。")
-                if plugin._gate_verdict(current_gate) is GateVerdict.CURRENT:
+                if (
+                    not habit_task
+                    and plugin._gate_verdict(current_gate) is GateVerdict.CURRENT
+                ):
                     await plugin._schedule_next_chat_and_save(session_id)
                 return
             llm_result = (decision.message, conv_id, final_prompt, context_task)

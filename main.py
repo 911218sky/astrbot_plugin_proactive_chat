@@ -500,7 +500,7 @@ class ProactiveChatPlugin(star.Star):
         await self._restore_pending_habit_tasks()
         await self._restore_waiting_timers_from_data()
         await self._setup_auto_triggers_for_enabled_sessions()
-        await self._setup_habit_tasks_for_known_sessions()
+        await self._setup_habit_tasks_for_enabled_sessions()
         logger.info(f"{_LOG_TAG} 初始化完成。")
 
     async def terminate(self) -> None:
@@ -611,7 +611,7 @@ class ProactiveChatPlugin(star.Star):
     def _effective_habit_settings(self, session_id: str, session_config: dict) -> dict:
         """合併手動設定與自動學習出的習慣時段規則。"""
         habit_conf = dict(self._habit_settings(session_config))
-        allow_manual_rules = bool(habit_conf.get("allow_manual_habit_rules", False))
+        allow_manual_rules = bool(habit_conf.get("allow_manual_habit_rules", True))
         if is_group_session_id(session_id):
             allow_manual_rules = True
         manual_rules = (
@@ -637,6 +637,7 @@ class ProactiveChatPlugin(star.Star):
                 ]
 
         habit_conf["habit_rules"] = [*manual_rules, *learned_rules]
+        habit_conf["adaptive_timing"] = not is_group_session_id(session_id)
         if learned_rules:
             habit_conf["enable"] = True
         return habit_conf
@@ -847,6 +848,16 @@ class ProactiveChatPlugin(star.Star):
             logger.debug(f"{_LOG_TAG} 習慣時段未安排 | session={session_id}: {reason}")
             return False
 
+        if not is_group_session_id(session_id):
+            try:
+                if self.scheduler and self.scheduler.get_job(session_id):
+                    self.scheduler.remove_job(session_id)
+            except Exception as e:
+                logger.debug(
+                    f"{_LOG_TAG} 移除私聊一般排程失敗 | session={session_id}: {e}"
+                )
+            await self._clear_regular_job_state(session_id)
+
         rule_name = str(rule.get("name", "") or "習慣時段")
         job_id = f"{_HABIT_TASK_PREFIX}{session_id}_{int(run_date.timestamp())}"
         task_info = {
@@ -976,6 +987,64 @@ class ProactiveChatPlugin(star.Star):
                 count += 1
         if count:
             logger.info(f"{_LOG_TAG} 已為 {count} 個既有會話安排習慣時段任務。")
+
+    async def _setup_habit_tasks_for_enabled_sessions(self) -> None:
+        await self._setup_habit_tasks_for_known_sessions()
+        processed: set[str] = set(self._pending_habit_tasks)
+        count = 0
+        for sessions_key, message_type in (
+            ("private_sessions", MSG_TYPE_FRIEND),
+            ("group_sessions", MSG_TYPE_GROUP),
+        ):
+            for settings in self.config.get(sessions_key, []):
+                if not isinstance(settings, dict) or not settings.get("enable", False):
+                    continue
+                target_id = settings.get("session_id")
+                if not target_id or str(target_id) in processed:
+                    continue
+                count += await self._setup_habit_task_for_config(
+                    settings, message_type, str(target_id)
+                )
+                processed.add(str(target_id))
+
+        for settings_key, message_type in (
+            ("private_settings", MSG_TYPE_FRIEND),
+            ("group_settings", MSG_TYPE_GROUP),
+        ):
+            settings = self.config.get(settings_key, {})
+            if not isinstance(settings, dict) or not settings.get("enable", False):
+                continue
+            for target_id in settings.get("session_list", []):
+                target = str(target_id)
+                if target in processed:
+                    continue
+                count += await self._setup_habit_task_for_config(
+                    settings, message_type, target
+                )
+                processed.add(target)
+        if count:
+            logger.info(f"{_LOG_TAG} 已為 {count} 個配置會話安排習慣時段任務。")
+
+    async def _setup_habit_task_for_config(
+        self, settings: dict, message_type: str, target_id: str
+    ) -> int:
+        habit_conf = settings.get("habit_settings", {})
+        if not isinstance(habit_conf, dict) or not habit_conf.get("enable", False):
+            return 0
+        parsed = parse_session_id(target_id)
+        preferred_platform = parsed[0] if parsed else None
+        actual_type = parsed[1] if parsed else message_type
+        actual_target = parsed[2] if parsed else target_id
+        session_id = resolve_full_umo(
+            actual_target,
+            actual_type,
+            self.context.platform_manager,
+            self.session_data,
+            preferred_platform,
+        )
+        if session_id in self._pending_habit_tasks:
+            return 0
+        return int(await self._schedule_next_habit_task(session_id))
 
     async def _create_auto_trigger_job(
         self,
