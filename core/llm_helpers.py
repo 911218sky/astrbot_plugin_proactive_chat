@@ -428,6 +428,26 @@ async def resolve_system_prompt(
     return default_persona["prompt"] if default_persona else ""
 
 
+async def get_current_system_prompt(context: Context, session_id: str) -> str:
+    try:
+        conversation_id = await context.conversation_manager.get_curr_conversation_id(
+            session_id
+        )
+        conversation = (
+            await context.conversation_manager.get_conversation(
+                session_id, conversation_id
+            )
+            if conversation_id
+            else None
+        )
+        return await resolve_system_prompt(context, conversation, session_id)
+    except Exception as error:  # noqa: BLE001, BROAD_EXCEPT_OK
+        logger.debug(
+            f"{_LOG_TAG} 讀取語境分析人格提示失敗，使用分析專用提示: {error}"
+        )
+        return ""
+
+
 async def safe_prepare_llm_request(context: Context, session_id: str) -> dict | None:
     """準備 LLM 請求，自動處理 UMO 格式相容問題。
 

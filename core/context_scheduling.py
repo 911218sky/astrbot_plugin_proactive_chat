@@ -24,7 +24,7 @@ from .context_predictor import (
     check_should_cancel_tasks_batch,
     predict_proactive_timing,
 )
-from .llm_helpers import load_conversation_history
+from .llm_helpers import get_current_system_prompt, load_conversation_history
 from .messaging import sanitize_history_content
 from .utils import get_session_log_str
 
@@ -50,9 +50,12 @@ async def handle_context_aware_scheduling(
     3. 若預測結果建議排程，建立一次性任務
     """
     try:
+        persona_system_prompt = await get_current_system_prompt(
+            plugin.context, session_id
+        )
         # 步驟 1：順序執行，避免在 Core 正保存本輪對話時立刻並發讀 history。
         cancelled_reason = await maybe_cancel_pending_context_task(
-            plugin, session_id, message_text
+            plugin, session_id, message_text, persona_system_prompt
         )
         history = await get_history_for_prediction(plugin, session_id)
 
@@ -71,6 +74,7 @@ async def handle_context_aware_scheduling(
                 plugin.config, {"context_aware_settings": ctx_settings}
             ),
             extra_prompt=ctx_settings.get("extra_prompt", ""),
+            persona_system_prompt=persona_system_prompt,
         )
 
         session_config = get_session_config(plugin.config, session_id)
@@ -118,6 +122,7 @@ async def maybe_cancel_pending_context_task(
     plugin: ProactiveChatPlugin,
     session_id: str,
     message_text: str,
+    persona_system_prompt: str = "",
 ) -> str:
     """若用戶的新訊息使待執行的語境任務不再需要，則取消該任務。
 
@@ -141,6 +146,7 @@ async def maybe_cancel_pending_context_task(
         last_message=message_text,
         tasks=task_list,
         llm_provider_id=ctx_llm_id,
+        persona_system_prompt=persona_system_prompt,
     )
 
     if not cancel_map:

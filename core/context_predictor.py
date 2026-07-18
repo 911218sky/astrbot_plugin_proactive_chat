@@ -37,6 +37,10 @@ CHECK_CANCEL_PROMPT = _load_prompt("check_cancel.txt")
 CHECK_CANCEL_SYSTEM = _load_prompt("check_cancel_system.txt")
 
 
+def _build_analysis_user_prompt(analysis_prompt: str, prompt: str) -> str:
+    return f"[語境分析規則]\n{analysis_prompt}\n\n{prompt}"
+
+
 def build_recent_messages_str(history: list, max_messages: int = 10) -> str:
     """從對話歷史中提取最近的訊息，用於語境分析。"""
     if not history:
@@ -93,6 +97,7 @@ async def predict_proactive_timing(
     just_cancelled_reason: str = "",
     llm_provider_id: str = "",
     extra_prompt: str = "",
+    persona_system_prompt: str = "",
 ) -> dict | None:
     """
     呼叫 LLM 預測下一次主動訊息的最佳時機。
@@ -102,6 +107,7 @@ async def predict_proactive_timing(
             傳入被取消任務的原因，讓 LLM 知道語境已轉移。
         llm_provider_id: 指定 LLM 平台 ID，留空則使用會話預設。
         extra_prompt: 使用者自訂的補充提示，會附加到 prompt 末尾。
+        persona_system_prompt: 目前會話的人格提示，放在分析規則前作為穩定快取前綴。
 
     Returns:
         包含 should_schedule、delay_minutes、reason、message_hint 的 dict，
@@ -141,8 +147,8 @@ async def predict_proactive_timing(
         )
         resp = await context.llm_generate(
             chat_provider_id=provider_id,
-            prompt=prompt,
-            system_prompt=PREDICT_TIMING_SYSTEM,
+            prompt=_build_analysis_user_prompt(PREDICT_TIMING_SYSTEM, prompt),
+            system_prompt=persona_system_prompt.strip() or PREDICT_TIMING_SYSTEM,
         )
         if not resp or not resp.completion_text:
             return None
@@ -196,6 +202,7 @@ async def check_should_cancel_tasks_batch(
     last_message: str,
     tasks: list[dict],
     llm_provider_id: str = "",
+    persona_system_prompt: str = "",
 ) -> dict[int, tuple[bool, str]]:
     """
     批量呼叫 LLM 檢查多個已排定的語境預測任務是否應該取消。
@@ -203,6 +210,7 @@ async def check_should_cancel_tasks_batch(
     Args:
         tasks: 任務列表，每個任務需包含 reason 和 hint 欄位
         llm_provider_id: 指定 LLM 平台 ID，留空則使用會話預設。
+        persona_system_prompt: 目前會話的人格提示，放在分析規則前作為穩定快取前綴。
 
     Returns:
         字典，key 為任務索引，value 為 (should_cancel, reason) 元組。
@@ -234,8 +242,8 @@ async def check_should_cancel_tasks_batch(
         )
         resp = await context.llm_generate(
             chat_provider_id=provider_id,
-            prompt=prompt,
-            system_prompt=CHECK_CANCEL_SYSTEM,
+            prompt=_build_analysis_user_prompt(CHECK_CANCEL_SYSTEM, prompt),
+            system_prompt=persona_system_prompt.strip() or CHECK_CANCEL_SYSTEM,
         )
         if not resp or not resp.completion_text:
             return {}
