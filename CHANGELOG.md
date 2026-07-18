@@ -5,6 +5,14 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/07/18
+
+## What's Changed
+
+### 改進 (Improve)
+
+- 將即時跟進等待正式改為防抖安靜時間：連續訊息期間取消舊跟進，只由最後一則訊息觸發一次；保留既有 `delay_seconds` key，避免更新 schema 時遺失使用者配置。
+
 # 2026/07/17 v2.22.0
 
 ## What's Changed

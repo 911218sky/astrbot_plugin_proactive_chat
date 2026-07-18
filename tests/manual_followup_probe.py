@@ -80,11 +80,11 @@ def _run_happy(module: ModuleType) -> None:
             settings.enable,
             settings.decision_mode,
             settings.max_follow_ups,
-            settings.delay_seconds,
+            settings.debounce_seconds,
             settings.random_probability,
             settings.random_decay,
         )
-        != (True, "random", 3, 0, 80, 20)
+        != (True, "random", 8, 0, 80, 20)
         or decision is None
         or decision.message != "Next thought"
         or not module.should_send_random_follow_up(settings, 0, 0.79)

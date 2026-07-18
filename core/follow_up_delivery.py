@@ -39,8 +39,8 @@ async def collect_follow_ups(
     for index in range(settings.max_follow_ups):
         if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:
             break
-        if settings.delay_seconds:
-            await sleep(settings.delay_seconds)
+        if settings.debounce_seconds:
+            await sleep(settings.debounce_seconds)
             if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:
                 break
         try:

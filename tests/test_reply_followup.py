@@ -78,6 +78,37 @@ def test_after_message_sent_schedules_only_llm_reply(monkeypatch: pytest.MonkeyP
     anyio.run(scenario)
 
 
+def test_after_message_sent_debounces_rapid_replies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def scenario() -> None:
+        plugin = make_plugin()
+        plugin._cancel_reply_follow_up_task = lambda session_id: (
+            main.ProactiveChatPlugin._cancel_reply_follow_up_task(plugin, session_id)
+        )
+        calls = []
+
+        async def run_follow_ups(_session_id, _config, _gate, turn) -> None:
+            calls.append(turn.message)
+
+        plugin._run_reply_follow_ups = run_follow_ups
+        monkeypatch.setattr(
+            main, "get_session_config", lambda *_args: {"enable": True}
+        )
+
+        await main.ProactiveChatPlugin.on_after_message_sent(
+            plugin, Event(Result(llm=True, text="first"))
+        )
+        await main.ProactiveChatPlugin.on_after_message_sent(
+            plugin, Event(Result(llm=True, text="last"))
+        )
+        await anyio.sleep(0)
+
+        assert calls == ["last"]
+
+    anyio.run(scenario)
+
+
 def test_after_message_sent_ignores_missing_or_empty_result(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -112,7 +112,7 @@ Added `schedule_rules` (`template_list` type) to all `schedule_settings`, enabli
 
 ### Immediate AI-Decided Follow-Ups
 
-`immediate_follow_up_settings` is disabled by default. When enabled, the AI decides after every successfully delivered proactive message whether one more message is useful. `max_follow_ups` defaults to 1 and is bounded to 0-10 additional messages; `delay_seconds` defaults to 2 and is bounded to 0-10 seconds. A stop decision, malformed controller output, incomplete send, user activity, disabled session, or quiet-hours gate ends the burst immediately.
+`immediate_follow_up_settings` is disabled by default. After a normal AI reply or a proactive message is delivered, the AI can decide whether another message is useful. `max_follow_ups` defaults to 1 and is bounded to 0-10 additional messages; `delay_seconds` defaults to 2 and is bounded to 0-10 seconds. Its semantics are a quiet-period debounce: new user activity cancels the pending follow-up, so only the final message in a burst can trigger it. The implementation also reads the temporary `debounce_seconds` key. A stop decision, malformed controller output, incomplete send, disabled session, or quiet-hours gate ends the burst immediately.
 
 ### 4. livingmemory Integration
 

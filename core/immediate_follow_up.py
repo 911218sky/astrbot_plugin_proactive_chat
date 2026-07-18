@@ -21,7 +21,7 @@ class ImmediateFollowUpSettings:
     enable: bool = False
     decision_mode: FollowUpMode = "llm"
     max_follow_ups: int = 1
-    delay_seconds: int = 2
+    debounce_seconds: int = 2
     random_probability: int = 100
     random_decay: int = 0
 
@@ -55,6 +55,11 @@ def resolve_immediate_follow_up_settings(
     enable_value = raw.get("enable", False)
     mode_value = raw.get("decision_mode", "llm")
     decision_mode: FollowUpMode = "random" if mode_value == "random" else "llm"
+    debounce_value = (
+        raw["debounce_seconds"]
+        if "debounce_seconds" in raw
+        else raw.get("delay_seconds")
+    )
     return ImmediateFollowUpSettings(
         enable=enable_value if type(enable_value) is bool else False,
         decision_mode=decision_mode,
@@ -64,8 +69,8 @@ def resolve_immediate_follow_up_settings(
             minimum=0,
             maximum=10,
         ),
-        delay_seconds=_bounded_int(
-            raw.get("delay_seconds"),
+        debounce_seconds=_bounded_int(
+            debounce_value,
             default=2,
             minimum=0,
             maximum=10,

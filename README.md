@@ -129,7 +129,7 @@ flowchart LR
 | `segmented_reply_settings` | 長訊息切段發送 |
 | `tts_settings` | 啟用語音輸出 |
 
-`immediate_follow_up_settings` 預設關閉。`decision_mode` 可選 `llm` 或 `random`：兩種模式的 LLM 都優先使用上方「語境分析用 LLM 平台」（留空時使用會話預設）；`llm` 由模型判斷是否追加，`random` 則由機率決定是否追加。`max_follow_ups` 預設為 1，可設 0 到 10，代表初始訊息之外最多追加幾句；`delay_seconds` 預設為 2，可設 0 到 10 秒。隨機模式的 `random_probability` 是第一句的 0 到 100% 機率，`random_decay` 是每追加一則後下降的百分點。
+`immediate_follow_up_settings` 預設關閉。Bot 正常回覆或主動訊息送出後，會依設定判斷是否追加。`decision_mode` 可選 `llm` 或 `random`：兩種模式的 LLM 都優先使用上方「語境分析用 LLM 平台」（留空時使用會話預設）；`llm` 由模型判斷是否追加，`random` 則由機率決定是否追加。`max_follow_ups` 預設為 1，可設 0 到 10，代表初始訊息之外最多追加幾句；`delay_seconds` 預設為 2，可設 0 到 10 秒，但它的語義是防抖安靜等待時間：期間使用者有新訊息會取消舊跟進，只在最後一則訊息後觸發一次。程式也能讀取暫時的 `debounce_seconds` key。隨機模式的 `random_probability` 是第一句的 0 到 100% 機率，`random_decay` 是每追加一則後下降的百分點。
 
 ### 3) Prompt 佔位符
 

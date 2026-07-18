@@ -209,7 +209,7 @@ def test_settings_default_off_and_clamp_exact_integers(
         settings.enable,
         settings.decision_mode,
         settings.max_follow_ups,
-        settings.delay_seconds,
+        settings.debounce_seconds,
         settings.random_probability,
         settings.random_decay,
     ) == expected
@@ -222,6 +222,25 @@ def test_settings_value_object_is_frozen_and_slotted() -> None:
     assert not hasattr(settings, "__dict__")
     with pytest.raises(FrozenInstanceError):
         settings.enable = True
+
+
+def test_settings_prefers_debounce_and_reads_legacy_delay() -> None:
+    module = _load_follow_up_module()
+
+    legacy = module.resolve_immediate_follow_up_settings(
+        {"immediate_follow_up_settings": {"delay_seconds": 4}}
+    )
+    current = module.resolve_immediate_follow_up_settings(
+        {
+            "immediate_follow_up_settings": {
+                "delay_seconds": 4,
+                "debounce_seconds": 1,
+            }
+        }
+    )
+
+    assert legacy.debounce_seconds == 4
+    assert current.debounce_seconds == 1
 
 
 @pytest.mark.parametrize(
@@ -246,7 +265,7 @@ def test_random_strategy_uses_probability_and_linear_decay(
         enable=True,
         decision_mode="random",
         max_follow_ups=3,
-        delay_seconds=0,
+        debounce_seconds=0,
         random_probability=probability,
         random_decay=decay,
     )
