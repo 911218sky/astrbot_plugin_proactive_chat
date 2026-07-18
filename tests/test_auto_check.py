@@ -165,3 +165,12 @@ def test_auto_check_interval_clamps_existing_schedule_interval() -> None:
     assert module.clamp_auto_check_interval(5 * 60, settings) == 10 * 60
     assert module.clamp_auto_check_interval(90 * 60, settings) == 60 * 60
     assert module.clamp_auto_check_interval(30 * 60, settings) == 30 * 60
+
+
+def test_persisted_future_trigger_is_bounded_after_config_change() -> None:
+    module = _load_module()
+    settings = module.resolve_auto_check_settings(
+        {"auto_check_settings": {"enable": True, "profile": "romantic"}}
+    )
+    assert module.clamp_future_trigger_time(90 * 60, 0, settings) == 60 * 60
+    assert module.clamp_future_trigger_time(-1, 0, settings) == -1

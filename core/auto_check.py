@@ -126,6 +126,17 @@ def clamp_auto_check_interval(seconds: int, settings: AutoCheckSettings) -> int:
     return max(minimum, min(maximum, int(seconds)))
 
 
+def clamp_future_trigger_time(
+    trigger_time: float,
+    now: float,
+    settings: AutoCheckSettings,
+) -> float:
+    if trigger_time <= now:
+        return trigger_time
+    interval = clamp_auto_check_interval(int(trigger_time - now), settings)
+    return now + interval
+
+
 def compute_auto_check_interval(
     schedule_settings: dict,
     settings: AutoCheckSettings,

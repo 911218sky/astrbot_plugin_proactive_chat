@@ -16,7 +16,11 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.core.config.astrbot_config import AstrBotConfig
 
 from .core import chat_executor
-from .core.auto_check import compute_session_interval
+from .core.auto_check import (
+    clamp_future_trigger_time,
+    compute_session_interval,
+    resolve_auto_check_settings,
+)
 from .core.config import backup_configurations, get_session_config, validate_config
 from .core.context_scheduling import (
     handle_context_aware_scheduling,
@@ -46,6 +50,7 @@ from .core.utils import (
     MSG_TYPE_KEYWORD_FRIEND,
     get_session_log_str,
     is_group_session_id,
+    is_private_session,
     is_quiet_time,
     parse_session_id,
     resolve_full_umo,
@@ -1289,6 +1294,19 @@ class ProactiveChatPlugin(star.Star):
                 info.pop("next_trigger_time", None)
                 needs_save = True
                 continue
+
+            auto_settings = resolve_auto_check_settings(cfg)
+            parsed_session = parse_session_id(sid)
+            is_private = bool(parsed_session and is_private_session(parsed_session[1]))
+            bounded_next_t = (
+                clamp_future_trigger_time(next_t, now, auto_settings)
+                if is_private and auto_settings.enable
+                else next_t
+            )
+            if bounded_next_t != next_t:
+                next_t = bounded_next_t
+                info["next_trigger_time"] = next_t
+                needs_save = True
 
             # 避免重複建立
             if self.scheduler.get_job(sid):
