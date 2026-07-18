@@ -35,6 +35,12 @@ from .core.delivery import (
     GateVerdict,
     make_accepted_turn,
 )
+from .core.human_like import (
+    apply_heat,
+    normalize_cooldown_until,
+    normalize_heat_score,
+    resolve_human_like_settings,
+)
 from .core.scheduler import (
     compute_habit_next_run,
     get_current_time_slot_id,
@@ -1129,6 +1135,20 @@ class ProactiveChatPlugin(star.Star):
                 int(unanswered_count or 0),
             )
             run_date = datetime.fromtimestamp(time.time() + interval, tz=self.timezone)
+            human_settings = resolve_human_like_settings(session_config)
+            parsed_session = parse_session_id(session_id)
+            if (
+                human_settings.enable
+                and parsed_session
+                and is_private_session(parsed_session[1])
+            ):
+                cooldown_until = normalize_cooldown_until(
+                    sd.get("human_like_cooldown_until")
+                )
+                if cooldown_until > run_date.timestamp():
+                    run_date = datetime.fromtimestamp(
+                        cooldown_until, tz=self.timezone
+                    )
 
             # 持久化下次觸發時間（供重啟後恢復）
             sd["next_trigger_time"] = run_date.timestamp()
@@ -1838,6 +1858,18 @@ class ProactiveChatPlugin(star.Star):
                         sd["last_message_time"] = now
                     if enabled:
                         sd["unanswered_count"] = 0
+                        human_settings = resolve_human_like_settings(session_config)
+                        parsed_session = parse_session_id(session_id)
+                        if (
+                            human_settings.enable
+                            and parsed_session
+                            and is_private_session(parsed_session[1])
+                        ):
+                            sd["interaction_heat"] = apply_heat(
+                                normalize_heat_score(sd.get("interaction_heat")),
+                                "user_activity",
+                            )
+                            sd.pop("human_like_cooldown_until", None)
                     await self._save_data()
 
                 # 首次訊息日誌（每個會話只記錄一次）

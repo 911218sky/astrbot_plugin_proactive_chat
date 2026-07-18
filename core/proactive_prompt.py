@@ -21,6 +21,12 @@ from .llm_helpers import (
     safe_prepare_llm_request,
     truncate_history_for_proactive_llm,
 )
+from .human_like import (
+    heat_guidance,
+    heat_label,
+    normalize_heat_score,
+    resolve_human_like_settings,
+)
 from .messaging import sanitize_history_content
 from .proactive_state import (
     active_task_description,
@@ -278,6 +284,16 @@ def build_final_prompt(
         first_interaction_time=first_text,
         relationship_duration=duration_text,
     )
+    human_settings = resolve_human_like_settings(session_config)
+    if human_settings.enable:
+        heat_score = normalize_heat_score(
+            plugin.session_data.get(session_id, {}).get("interaction_heat")
+        )
+        prompt += (
+            "\n\n[互動熱度]\n"
+            f"目前互動熱度：{heat_label(heat_score)}。"
+            f"{heat_guidance(heat_label(heat_score))}"
+        )
     context_task = find_context_task(plugin, session_id, ctx_job_id)
     if context_task:
         prompt += (

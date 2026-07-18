@@ -116,6 +116,10 @@ Added `schedule_rules` (`template_list` type) to all `schedule_settings`, enabli
 
 `immediate_follow_up_settings` is disabled by default. After a normal AI reply or a proactive message is delivered, the AI can decide whether another message is useful. `max_follow_ups` defaults to 1 and is bounded to 0-10 additional messages; `delay_seconds` defaults to 2 and is bounded to 0-10 seconds. Its semantics are a quiet-period debounce: new user activity cancels the pending follow-up, so only the final message in a burst can trigger it. The implementation also reads the temporary `debounce_seconds` key. A stop decision, malformed controller output, incomplete send, disabled session, or quiet-hours gate ends the burst immediately.
 
+### Human-Like Private Timing
+
+`human_like_settings` is disabled by default and applies only to private sessions. When enabled, follow-ups add content- and night-aware timing on top of the debounce window. A session-local interaction heat score rises on user activity and falls after a proactive delivery, and is included as guidance in the proactive prompt. Optional unanswered-message cooldowns and hourly/daily caps apply only to initial proactive deliveries, persist across restarts, and are cleared when the user replies.
+
 ### Private Auto-Check / Revisit
 
 `auto_check_settings` is disabled by default and applies only to private sessions. It reuses the existing schedule, then bounds the next check by the selected interaction profile or optional custom minimum/maximum intervals. At each check, the plugin reviews recent chat history and asks the provider selected by `context_aware_settings.llm_provider_id` to return `{"send_message": true|false, "message": "..."}`. A false decision only schedules the next check without increasing the unanswered counter; a true decision uses the normal proactive delivery, history, and immediate follow-up pipeline.

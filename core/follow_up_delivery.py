@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import random
+from datetime import datetime
 from collections.abc import Awaitable, Callable
 from typing import assert_never
 
@@ -12,6 +13,8 @@ from .immediate_follow_up import (
     resolve_immediate_follow_up_settings,
     should_send_random_follow_up,
 )
+from .human_like import compute_follow_up_delay_seconds, resolve_human_like_settings
+from .utils import is_private_session, parse_session_id
 
 _LOG_TAG = "[主動訊息]"
 Sleep = Callable[[float], Awaitable[None]]
@@ -39,8 +42,24 @@ async def collect_follow_ups(
     for index in range(settings.max_follow_ups):
         if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:
             break
-        if settings.debounce_seconds:
-            await sleep(settings.debounce_seconds)
+        human_settings = resolve_human_like_settings(session_config)
+        parsed_session = parse_session_id(session_id)
+        is_private = bool(parsed_session and is_private_session(parsed_session[1]))
+        delay_seconds = settings.debounce_seconds
+        if human_settings.enable and is_private and turns:
+            timezone = getattr(plugin, "timezone", None)
+            local_hour = (datetime.now(timezone) if timezone else datetime.now()).hour
+            delay_seconds = max(
+                delay_seconds,
+                compute_follow_up_delay_seconds(
+                    accepted_turn_text(turns[-1]),
+                    local_hour,
+                    human_settings,
+                    random_source(),
+                ),
+            )
+        if delay_seconds:
+            await sleep(delay_seconds)
             if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:
                 break
         try:

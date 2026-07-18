@@ -126,12 +126,15 @@ flowchart LR
 | `context_aware_settings` | 依語境預測跟進時機 |
 | `habit_settings` | 依日常習慣時段自然出現，可設定出現機率、遲到與提示 |
 | `immediate_follow_up_settings` | 控制主動訊息後的 LLM/隨機即時跟進 |
+| `human_like_settings` | 私聊真人節奏：內容等待、互動熱度、冷卻與頻率上限 |
 | `auto_check_settings` | 私聊到點後先查看最近對話，再由語境分析 LLM 決定是否回訪；可選六種互動預設與最短/最長回訪間隔 |
 | `history_settings` | 控制是否把主動訊息寫回 AstrBot 主對話歷史 |
 | `segmented_reply_settings` | 長訊息切段發送 |
 | `tts_settings` | 啟用語音輸出 |
 
 `immediate_follow_up_settings` 預設關閉。Bot 正常回覆或主動訊息送出後，會依設定判斷是否追加。`decision_mode` 可選 `llm` 或 `random`：兩種模式的 LLM 都優先使用上方「語境分析用 LLM 平台」（留空時使用會話預設）；`llm` 由模型判斷是否追加，`random` 則由機率決定是否追加。`max_follow_ups` 預設為 1，可設 0 到 10，代表初始訊息之外最多追加幾句；`delay_seconds` 預設為 2，可設 0 到 10 秒，但它的語義是防抖安靜等待時間：期間使用者有新訊息會取消舊跟進，只在最後一則訊息後觸發一次。程式也能讀取暫時的 `debounce_seconds` key。隨機模式的 `random_probability` 是第一句的 0 到 100% 機率，`random_decay` 是每追加一則後下降的百分點。
+
+`human_like_settings` 預設關閉且只套用私聊。開啟後，即時跟進會依上一則訊息長度、夜間時段，在既有防抖等待上加入自然延遲；互動熱度會在使用者回覆時上升、Bot 主動發送時下降，並提供給主動訊息 Prompt 作為語氣參考。`cooldown_after_unanswered`、`cooldown_minutes` 可在連續未回覆後暫停主動訊息，`max_proactive_per_hour` 與 `max_proactive_per_day` 可限制初始主動訊息數量（不計跟進）。所有狀態會保存，使用者再次回覆會清除冷卻。
 
 `auto_check_settings` 只套用私聊，預設關閉。開啟後仍使用 `schedule_settings` 的分時段加權間隔，但會把下一次檢查限制在選定預設的時間範圍內；到點後先讀取最近聊天，由同一個 `context_aware_settings.llm_provider_id` 指定的 LLM 回傳 `{"send_message": true|false, "message": "..."}`。判斷不發送時只重排下一次檢查，不增加未回覆次數；判斷發送時沿用既有主動訊息、歷史與即時跟進流程。預設「熱戀中的情侶」會較常關心對方，但不會強制每次都發言。
 

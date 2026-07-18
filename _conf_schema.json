@@ -710,6 +710,84 @@
                     }
                 }
             },
+            "human_like_settings": {
+                "description": "🧍 真人互動節奏（私聊）",
+                "type": "object",
+                "items": {
+                    "enable": {
+                        "description": "啟用真人互動節奏",
+                        "type": "bool",
+                        "default": false,
+                        "hint": "只套用私聊；會依訊息長度、時段與互動熱度調整即時跟進，並提供冷卻與頻率上限。"
+                    },
+                    "timing_min_seconds": {
+                        "description": "跟進最短等待（秒）",
+                        "type": "int",
+                        "default": 2,
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 60, "step": 1}
+                    },
+                    "timing_max_seconds": {
+                        "description": "跟進最長等待（秒）",
+                        "type": "int",
+                        "default": 8,
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 60, "step": 1}
+                    },
+                    "long_message_chars": {
+                        "description": "長訊息字數門檻",
+                        "type": "int",
+                        "default": 120,
+                        "condition": {"enable": true},
+                        "slider": {"min": 1, "max": 2000, "step": 1}
+                    },
+                    "long_message_bonus_seconds": {
+                        "description": "長訊息額外等待（秒）",
+                        "type": "int",
+                        "default": 2,
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 30, "step": 1}
+                    },
+                    "night_bonus_seconds": {
+                        "description": "深夜額外等待（秒）",
+                        "type": "int",
+                        "default": 2,
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 30, "step": 1}
+                    },
+                    "cooldown_after_unanswered": {
+                        "description": "未回覆幾次後冷卻",
+                        "type": "int",
+                        "default": 0,
+                        "hint": "填 0 表示停用；達到次數後暫停主動訊息，直到使用者回覆或冷卻時間結束。",
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 10, "step": 1}
+                    },
+                    "cooldown_minutes": {
+                        "description": "冷卻時間（分鐘）",
+                        "type": "int",
+                        "default": 120,
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 1440, "step": 5}
+                    },
+                    "max_proactive_per_hour": {
+                        "description": "每小時最多主動訊息",
+                        "type": "int",
+                        "default": 0,
+                        "hint": "填 0 表示不限制；只計算每次主動訊息的第一句，不計即時跟進。",
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 20, "step": 1}
+                    },
+                    "max_proactive_per_day": {
+                        "description": "每日最多主動訊息",
+                        "type": "int",
+                        "default": 0,
+                        "hint": "填 0 表示不限制；只計算每次主動訊息的第一句，不計即時跟進。",
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 100, "step": 1}
+                    }
+                }
+            },
             "segmented_reply_settings": {
                 "description": "🔪 分段回覆設定",
                 "type": "object",
@@ -2210,6 +2288,84 @@
                                     "max": 100,
                                     "step": 1
                                 }
+                            }
+                        }
+                    },
+                    "human_like_settings": {
+                        "description": "🧍 真人互動節奏（私聊）",
+                        "type": "object",
+                        "items": {
+                            "enable": {
+                                "description": "啟用真人互動節奏",
+                                "type": "bool",
+                                "default": false,
+                                "hint": "只套用私聊；會依訊息長度、時段與互動熱度調整即時跟進，並提供冷卻與頻率上限。"
+                            },
+                            "timing_min_seconds": {
+                                "description": "跟進最短等待（秒）",
+                                "type": "int",
+                                "default": 2,
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 60, "step": 1}
+                            },
+                            "timing_max_seconds": {
+                                "description": "跟進最長等待（秒）",
+                                "type": "int",
+                                "default": 8,
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 60, "step": 1}
+                            },
+                            "long_message_chars": {
+                                "description": "長訊息字數門檻",
+                                "type": "int",
+                                "default": 120,
+                                "condition": {"enable": true},
+                                "slider": {"min": 1, "max": 2000, "step": 1}
+                            },
+                            "long_message_bonus_seconds": {
+                                "description": "長訊息額外等待（秒）",
+                                "type": "int",
+                                "default": 2,
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 30, "step": 1}
+                            },
+                            "night_bonus_seconds": {
+                                "description": "深夜額外等待（秒）",
+                                "type": "int",
+                                "default": 2,
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 30, "step": 1}
+                            },
+                            "cooldown_after_unanswered": {
+                                "description": "未回覆幾次後冷卻",
+                                "type": "int",
+                                "default": 0,
+                                "hint": "填 0 表示停用；達到次數後暫停主動訊息，直到使用者回覆或冷卻時間結束。",
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 10, "step": 1}
+                            },
+                            "cooldown_minutes": {
+                                "description": "冷卻時間（分鐘）",
+                                "type": "int",
+                                "default": 120,
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 1440, "step": 5}
+                            },
+                            "max_proactive_per_hour": {
+                                "description": "每小時最多主動訊息",
+                                "type": "int",
+                                "default": 0,
+                                "hint": "填 0 表示不限制；只計算每次主動訊息的第一句，不計即時跟進。",
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 20, "step": 1}
+                            },
+                            "max_proactive_per_day": {
+                                "description": "每日最多主動訊息",
+                                "type": "int",
+                                "default": 0,
+                                "hint": "填 0 表示不限制；只計算每次主動訊息的第一句，不計即時跟進。",
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 100, "step": 1}
                             }
                         }
                     },
