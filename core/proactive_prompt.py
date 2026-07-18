@@ -224,13 +224,6 @@ async def _request_follow_up_completion(
     if plugin._gate_verdict(gate) is not GateVerdict.CURRENT or not request:
         return None
     history = sanitize_history_content(request["history"])
-    history.extend(
-        {
-            "role": "assistant",
-            "content": [{"type": "text", "text": accepted_turn_text(turn)}],
-        }
-        for turn in accepted_turns
-    )
     history = await truncate_history_for_proactive_llm(
         plugin.context, session_id, history
     )
