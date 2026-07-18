@@ -16,7 +16,7 @@ jobs:
 
     steps:
       - name: 檢出程式碼
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 設定 Python 環境
         uses: actions/setup-python@v6
@@ -43,7 +43,7 @@ jobs:
           echo "$CHECK_LOG" > check.log
 
       - name: 生成報告與評論
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const fs = require('fs');
