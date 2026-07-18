@@ -545,7 +545,11 @@ async def call_llm(
         if _is_auth_error(llm_err):
             raise NonRetryableLLMError(str(llm_err)) from llm_err
         try:
-            provider = context.get_using_provider(umo=session_id)
+            provider = (
+                context.get_provider_by_id(provider_id)
+                if isinstance(provider_id, str) and provider_id.strip()
+                else context.get_using_provider(umo=session_id)
+            )
             if provider:
                 return await provider.text_chat(
                     prompt=prompt,

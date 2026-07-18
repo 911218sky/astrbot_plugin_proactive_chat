@@ -44,6 +44,68 @@
                     }
                 }
             },
+            "auto_check_settings": {
+                "description": "👀 自動查看／回訪設定",
+                "type": "object",
+                "items": {
+                    "enable": {
+                        "description": "✅ 啟用自動查看／回訪",
+                        "type": "bool",
+                        "default": false,
+                        "hint": "開啟後，Bot 會沿用上方私聊排程，在每次到點時先查看最近對話，再由 LLM 判斷是否需要主動發送下一則訊息。關閉時維持原本到點直接生成主動訊息的行為。"
+                    },
+                    "profile": {
+                        "description": "💞 回訪互動風格",
+                        "type": "string",
+                        "options": [
+                            "romantic",
+                            "normal",
+                            "active",
+                            "very_active",
+                            "inactive",
+                            "very_inactive"
+                        ],
+                        "labels": [
+                            "熱戀中的情侶",
+                            "一般",
+                            "積極",
+                            "非常積極",
+                            "不積極",
+                            "非常不積極"
+                        ],
+                        "default": "romantic",
+                        "hint": "預設為熱戀中的情侶。預設會影響回訪檢查的時間範圍與 LLM 的互動語氣，但最後是否發送仍由 LLM 根據最近對話判斷。"
+                    },
+                    "use_custom_intervals": {
+                        "description": "🛠️ 使用自訂回訪時間範圍",
+                        "type": "bool",
+                        "default": false,
+                        "hint": "關閉時使用上方互動風格的預設範圍；開啟後才會套用下方最短與最長回訪間隔。"
+                    },
+                    "min_interval_minutes": {
+                        "description": "⏱️ 最短回訪間隔（分鐘）",
+                        "type": "int",
+                        "default": 10,
+                        "hint": "可自行調整，執行時限制為 1 到 1440 分鐘。",
+                        "slider": {
+                            "min": 1,
+                            "max": 1440,
+                            "step": 1
+                        }
+                    },
+                    "max_interval_minutes": {
+                        "description": "⏱️ 最長回訪間隔（分鐘）",
+                        "type": "int",
+                        "default": 60,
+                        "hint": "可自行調整，執行時限制為 1 到 2880 分鐘。",
+                        "slider": {
+                            "min": 1,
+                            "max": 2880,
+                            "step": 1
+                        }
+                    }
+                }
+            },
             "proactive_prompt": {
                 "description": "🧠 私聊全域動機 Prompt",
                 "type": "text",
@@ -1480,6 +1542,68 @@
                                 "slider": {
                                     "min": 1,
                                     "max": 120,
+                                    "step": 1
+                                }
+                            }
+                        }
+                    },
+                    "auto_check_settings": {
+                        "description": "👀 自動查看／回訪設定",
+                        "type": "object",
+                        "items": {
+                            "enable": {
+                                "description": "✅ 啟用自動查看／回訪",
+                                "type": "bool",
+                                "default": false,
+                                "hint": "開啟後，Bot 會沿用上方私聊排程，在每次到點時先查看最近對話，再由 LLM 判斷是否需要主動發送下一則訊息。關閉時維持原本到點直接生成主動訊息的行為。"
+                            },
+                            "profile": {
+                                "description": "💞 回訪互動風格",
+                                "type": "string",
+                                "options": [
+                                    "romantic",
+                                    "normal",
+                                    "active",
+                                    "very_active",
+                                    "inactive",
+                                    "very_inactive"
+                                ],
+                                "labels": [
+                                    "熱戀中的情侶",
+                                    "一般",
+                                    "積極",
+                                    "非常積極",
+                                    "不積極",
+                                    "非常不積極"
+                                ],
+                                "default": "romantic",
+                                "hint": "預設為熱戀中的情侶。預設會影響回訪檢查的時間範圍與 LLM 的互動語氣，但最後是否發送仍由 LLM 根據最近對話判斷。"
+                            },
+                            "use_custom_intervals": {
+                                "description": "🛠️ 使用自訂回訪時間範圍",
+                                "type": "bool",
+                                "default": false,
+                                "hint": "關閉時使用上方互動風格的預設範圍；開啟後才會套用下方最短與最長回訪間隔。"
+                            },
+                            "min_interval_minutes": {
+                                "description": "⏱️ 最短回訪間隔（分鐘）",
+                                "type": "int",
+                                "default": 10,
+                                "hint": "可自行調整，執行時限制為 1 到 1440 分鐘。",
+                                "slider": {
+                                    "min": 1,
+                                    "max": 1440,
+                                    "step": 1
+                                }
+                            },
+                            "max_interval_minutes": {
+                                "description": "⏱️ 最長回訪間隔（分鐘）",
+                                "type": "int",
+                                "default": 60,
+                                "hint": "可自行調整，執行時限制為 1 到 2880 分鐘。",
+                                "slider": {
+                                    "min": 1,
+                                    "max": 2880,
                                     "step": 1
                                 }
                             }

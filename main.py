@@ -16,6 +16,7 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.core.config.astrbot_config import AstrBotConfig
 
 from .core import chat_executor
+from .core.auto_check import compute_session_interval
 from .core.config import backup_configurations, get_session_config, validate_config
 from .core.context_scheduling import (
     handle_context_aware_scheduling,
@@ -32,7 +33,6 @@ from .core.delivery import (
 )
 from .core.scheduler import (
     compute_habit_next_run,
-    compute_weighted_interval,
     get_current_time_slot_id,
     get_time_slot_reset_count,
     is_unanswered_limit_reached,
@@ -991,7 +991,7 @@ class ProactiveChatPlugin(star.Star):
                 return
 
             schedule_conf = cfg.get("schedule_settings", {})
-            interval = compute_weighted_interval(schedule_conf, self.timezone, 0)
+            interval = compute_session_interval(schedule_conf, cfg, self.timezone, 0)
             run_date = datetime.fromtimestamp(time.time() + interval, tz=self.timezone)
             await self._persist_regular_job(
                 session_id,
@@ -1117,8 +1117,11 @@ class ProactiveChatPlugin(star.Star):
 
             # 計算加權隨機間隔
             unanswered_count = sd.get("unanswered_count", 0)
-            interval = compute_weighted_interval(
-                schedule_conf, self.timezone, unanswered_count
+            interval = compute_session_interval(
+                schedule_conf,
+                session_config,
+                self.timezone,
+                int(unanswered_count or 0),
             )
             run_date = datetime.fromtimestamp(time.time() + interval, tz=self.timezone)
 
@@ -1228,7 +1231,9 @@ class ProactiveChatPlugin(star.Star):
         except asyncio.CancelledError:
             raise
         except Exception as error:
-            logger.error(f"{_LOG_TAG} 一般回覆即時跟進失敗 | session={session_id}: {error}")
+            logger.error(
+                f"{_LOG_TAG} 一般回覆即時跟進失敗 | session={session_id}: {error}"
+            )
         finally:
             if self._reply_follow_up_tasks.get(session_id) is task:
                 self._reply_follow_up_tasks.pop(session_id, None)

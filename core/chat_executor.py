@@ -7,10 +7,16 @@ from typing import TYPE_CHECKING
 from astrbot.api import logger
 from astrbot.core.platform.platform import PlatformStatus
 
-from . import immediate_follow_up, proactive_history, proactive_prompt, proactive_state
+from . import (
+    auto_check,
+    immediate_follow_up,
+    proactive_history,
+    proactive_prompt,
+    proactive_state,
+)
 from .delivery import AcceptedTurn, DispatchGate, GateVerdict
 from .send import dispatch_proactive_message
-from .utils import parse_session_id, resolve_full_umo
+from .utils import is_private_session, parse_session_id, resolve_full_umo
 
 if TYPE_CHECKING:
     from astrbot.core.conversation_mgr import ConversationManager
@@ -43,9 +49,28 @@ async def check_and_chat(
             return
         if plugin._gate_verdict(current_gate) is not GateVerdict.CURRENT:
             return
-        llm_result = await _prepare_and_call_llm(
-            plugin, session_id, session_config, unanswered_count, ctx_job_id
-        )
+        parsed_session = parse_session_id(session_id)
+        is_private = bool(parsed_session and is_private_session(parsed_session[1]))
+        auto_settings = auto_check.resolve_auto_check_settings(session_config)
+        if is_private and auto_settings.enable and not ctx_job_id:
+            auto_result = await _prepare_and_call_auto_check(
+                plugin, session_id, session_config, unanswered_count, ctx_job_id
+            )
+            if auto_result is None:
+                if plugin._gate_verdict(current_gate) is GateVerdict.CURRENT:
+                    await plugin._schedule_next_chat_and_save(session_id)
+                return
+            decision, conv_id, final_prompt, context_task = auto_result
+            if not decision.send_message:
+                logger.info("[主動訊息] 自動查看判斷目前不需要發送，已安排下一次回訪。")
+                if plugin._gate_verdict(current_gate) is GateVerdict.CURRENT:
+                    await plugin._schedule_next_chat_and_save(session_id)
+                return
+            llm_result = (decision.message, conv_id, final_prompt, context_task)
+        else:
+            llm_result = await _prepare_and_call_llm(
+                plugin, session_id, session_config, unanswered_count, ctx_job_id
+            )
         if plugin._gate_verdict(current_gate) is not GateVerdict.CURRENT:
             return
         if llm_result is None:
@@ -116,6 +141,10 @@ async def _check_preconditions(plugin, session_id: str, **kwargs):
 
 async def _prepare_and_call_llm(plugin, *args):
     return await proactive_prompt.prepare_and_call_llm(plugin, *args)
+
+
+async def _prepare_and_call_auto_check(plugin, *args):
+    return await proactive_prompt.prepare_and_call_auto_check(plugin, *args)
 
 
 async def _deliver_and_finalize(plugin, *args, random_source=random.random):

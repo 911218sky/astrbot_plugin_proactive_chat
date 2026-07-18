@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING, assert_never
 
 from astrbot.api import logger
 
+from .auto_check import compute_session_interval
 from .config import get_session_config
 from .delivery import DispatchGate, GateVerdict
 from .scheduler import (
-    compute_weighted_interval,
     is_unanswered_limit_reached,
     should_trigger_by_unanswered,
 )
@@ -195,7 +195,12 @@ async def update_unanswered_and_reschedule(
             await plugin._save_data()
             logger.info(f"{_LOG_TAG} {reason}，不再安排下一次主動訊息。")
             return True
-        interval = compute_weighted_interval(schedule_conf, plugin.timezone, next_count)
+        interval = compute_session_interval(
+            schedule_conf,
+            session_config,
+            plugin.timezone,
+            next_count,
+        )
         run_date = datetime.fromtimestamp(time.time() + interval, tz=plugin.timezone)
         state["next_trigger_time"] = run_date.timestamp()
         await plugin._save_data()
