@@ -174,3 +174,9 @@ def test_persisted_future_trigger_is_bounded_after_config_change() -> None:
     )
     assert module.clamp_future_trigger_time(90 * 60, 0, settings) == 60 * 60
     assert module.clamp_future_trigger_time(-1, 0, settings) == -1
+
+
+def test_auto_check_decision_rejects_oversized_message() -> None:
+    module = _load_module()
+    response = json.dumps({"send_message": True, "message": "x" * 2001})
+    assert module.parse_auto_check_decision(response) is None
