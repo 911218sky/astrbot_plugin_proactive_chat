@@ -8,7 +8,11 @@ from typing import TYPE_CHECKING, assert_never
 
 from astrbot.api import logger
 
-from .auto_check import compute_session_interval
+from .auto_check import (
+    clamp_auto_check_interval,
+    compute_session_interval,
+    resolve_auto_check_settings,
+)
 from .config import get_session_config
 from .delivery import DispatchGate, GateVerdict
 from .human_like import (
@@ -203,6 +207,7 @@ async def update_unanswered_and_reschedule(
     *,
     ctx_job_id: str = "",
     clear_task_description: bool = False,
+    next_check_minutes: int | None = None,
     gate: DispatchGate,
 ) -> bool:
     habit_task = plugin._find_habit_task(session_id, ctx_job_id)
@@ -223,8 +228,12 @@ async def update_unanswered_and_reschedule(
         if human_settings.enable and parsed_session and is_private_session(parsed_session[1]):
             now = time.time()
             state["interaction_heat"] = apply_heat(
-                normalize_heat_score(state.get("interaction_heat")),
+                normalize_heat_score(
+                    state.get("interaction_heat"),
+                    human_settings.initial_heat_score,
+                ),
                 "proactive_delivery",
+                human_settings,
             )
             sent = state.get("human_like_delivery_timestamps")
             timestamps = sent if isinstance(sent, list) else []
@@ -252,12 +261,18 @@ async def update_unanswered_and_reschedule(
             await plugin._save_data()
             logger.info(f"{_LOG_TAG} {reason}，不再安排下一次主動訊息。")
             return True
-        interval = compute_session_interval(
-            schedule_conf,
-            session_config,
-            plugin.timezone,
-            next_count,
-        )
+        if next_check_minutes is not None:
+            auto_settings = resolve_auto_check_settings(session_config)
+            interval = clamp_auto_check_interval(
+                int(next_check_minutes) * 60, auto_settings
+            )
+        else:
+            interval = compute_session_interval(
+                schedule_conf,
+                session_config,
+                plugin.timezone,
+                next_count,
+            )
         run_date = datetime.fromtimestamp(time.time() + interval, tz=plugin.timezone)
         state["next_trigger_time"] = run_date.timestamp()
         await plugin._save_data()

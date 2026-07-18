@@ -57,6 +57,28 @@ def test_heat_transitions_are_clamped_and_labeled() -> None:
     assert module.heat_label(90) == "hot"
 
 
+def test_heat_deltas_are_configurable_and_still_clamped() -> None:
+    module = _load_module()
+    settings = module.resolve_human_like_settings(
+        {
+            "human_like_settings": {
+                "enable": True,
+                "initial_heat_score": 20,
+                "user_activity_delta": 30,
+                "proactive_delivery_delta": -12,
+            }
+        }
+    )
+
+    assert settings.initial_heat_score == 20
+    assert settings.user_activity_delta == 30
+    assert settings.proactive_delivery_delta == -12
+    assert module.apply_heat(20, "user_activity", settings) == 50
+    assert module.apply_heat(20, "proactive_delivery", settings) == 8
+    assert module.apply_heat(95, "user_activity", settings) == 100
+    assert module.apply_heat(5, "proactive_delivery", settings) == 0
+
+
 def test_cooldown_and_caps_are_explicit() -> None:
     module = _load_module()
     settings = module.resolve_human_like_settings(

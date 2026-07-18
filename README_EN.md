@@ -23,7 +23,7 @@
 
 A proactive messaging plugin for [AstrBot](https://github.com/AstrBotDevs/AstrBot) that enables your Bot to initiate context-aware, persona-consistent conversations with dynamic emotions at random intervals after session silence.
 
-Current version: `v2.23.0`
+Current version: `v2.24.0`
 
 Recent updates:
 
@@ -85,9 +85,9 @@ Converted `private_sessions` and `group_sessions` from 5 hardcoded slots (`sessi
 - Config JSON reduced from ~2500 lines to ~660 lines (74% reduction)
 - Faster WebUI loading and smoother operation
 
-### 3. schedule_rules — Time-Based Weighted Random Scheduling
+### 3. schedule_rules — Group Time-Based Weighted Random Scheduling
 
-Added `schedule_rules` (`template_list` type) to all `schedule_settings`, enabling weighted random interval distribution by time of day:
+`group_settings.schedule_settings` and group session templates retain `schedule_rules` (`template_list` type), enabling weighted random interval distribution by time of day. Private chats use the adaptive schedule and LLM check flow described below; their WebUI no longer exposes these legacy rule fields:
 
 - Each rule has `start_hour`, `end_hour`, `interval_weights`
 - `interval_weights` format: `"20-30:0.2,30-50:0.5,50-90:0.3"` (minutes:weight)
@@ -118,11 +118,11 @@ Added `schedule_rules` (`template_list` type) to all `schedule_settings`, enabli
 
 ### Human-Like Private Timing
 
-`human_like_settings` is disabled by default and applies only to private sessions. When enabled, follow-ups add content- and night-aware timing on top of the debounce window. A session-local interaction heat score rises on user activity and falls after a proactive delivery, and is included as guidance in the proactive prompt. Optional unanswered-message cooldowns and hourly/daily caps apply only to initial proactive deliveries, persist across restarts, and are cleared when the user replies.
+`human_like_settings` is disabled by default and applies only to private sessions. When enabled, follow-ups add content- and night-aware timing on top of the debounce window. `initial_heat_score`, `user_activity_delta`, and `proactive_delivery_delta` customize the clamped 0-100 interaction heat score. Optional unanswered-message cooldowns and hourly/daily caps apply only to initial proactive deliveries.
 
 ### Private Auto-Check / Revisit
 
-`auto_check_settings` is disabled by default and applies only to private sessions. It reuses the existing schedule, then bounds the next check by the selected interaction profile or optional custom minimum/maximum intervals. At each check, the plugin reviews recent chat history and asks the provider selected by `context_aware_settings.llm_provider_id` to return `{"send_message": true|false, "message": "..."}`. A false decision only schedules the next check without increasing the unanswered counter; a true decision uses the normal proactive delivery, history, and immediate follow-up pipeline.
+`auto_check_settings` is disabled by default and applies only to private sessions. It uses a stable adaptive rhythm and asks the top-level `context_analysis_llm_provider_id` (legacy nested provider is a fallback) to review recent chat history. The model may return `{"send_message": true|false, "message": "...", "next_check_minutes": 180}`; the requested timing is clamped to the configured minimum/maximum. Legacy two-field responses remain valid. Add natural-language `guidance` for usual chat hours or quiet preferences. A false decision only schedules the next check without increasing the unanswered counter.
 
 ### 4. livingmemory Integration
 

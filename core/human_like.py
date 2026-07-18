@@ -30,6 +30,9 @@ class HumanLikeSettings:
     cooldown_minutes: int = 120
     max_proactive_per_hour: int = 0
     max_proactive_per_day: int = 0
+    initial_heat_score: int = _DEFAULT_HEAT_SCORE
+    user_activity_delta: int = 15
+    proactive_delivery_delta: int = -5
 
 
 def _bounded_int(
@@ -111,6 +114,24 @@ def resolve_human_like_settings(session_config: object) -> HumanLikeSettings:
             minimum=0,
             maximum=100,
         ),
+        initial_heat_score=_bounded_int(
+            raw.get("initial_heat_score"),
+            default=_DEFAULT_HEAT_SCORE,
+            minimum=_HEAT_MIN,
+            maximum=_HEAT_MAX,
+        ),
+        user_activity_delta=_bounded_int(
+            raw.get("user_activity_delta"),
+            default=15,
+            minimum=-100,
+            maximum=100,
+        ),
+        proactive_delivery_delta=_bounded_int(
+            raw.get("proactive_delivery_delta"),
+            default=-5,
+            minimum=-100,
+            maximum=100,
+        ),
     )
 
 
@@ -133,14 +154,22 @@ def compute_follow_up_delay_seconds(
     return minimum + int((maximum - minimum) * bounded_random)
 
 
-def apply_heat(score: int, event: HeatEvent) -> int:
-    delta = 15 if event == "user_activity" else -5
+def apply_heat(
+    score: int,
+    event: HeatEvent,
+    settings: HumanLikeSettings | None = None,
+) -> int:
+    deltas = {
+        "user_activity": settings.user_activity_delta if settings else 15,
+        "proactive_delivery": settings.proactive_delivery_delta if settings else -5,
+    }
+    delta = deltas[event]
     return max(_HEAT_MIN, min(_HEAT_MAX, int(score) + delta))
 
 
-def normalize_heat_score(value: object) -> int:
+def normalize_heat_score(value: object, default: int = _DEFAULT_HEAT_SCORE) -> int:
     if type(value) is not int:
-        return _DEFAULT_HEAT_SCORE
+        return max(_HEAT_MIN, min(_HEAT_MAX, int(default)))
     return max(_HEAT_MIN, min(_HEAT_MAX, value))
 
 

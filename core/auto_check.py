@@ -38,6 +38,7 @@ class AutoCheckSettings:
 class AutoCheckDecision:
     send_message: bool
     message: str
+    next_check_minutes: int | None = None
 
 
 PROFILE_DEFAULTS: Final[dict[AutoCheckProfile, AutoCheckProfileDefaults]] = {
@@ -74,6 +75,9 @@ PROFILE_DEFAULTS: Final[dict[AutoCheckProfile, AutoCheckProfileDefaults]] = {
 }
 
 _DECISION_KEYS: Final[frozenset[str]] = frozenset(("send_message", "message"))
+_DECISION_KEYS_WITH_TIMING: Final[frozenset[str]] = frozenset(
+    (*_DECISION_KEYS, "next_check_minutes")
+)
 
 
 def _bounded_int(value: object, *, minimum: int, maximum: int) -> int | None:
@@ -109,13 +113,17 @@ def resolve_auto_check_settings(session_config: object) -> AutoCheckSettings:
     resolved_maximum = maximum if maximum is not None else defaults.max_interval_minutes
     resolved_maximum = max(resolved_minimum, resolved_maximum)
     enable = raw.get("enable", False)
+    custom_guidance = raw.get("guidance", "")
+    guidance = defaults.guidance
+    if isinstance(custom_guidance, str) and custom_guidance.strip():
+        guidance += f"\n使用者補充指示：{custom_guidance.strip()}"
     return AutoCheckSettings(
         enable=enable if type(enable) is bool else False,
         profile=profile,
         use_custom_intervals=use_custom_intervals,
         min_interval_minutes=resolved_minimum,
         max_interval_minutes=resolved_maximum,
-        guidance=defaults.guidance,
+        guidance=guidance,
     )
 
 
@@ -216,15 +224,42 @@ def parse_auto_check_decision(response: object) -> AutoCheckDecision | None:
         parsed: object = json.loads(response, object_pairs_hook=_reject_duplicate_keys)
     except (TypeError, ValueError):
         return None
-    if not isinstance(parsed, dict) or set(parsed) != _DECISION_KEYS:
+    if not isinstance(parsed, dict) or set(parsed) not in (
+        _DECISION_KEYS,
+        _DECISION_KEYS_WITH_TIMING,
+    ):
         return None
     send_message = parsed["send_message"]
     message = parsed["message"]
     if type(send_message) is not bool or type(message) is not str:
         return None
+    next_check_minutes: int | None = None
+    if "next_check_minutes" in parsed:
+        value = parsed["next_check_minutes"]
+        if type(value) is not int or value <= 0:
+            return None
+        next_check_minutes = value
     if not send_message:
-        return AutoCheckDecision(False, "") if message == "" else None
+        return (
+            AutoCheckDecision(False, "", next_check_minutes)
+            if message == ""
+            else None
+        )
     if len(message) > _MAX_AUTO_CHECK_MESSAGE_LENGTH:
         return None
     sanitized = _sanitize_message(message)
-    return AutoCheckDecision(True, sanitized) if sanitized else None
+    return AutoCheckDecision(True, sanitized, next_check_minutes) if sanitized else None
+
+
+def bounded_next_check_minutes(
+    decision: AutoCheckDecision,
+    settings: AutoCheckSettings,
+) -> AutoCheckDecision:
+    """將模型要求的下一次檢查時間限制在設定範圍內。"""
+    if decision.next_check_minutes is None:
+        return decision
+    bounded = max(
+        settings.min_interval_minutes,
+        min(settings.max_interval_minutes, decision.next_check_minutes),
+    )
+    return AutoCheckDecision(decision.send_message, decision.message, bounded)

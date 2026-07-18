@@ -17,6 +17,7 @@ from astrbot.core.config.astrbot_config import AstrBotConfig
 
 from .core import chat_executor
 from .core.auto_check import (
+    clamp_auto_check_interval,
     clamp_future_trigger_time,
     compute_session_interval,
     resolve_auto_check_settings,
@@ -1147,11 +1148,12 @@ class ProactiveChatPlugin(star.Star):
         session_id: str,
         reset_counter: bool = False,
         clear_timer_keys: tuple[str, ...] = (),
+        delay_minutes: int | None = None,
     ) -> None:
         """
         安排下一次主動聊天並持久化狀態。
 
-        使用 ``compute_weighted_interval`` 根據 schedule_rules 加權隨機決定間隔。
+        私聊自動查看使用受邊界限制的自適應間隔；群聊與舊設定仍可使用 schedule_rules。
         若 ``reset_counter=True``，會將未回覆計數歸零（通常在使用者回覆後呼叫）。
         """
         session_config = get_session_config(self.config, session_id)
@@ -1197,12 +1199,18 @@ class ProactiveChatPlugin(star.Star):
 
             # 計算加權隨機間隔
             unanswered_count = sd.get("unanswered_count", 0)
-            interval = compute_session_interval(
-                schedule_conf,
-                session_config,
-                self.timezone,
-                int(unanswered_count or 0),
-            )
+            if delay_minutes is not None:
+                auto_settings = resolve_auto_check_settings(session_config)
+                interval = clamp_auto_check_interval(
+                    int(delay_minutes) * 60, auto_settings
+                )
+            else:
+                interval = compute_session_interval(
+                    schedule_conf,
+                    session_config,
+                    self.timezone,
+                    int(unanswered_count or 0),
+                )
             run_date = datetime.fromtimestamp(time.time() + interval, tz=self.timezone)
             human_settings = resolve_human_like_settings(session_config)
             parsed_session = parse_session_id(session_id)
@@ -1935,8 +1943,12 @@ class ProactiveChatPlugin(star.Star):
                             and is_private_session(parsed_session[1])
                         ):
                             sd["interaction_heat"] = apply_heat(
-                                normalize_heat_score(sd.get("interaction_heat")),
+                                normalize_heat_score(
+                                    sd.get("interaction_heat"),
+                                    human_settings.initial_heat_score,
+                                ),
                                 "user_activity",
+                                human_settings,
                             )
                             sd.pop("human_like_cooldown_until", None)
                     await self._save_data()

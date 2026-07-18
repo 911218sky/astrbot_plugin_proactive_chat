@@ -126,6 +126,7 @@ flowchart LR
 | 配置項 | 用途 |
 | :--- | :--- |
 | `context_aware_settings` | 依語境預測跟進時機 |
+| `context_analysis_llm_provider_id` | 全域共用語境分析、回訪與跟進判斷 LLM；留空使用會話預設 |
 | `habit_settings` | 依日常習慣時段建立檢查機會，可搭配 LLM 決定是否自然出現 |
 | `immediate_follow_up_settings` | 控制主動訊息後的 LLM/隨機即時跟進 |
 | `human_like_settings` | 私聊真人節奏：內容等待、互動熱度、冷卻與頻率上限 |
@@ -136,9 +137,9 @@ flowchart LR
 
 `immediate_follow_up_settings` 預設關閉。Bot 正常回覆或主動訊息送出後，會依設定判斷是否追加。`decision_mode` 可選 `llm` 或 `random`：兩種模式的 LLM 都優先使用上方「語境分析用 LLM 平台」（留空時使用會話預設）；`llm` 由模型判斷是否追加，`random` 則由機率決定是否追加。`max_follow_ups` 預設為 1，可設 0 到 10，代表初始訊息之外最多追加幾句；`delay_seconds` 預設為 2，可設 0 到 10 秒，但它的語義是防抖安靜等待時間：期間使用者有新訊息會取消舊跟進，只在最後一則訊息後觸發一次。程式也能讀取暫時的 `debounce_seconds` key。隨機模式的 `random_probability` 是第一句的 0 到 100% 機率，`random_decay` 是每追加一則後下降的百分點。
 
-`human_like_settings` 預設關閉且只套用私聊。開啟後，即時跟進會依上一則訊息長度、夜間時段，在既有防抖等待上加入自然延遲；互動熱度會在使用者回覆時上升、Bot 主動發送時下降，並提供給主動訊息 Prompt 作為語氣參考。`cooldown_after_unanswered`、`cooldown_minutes` 可在連續未回覆後暫停主動訊息，`max_proactive_per_hour` 與 `max_proactive_per_day` 可限制初始主動訊息數量（不計跟進）。所有狀態會保存，使用者再次回覆會清除冷卻。
+`human_like_settings` 預設關閉且只套用私聊。開啟後，即時跟進會依上一則訊息長度、夜間時段，在既有防抖等待上加入自然延遲；互動熱度會在使用者回覆時上升、Bot 主動發送時下降，並提供給主動訊息 Prompt 作為語氣參考。`initial_heat_score`、`user_activity_delta`、`proactive_delivery_delta` 可自訂熱度初始值與每種活動的增減分數，分數固定限制在 0 到 100。`cooldown_after_unanswered`、`cooldown_minutes` 可在連續未回覆後暫停主動訊息，`max_proactive_per_hour` 與 `max_proactive_per_day` 可限制初始主動訊息數量（不計跟進）。
 
-`auto_check_settings` 只套用私聊，預設關閉。開啟後會使用互動風格的穩定檢查節奏，到點先讀取最近聊天，由同一個 `context_aware_settings.llm_provider_id` 指定的 LLM 回傳 `{"send_message": true|false, "message": "..."}`。判斷不發送時只重排下一次檢查，不增加未回覆次數；判斷發送時沿用既有主動訊息、歷史與即時跟進流程。`schedule_settings.interval_mode` 可選 `adaptive`（預設）或 `weighted_random`（舊設定相容）。預設「熱戀中的情侶」會較常關心對方，但不會強制每次都發言。
+`auto_check_settings` 只套用私聊，預設關閉。開啟後會使用互動風格的穩定檢查節奏，到點先讀取最近聊天，由頂層 `context_analysis_llm_provider_id`（舊的會話內 `context_aware_settings.llm_provider_id` 僅作 fallback）判斷。模型可回傳 `{"send_message": true|false, "message": "...", "next_check_minutes": 180}`，下一次檢查會被限制在設定的最短／最長間隔內；舊版兩欄回傳格式仍可安全使用。判斷不發送時只重排下一次檢查，不增加未回覆次數；判斷發送時沿用既有主動訊息、歷史與即時跟進流程。`guidance` 可用自然語言補充平日、週末或常聊天時段。`schedule_settings.interval_mode` 可選 `adaptive`（預設）或 `weighted_random`（舊設定相容）。
 
 ### 3) Prompt 佔位符
 
@@ -148,13 +149,9 @@ flowchart LR
 | `{{unanswered_count}}` | 連續未被回覆次數 |
 | `{{last_reply_time}}` | 使用者上次回覆時間（含經過時長） |
 
-### 4) `schedule_rules` 一句話理解
+### 4) 私聊排程邊界
 
-- `interval_weights`：決定「等多久再發」
-- `decay_rate`：決定「這次要不要發」
-- 兩者一起用，就能做出更自然的主動聊天節奏
-
-`decay_rate` 留空時代表不衰減，也就是每次排程到點都允許觸發。填 `"0"` 代表觸發概率為 0，因此到點檢查時不會發送；任務仍會依排程檢查並重排。
+私聊不再需要撰寫分時段 `schedule_rules`。`min_interval_minutes`、`max_interval_minutes` 是 LLM 自適應時間的安全邊界；`quiet_hours` 和 `max_unanswered_times` 仍是硬性保護。群聊仍可使用既有 `schedule_rules`。
 
 ### 5) livingmemory 長期記憶
 

@@ -64,6 +64,46 @@ def test_schema_defines_private_auto_check_settings_and_presets() -> None:
         ]
 
 
+def test_private_schema_hides_legacy_slot_rules_but_group_keeps_them() -> None:
+    schema = _load_schema()
+
+    private_paths = (
+        ("private_settings", "items", "schedule_settings", "items"),
+        (
+            "private_sessions",
+            "templates",
+            "private_session",
+            "items",
+            "schedule_settings",
+            "items",
+        ),
+    )
+    group_paths = (
+        ("group_settings", "items", "schedule_settings", "items"),
+        (
+            "group_sessions",
+            "templates",
+            "group_session",
+            "items",
+            "schedule_settings",
+            "items",
+        ),
+    )
+
+    for path in private_paths:
+        node = schema
+        for key in path:
+            node = node[key]
+        assert "schedule_rules" not in node
+        assert "default_decay_rate" not in node
+    for path in group_paths:
+        node = schema
+        for key in path:
+            node = node[key]
+        assert "schedule_rules" in node
+        assert "default_decay_rate" in node
+
+
 @pytest.mark.parametrize(
     ("profile", "minimum", "maximum"),
     (
@@ -161,6 +201,62 @@ def test_auto_check_decision_requires_exact_json(
     else:
         assert result is not None
         assert (result.send_message, result.message) == expected
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected_minutes"),
+    (
+        ('{"send_message":false,"message":"","next_check_minutes":180}', 180),
+        ('{"send_message":true,"message":"想你了","next_check_minutes":45}', 45),
+        ('{"send_message":false,"message":""}', None),
+    ),
+)
+def test_auto_check_decision_supports_timing_and_legacy_payloads(
+    raw: str, expected_minutes: int | None
+) -> None:
+    module = _load_module()
+
+    result = module.parse_auto_check_decision(raw)
+
+    assert result is not None
+    assert result.next_check_minutes == expected_minutes
+
+
+@pytest.mark.parametrize(
+    "raw",
+    (
+        '{"send_message":false,"message":"","next_check_minutes":0}',
+        '{"send_message":false,"message":"","next_check_minutes":-1}',
+        '{"send_message":false,"message":"","next_check_minutes":1.5}',
+        '{"send_message":false,"message":"","next_check_minutes":"30"}',
+        '{"send_message":false,"message":"","next_check_minutes":30,"extra":true}',
+    ),
+)
+def test_auto_check_decision_rejects_invalid_timing_payloads(raw: str) -> None:
+    module = _load_module()
+
+    assert module.parse_auto_check_decision(raw) is None
+
+
+def test_auto_check_decision_bounds_model_timing_to_profile_range() -> None:
+    module = _load_module()
+    settings = module.resolve_auto_check_settings(
+        {"auto_check_settings": {"enable": True, "profile": "normal"}}
+    )
+
+    too_soon = module.bounded_next_check_minutes(
+        module.AutoCheckDecision(False, "", 1), settings
+    )
+    too_late = module.bounded_next_check_minutes(
+        module.AutoCheckDecision(False, "", 999), settings
+    )
+    legacy = module.bounded_next_check_minutes(
+        module.AutoCheckDecision(False, ""), settings
+    )
+
+    assert too_soon.next_check_minutes == 30
+    assert too_late.next_check_minutes == 120
+    assert legacy.next_check_minutes is None
 
 
 def test_auto_check_interval_clamps_existing_schedule_interval() -> None:

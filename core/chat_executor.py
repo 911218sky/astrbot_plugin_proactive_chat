@@ -70,9 +70,20 @@ async def check_and_chat(
                     not habit_task
                     and plugin._gate_verdict(current_gate) is GateVerdict.CURRENT
                 ):
-                    await plugin._schedule_next_chat_and_save(session_id)
+                    if decision.next_check_minutes is None:
+                        await plugin._schedule_next_chat_and_save(session_id)
+                    else:
+                        await plugin._schedule_next_chat_and_save(
+                            session_id, delay_minutes=decision.next_check_minutes
+                        )
                 return
-            llm_result = (decision.message, conv_id, final_prompt, context_task)
+            llm_result = (
+                decision.message,
+                conv_id,
+                final_prompt,
+                context_task,
+                decision.next_check_minutes,
+            )
         else:
             llm_result = await _prepare_and_call_llm(
                 plugin, session_id, session_config, unanswered_count, ctx_job_id
@@ -81,7 +92,14 @@ async def check_and_chat(
             return
         if llm_result is None:
             return
-        response_text, conv_id, final_prompt, _context_task = llm_result
+        response_text, conv_id, final_prompt, _context_task, next_check_minutes = (
+            (*llm_result, None) if len(llm_result) == 4 else llm_result
+        )
+        delivery_options = (
+            {"next_check_minutes": next_check_minutes}
+            if next_check_minutes is not None
+            else {}
+        )
         delivered = await _deliver_and_finalize(
             plugin,
             session_id,
@@ -92,6 +110,7 @@ async def check_and_chat(
             unanswered_count,
             ctx_job_id,
             current_gate,
+            **delivery_options,
         )
         if delivered:
             context_finished = True
@@ -153,7 +172,9 @@ async def _prepare_and_call_auto_check(plugin, *args):
     return await proactive_prompt.prepare_and_call_auto_check(plugin, *args)
 
 
-async def _deliver_and_finalize(plugin, *args, random_source=random.random):
+async def _deliver_and_finalize(
+    plugin, *args, random_source=random.random, next_check_minutes=None
+):
     return await immediate_follow_up.deliver_and_finalize(
         plugin,
         *args,
@@ -168,6 +189,7 @@ async def _deliver_and_finalize(plugin, *args, random_source=random.random):
         is_habit_job=_is_habit_job,
         sleep=asyncio.sleep,
         random_source=random_source,
+        next_check_minutes=next_check_minutes,
     )
 
 

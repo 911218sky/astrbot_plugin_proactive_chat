@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import anyio
 
 from astrbot_plugin_proactive_chat.core import chat_executor
+from astrbot_plugin_proactive_chat.core.config import get_context_analysis_provider_id
 from astrbot_plugin_proactive_chat.core import llm_helpers
 from astrbot_plugin_proactive_chat.core import proactive_prompt
 from astrbot_plugin_proactive_chat.core.auto_check import AutoCheckDecision
@@ -29,6 +30,26 @@ def _plugin() -> SimpleNamespace:
     )
     plugin._test_gate = gate
     return plugin
+
+
+def test_context_analysis_provider_prefers_top_level_setting() -> None:
+    assert (
+        get_context_analysis_provider_id(
+            {"context_analysis_llm_provider_id": "global-provider"},
+            {"context_aware_settings": {"llm_provider_id": "legacy-provider"}},
+        )
+        == "global-provider"
+    )
+
+
+def test_context_analysis_provider_uses_legacy_session_fallback() -> None:
+    assert (
+        get_context_analysis_provider_id(
+            {"context_analysis_llm_provider_id": "  "},
+            {"context_aware_settings": {"llm_provider_id": " legacy-provider "}},
+        )
+        == "legacy-provider"
+    )
 
 
 def test_auto_check_no_send_reschedules_without_delivery(monkeypatch) -> None:

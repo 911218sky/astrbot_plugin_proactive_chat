@@ -90,6 +90,23 @@ def get_session_config(config: AstrBotConfig, session_id: str) -> dict | None:
     return None
 
 
+def get_context_analysis_provider_id(
+    config: AstrBotConfig | dict,
+    session_config: dict | None = None,
+) -> str:
+    """取得共用語境分析 LLM，舊會話欄位僅作相容 fallback。"""
+    provider_id = config.get("context_analysis_llm_provider_id", "")
+    if isinstance(provider_id, str) and provider_id.strip():
+        return provider_id.strip()
+    settings = session_config or {}
+    nested = settings.get("context_aware_settings", {})
+    if isinstance(nested, dict):
+        legacy = nested.get("llm_provider_id", "")
+        if isinstance(legacy, str) and legacy.strip():
+            return legacy.strip()
+    return ""
+
+
 def _is_target_match(target_id: str, config_id: str) -> bool:
     """精確比對 target_id 與純 ID 配置。
 

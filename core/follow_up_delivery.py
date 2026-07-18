@@ -124,6 +124,7 @@ async def deliver_and_finalize(
     is_habit_job,
     sleep: Sleep,
     random_source: RandomSource = random.random,
+    next_check_minutes: int | None = None,
 ) -> bool:
     from .delivery import DispatchStatus, GateVerdict
 
@@ -150,14 +151,19 @@ async def deliver_and_finalize(
         ):
             await clear_failed(plugin, session_id, gate)
         return False
+    finalize_options = {
+        "ctx_job_id": ctx_job_id,
+        "clear_task_description": not bool(ctx_job_id),
+        "gate": gate,
+    }
+    if next_check_minutes is not None:
+        finalize_options["next_check_minutes"] = next_check_minutes
     finalized = await finalize(
         plugin,
         session_id,
         session_config,
         unanswered_count,
-        ctx_job_id=ctx_job_id,
-        clear_task_description=not bool(ctx_job_id),
-        gate=gate,
+        **finalize_options,
     )
     if not finalized:
         return False

@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 from astrbot.api import logger
 
-from .config import get_session_config
+from .config import get_context_analysis_provider_id, get_session_config
 from .context_predictor import (
     check_should_cancel_tasks_batch,
     predict_proactive_timing,
@@ -67,7 +67,9 @@ async def handle_context_aware_scheduling(
             current_time_str=now_str,
             config=ctx_settings,
             just_cancelled_reason=cancelled_reason,
-            llm_provider_id=ctx_settings.get("llm_provider_id", ""),
+            llm_provider_id=get_context_analysis_provider_id(
+                plugin.config, {"context_aware_settings": ctx_settings}
+            ),
             extra_prompt=ctx_settings.get("extra_prompt", ""),
         )
 
@@ -130,11 +132,7 @@ async def maybe_cancel_pending_context_task(
 
     # 從會話配置中取得語境感知的 LLM 平台 ID
     session_config = get_session_config(plugin.config, session_id)
-    ctx_llm_id = ""
-    if session_config:
-        ctx_llm_id = session_config.get("context_aware_settings", {}).get(
-            "llm_provider_id", ""
-        )
+    ctx_llm_id = get_context_analysis_provider_id(plugin.config, session_config)
 
     # 批量檢查所有待執行任務（一次 LLM 請求）
     cancel_map = await check_should_cancel_tasks_batch(

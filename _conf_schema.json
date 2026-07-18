@@ -1,4 +1,11 @@
 {
+    "context_analysis_llm_provider_id": {
+        "description": "🤖 語境分析用 LLM 平台",
+        "type": "string",
+        "_special": "select_provider",
+        "default": "",
+        "hint": "指定所有語境分析、回訪判斷與即時跟進判斷使用的 LLM 平台。留空使用目前會話的預設平台；舊的會話內設定仍可作為相容 fallback。建議指定較便宜的模型以節省 token。"
+    },
     "private_settings": {
         "description": "👤 私聊全域配置",
         "type": "object",
@@ -103,6 +110,12 @@
                             "max": 2880,
                             "step": 1
                         }
+                    },
+                    "guidance": {
+                        "description": "📝 自適應回訪補充提示",
+                        "type": "text",
+                        "default": "",
+                        "hint": "提供給自適應回訪 LLM 的補充提示，例如平日晚上較常聊天、週末下午比較有空。LLM 仍會根據最近對話決定是否發送。"
                     }
                 }
             },
@@ -162,122 +175,6 @@
                             "max": 20,
                             "step": 1
                         }
-                    },
-                    "schedule_rules": {
-                        "description": "📅 分時段排程規則",
-                        "type": "template_list",
-                        "hint": "可新增多條時段規則。每條規則定義一個時段的觸發間隔分佈，並可選配置未回覆衰減率。未匹配到任何規則時回退到上方的全域最小/最大觸發間隔",
-                        "templates": {
-                            "time_rule": {
-                                "name": "⏰ 時段規則",
-                                "hint": "定義一個時段的觸發間隔分佈與未回覆衰減策略",
-                                "items": {
-                                    "start_hour": {
-                                        "description": "🕐 開始時間（時）",
-                                        "type": "int",
-                                        "default": 8,
-                                        "hint": "時段開始的小時數（0-23），支援跨天如 22 到 6",
-                                        "slider": {
-                                            "min": 0,
-                                            "max": 23,
-                                            "step": 1
-                                        }
-                                    },
-                                    "start_minute": {
-                                        "description": "🕐 開始時間（分）",
-                                        "type": "int",
-                                        "default": 0,
-                                        "hint": "時段開始的分鐘數（0-59）",
-                                        "slider": {
-                                            "min": 0,
-                                            "max": 59,
-                                            "step": 1
-                                        }
-                                    },
-                                    "end_hour": {
-                                        "description": "🕐 結束時間（時）",
-                                        "type": "int",
-                                        "default": 23,
-                                        "hint": "時段結束的小時數（0-24），不包含該小時。填 24 表示到午夜。支援跨天如 22 到 6",
-                                        "slider": {
-                                            "min": 0,
-                                            "max": 24,
-                                            "step": 1
-                                        }
-                                    },
-                                    "end_minute": {
-                                        "description": "🕐 結束時間（分）",
-                                        "type": "int",
-                                        "default": 0,
-                                        "hint": "時段結束的分鐘數（0-59）。當 end_hour 為 24 時此欄位無效",
-                                        "slider": {
-                                            "min": 0,
-                                            "max": 59,
-                                            "step": 1
-                                        }
-                                    },
-                                    "interval_weights": {
-                                        "description": "📊 間隔權重分佈",
-                                        "type": "text",
-                                        "default": "30-60:0.3,60-120:0.4,120-240:0.2,240-480:0.1",
-                                        "hint": "每組格式為「間隔下限-間隔上限:權重」，多組用逗號分隔，權重會自動歸一化。支援單位後綴：s（秒）、m（分鐘），無後綴預設為分鐘。可選加上觸發條件 @N（第 N 次）、@N-M（第 N 到 M 次）、@N+（第 N 次及以後）。範例：「30s-60s:0.3@1-2,2m-5m:0.5@3+」表示第 1-2 次用 30-60 秒，第 3 次及以後用 2-5 分鐘。留空則在上方全域最小/最大間隔內均勻隨機"
-                                    },
-                                    "decay_rate": {
-                                        "description": "📉 未回覆衰減率",
-                                        "type": "string",
-                                        "default": "",
-                                        "hint": "想要永遠不衰減：本欄留空，並讓全域預設衰減遞減步長保持 0。留空表示每次 100% 觸發。也可填逗號分隔的概率列表，例如「0.8,0.5,0.3」代表第 1 次 80%、第 2 次 50%、第 3 次 30%。列表用完後，會依下方全域預設衰減步長接續遞減；填「0」表示概率為 0，不再觸發"
-                                    },
-                                    "max_unanswered_times": {
-                                        "description": "⛔ 此時段最大未回覆次數上限",
-                                        "type": "int",
-                                        "default": 0,
-                                        "hint": "此時段專屬的最大未回覆次數上限。填 0 表示使用上方全域設定。當配置了此值且大於 0 時，將覆蓋全域的 max_unanswered_times 設定",
-                                        "slider": {
-                                            "min": 0,
-                                            "max": 20,
-                                            "step": 1
-                                        }
-                                    },
-                                    "unanswered_reset_mode": {
-                                        "description": "🔄 未回覆計數模式",
-                                        "type": "string",
-                                        "default": "inherit",
-                                        "options": [
-                                            "inherit",
-                                            "reset",
-                                            "custom"
-                                        ],
-                                        "labels": [
-                                            "繼承上一時段",
-                                            "重新計數",
-                                            "自訂起始值"
-                                        ],
-                                        "hint": "切換到此時段時的未回覆計數處理方式。「繼承」：延續上一時段的計數；「重新計數」：從 0 開始；「自訂起始值」：從下方指定的數字開始累加"
-                                    },
-                                    "unanswered_start_count": {
-                                        "description": "🔢 自訂起始計數值",
-                                        "type": "int",
-                                        "default": 0,
-                                        "hint": "當「未回覆計數模式」選擇「自訂起始值」時，從此數字開始累加。例如填 2 表示進入此時段時未回覆計數從 2 開始",
-                                        "condition": {
-                                            "unanswered_reset_mode": "custom"
-                                        },
-                                        "slider": {
-                                            "min": 0,
-                                            "max": 20,
-                                            "step": 1
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    },
-                    "default_decay_rate": {
-                        "description": "📉 全域預設衰減遞減步長",
-                        "type": "string",
-                        "default": "0",
-                        "hint": "預設為 0，表示不衰減。想要永遠不衰減：時段衰減率留空，本欄保持 0。這裡是「遞減步長」，不同於上方時段衰減率列表中的「0 = 概率為 0」。填 0~1 的數字可作為每次未回覆後的遞減步長，例如「0.05」代表每次降低 5%。當時段衰減列表用完時，會從列表最後一個概率繼續扣；未設定時段衰減列表時，會從 100% 開始扣"
                     }
                 }
             },
@@ -793,6 +690,29 @@
                         "hint": "填 0 表示不限制；只計算每次主動訊息的第一句，不計即時跟進。",
                         "condition": {"enable": true},
                         "slider": {"min": 0, "max": 100, "step": 1}
+                    },
+                    "initial_heat_score": {
+                        "description": "互動熱度初始分數",
+                        "type": "int",
+                        "default": 50,
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 100, "step": 1}
+                    },
+                    "user_activity_delta": {
+                        "description": "使用者回覆熱度變化",
+                        "type": "int",
+                        "default": 15,
+                        "hint": "使用者每次回覆後增加的熱度分數，可填負值。",
+                        "condition": {"enable": true},
+                        "slider": {"min": -100, "max": 100, "step": 1}
+                    },
+                    "proactive_delivery_delta": {
+                        "description": "主動發送熱度變化",
+                        "type": "int",
+                        "default": -5,
+                        "hint": "Bot 每次成功發送主動訊息後的熱度變化，可填負值。",
+                        "condition": {"enable": true},
+                        "slider": {"min": -100, "max": 100, "step": 1}
                     }
                 }
             },
@@ -1692,6 +1612,12 @@
                                     "max": 2880,
                                     "step": 1
                                 }
+                            },
+                            "guidance": {
+                                "description": "📝 自適應回訪補充提示",
+                                "type": "text",
+                                "default": "",
+                                "hint": "提供給自適應回訪 LLM 的補充提示，例如平日晚上較常聊天、週末下午比較有空。LLM 仍會根據最近對話決定是否發送。"
                             }
                         }
                     },
@@ -1751,122 +1677,6 @@
                                     "max": 20,
                                     "step": 1
                                 }
-                            },
-                            "schedule_rules": {
-                                "description": "📅 分時段排程規則",
-                                "type": "template_list",
-                                "hint": "可新增多條時段規則。每條規則定義一個時段的觸發間隔分佈，並可選配置未回覆衰減率。未匹配到任何規則時回退到上方的全域最小/最大觸發間隔",
-                                "templates": {
-                                    "time_rule": {
-                                        "name": "⏰ 時段規則",
-                                        "hint": "定義一個時段的觸發間隔分佈與未回覆衰減策略",
-                                        "items": {
-                                            "start_hour": {
-                                                "description": "🕐 開始時間（時）",
-                                                "type": "int",
-                                                "default": 8,
-                                                "hint": "時段開始的小時數（0-23），支援跨天如 22 到 6",
-                                                "slider": {
-                                                    "min": 0,
-                                                    "max": 23,
-                                                    "step": 1
-                                                }
-                                            },
-                                            "start_minute": {
-                                                "description": "🕐 開始時間（分）",
-                                                "type": "int",
-                                                "default": 0,
-                                                "hint": "時段開始的分鐘數（0-59）",
-                                                "slider": {
-                                                    "min": 0,
-                                                    "max": 59,
-                                                    "step": 1
-                                                }
-                                            },
-                                            "end_hour": {
-                                                "description": "🕐 結束時間（時）",
-                                                "type": "int",
-                                                "default": 23,
-                                                "hint": "時段結束的小時數（0-24），不包含該小時。填 24 表示到午夜。支援跨天如 22 到 6",
-                                                "slider": {
-                                                    "min": 0,
-                                                    "max": 24,
-                                                    "step": 1
-                                                }
-                                            },
-                                            "end_minute": {
-                                                "description": "🕐 結束時間（分）",
-                                                "type": "int",
-                                                "default": 0,
-                                                "hint": "時段結束的分鐘數（0-59）。當 end_hour 為 24 時此欄位無效",
-                                                "slider": {
-                                                    "min": 0,
-                                                    "max": 59,
-                                                    "step": 1
-                                                }
-                                            },
-                                            "interval_weights": {
-                                                "description": "📊 間隔權重分佈",
-                                                "type": "text",
-                                                "default": "30-60:0.3,60-120:0.4,120-240:0.2,240-480:0.1",
-                                                "hint": "每組格式為「間隔下限-間隔上限:權重」，多組用逗號分隔，權重會自動歸一化。支援單位後綴：s（秒）、m（分鐘），無後綴預設為分鐘。可選加上觸發條件 @N（第 N 次）、@N-M（第 N 到 M 次）、@N+（第 N 次及以後）。範例：「30s-60s:0.3@1-2,2m-5m:0.5@3+」表示第 1-2 次用 30-60 秒，第 3 次及以後用 2-5 分鐘。留空則在上方全域最小/最大間隔內均勻隨機"
-                                            },
-                                            "decay_rate": {
-                                                "description": "📉 未回覆衰減率",
-                                                "type": "string",
-                                                "default": "",
-                                                "hint": "想要永遠不衰減：本欄留空，並讓全域預設衰減遞減步長保持 0。留空表示每次 100% 觸發。也可填逗號分隔的概率列表，例如「0.8,0.5,0.3」代表第 1 次 80%、第 2 次 50%、第 3 次 30%。列表用完後，會依下方全域預設衰減步長接續遞減；填「0」表示概率為 0，不再觸發"
-                                            },
-                                            "max_unanswered_times": {
-                                                "description": "⛔ 此時段最大未回覆次數上限",
-                                                "type": "int",
-                                                "default": 0,
-                                                "hint": "此時段專屬的最大未回覆次數上限。填 0 表示使用上方全域設定。當配置了此值且大於 0 時，將覆蓋全域的 max_unanswered_times 設定",
-                                                "slider": {
-                                                    "min": 0,
-                                                    "max": 20,
-                                                    "step": 1
-                                                }
-                                            },
-                                            "unanswered_reset_mode": {
-                                                "description": "🔄 未回覆計數模式",
-                                                "type": "string",
-                                                "default": "inherit",
-                                                "options": [
-                                                    "inherit",
-                                                    "reset",
-                                                    "custom"
-                                                ],
-                                                "labels": [
-                                                    "繼承上一時段",
-                                                    "重新計數",
-                                                    "自訂起始值"
-                                                ],
-                                                "hint": "切換到此時段時的未回覆計數處理方式。「繼承」：延續上一時段的計數；「重新計數」：從 0 開始；「自訂起始值」：從下方指定的數字開始累加"
-                                            },
-                                            "unanswered_start_count": {
-                                                "description": "🔢 自訂起始計數值",
-                                                "type": "int",
-                                                "default": 0,
-                                                "hint": "當「未回覆計數模式」選擇「自訂起始值」時，從此數字開始累加。例如填 2 表示進入此時段時未回覆計數從 2 開始",
-                                                "condition": {
-                                                    "unanswered_reset_mode": "custom"
-                                                },
-                                                "slider": {
-                                                    "min": 0,
-                                                    "max": 20,
-                                                    "step": 1
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            },
-                            "default_decay_rate": {
-                                "description": "📉 全域預設衰減遞減步長",
-                                "type": "string",
-                                "default": "0",
-                                "hint": "預設為 0，表示不衰減。想要永遠不衰減：時段衰減率留空，本欄保持 0。這裡是「遞減步長」，不同於上方時段衰減率列表中的「0 = 概率為 0」。填 0~1 的數字可作為每次未回覆後的遞減步長，例如「0.05」代表每次降低 5%。當時段衰減列表用完時，會從列表最後一個概率繼續扣；未設定時段衰減列表時，會從 100% 開始扣"
                             }
                         }
                     },
@@ -2382,6 +2192,29 @@
                                 "hint": "填 0 表示不限制；只計算每次主動訊息的第一句，不計即時跟進。",
                                 "condition": {"enable": true},
                                 "slider": {"min": 0, "max": 100, "step": 1}
+                            },
+                            "initial_heat_score": {
+                                "description": "互動熱度初始分數",
+                                "type": "int",
+                                "default": 50,
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 100, "step": 1}
+                            },
+                            "user_activity_delta": {
+                                "description": "使用者回覆熱度變化",
+                                "type": "int",
+                                "default": 15,
+                                "hint": "使用者每次回覆後增加的熱度分數，可填負值。",
+                                "condition": {"enable": true},
+                                "slider": {"min": -100, "max": 100, "step": 1}
+                            },
+                            "proactive_delivery_delta": {
+                                "description": "主動發送熱度變化",
+                                "type": "int",
+                                "default": -5,
+                                "hint": "Bot 每次成功發送主動訊息後的熱度變化，可填負值。",
+                                "condition": {"enable": true},
+                                "slider": {"min": -100, "max": 100, "step": 1}
                             }
                         }
                     },
