@@ -113,19 +113,20 @@ async def _prepare_prompt_context(
         snapshot_last_msg,
         ctx_job_id,
     )
-    system_prompt = await inject_memory(
+    dynamic_memory = await inject_memory(
         plugin,
         session_id,
         session_config,
         ctx_task,
-        request["system_prompt"],
         final_prompt,
     )
+    if dynamic_memory:
+        final_prompt += "\n\n[相關記憶]\n" + dynamic_memory
     history = sanitize_history_content(request["history"])
     history = await truncate_history_for_proactive_llm(
         plugin.context, session_id, history
     )
-    return request, final_prompt, system_prompt, history, ctx_task
+    return request, final_prompt, request["system_prompt"], history, ctx_task
 
 
 def _resolved_context_provider_id(plugin: ProactiveChatPlugin, session_config: dict) -> str | None:
@@ -348,12 +349,11 @@ async def inject_memory(
     session_id: str,
     session_config: dict,
     context_task: dict | None,
-    system_prompt: str,
     final_prompt: str,
 ) -> str:
     settings = session_config.get("context_aware_settings", {})
     if not settings.get("enable_memory", True):
-        return system_prompt
+        return ""
     query = ""
     if context_task:
         query = (
@@ -369,7 +369,7 @@ async def inject_memory(
     )
     log = get_session_log_str(session_id, session_config, plugin.session_data)
     if memory:
-        logger.info(f"{_LOG_TAG} 已為 {log} 注入記憶到主動訊息 system_prompt。")
-        return system_prompt + "\n\n" + memory
+        logger.info(f"{_LOG_TAG} 已為 {log} 注入記憶到主動訊息 user prompt。")
+        return memory
     logger.info(f"{_LOG_TAG} {log} 本次主動訊息未帶記憶。")
-    return system_prompt
+    return ""

@@ -125,7 +125,7 @@
 
 ### 4. livingmemory 統合
 
-[astrbot_plugin_livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory) とのオプション統合 — 能動的メッセージ生成時に関連する長期記憶を検索し、system prompt に注入することで、よりパーソナライズされた文脈豊かな会話を実現します。
+[astrbot_plugin_livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory) とのオプション統合 — 能動的メッセージ生成時に関連する長期記憶を検索し、現在の user prompt に追加します。安定した system prompt のプレフィックスをキャッシュしやすく保ちながら、よりパーソナライズされた文脈豊かな会話を実現します。
 
 - `context_aware_settings.enable_memory` でオン/オフ切替
 - `memory_top_k` で検索数を制御（1-20、記憶有効時に表示）

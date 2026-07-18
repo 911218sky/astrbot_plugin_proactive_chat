@@ -213,6 +213,56 @@ def test_auto_check_uses_context_analysis_provider(monkeypatch) -> None:
     anyio.run(scenario)
 
 
+def test_dynamic_memory_stays_out_of_cached_system_prompt(monkeypatch) -> None:
+    async def scenario() -> None:
+        plugin = SimpleNamespace(
+            context=SimpleNamespace(),
+            last_message_times={},
+            session_data={},
+            timezone=None,
+            _pending_context_tasks={},
+            _find_habit_task=lambda *_args: None,
+        )
+        session_config = {
+            "proactive_prompt": "固定主動聊天規則",
+            "context_aware_settings": {"enable_memory": True},
+            "auto_check_settings": {"enable": True},
+        }
+        captured: dict[str, object] = {}
+
+        async def prepare(*_args):
+            return {"conv_id": "conv", "history": [], "system_prompt": "persona"}
+
+        async def memory(*_args):
+            return "[動態記憶] 最近喜歡看電影"
+
+        async def truncate(*_args):
+            return []
+
+        async def call(_context, _session, prompt, _history, system_prompt, **_kwargs):
+            captured["prompt"] = prompt
+            captured["system_prompt"] = system_prompt
+            return SimpleNamespace(
+                completion_text='{"send_message":false,"message":""}'
+            )
+
+        monkeypatch.setattr(proactive_prompt, "safe_prepare_llm_request", prepare)
+        monkeypatch.setattr(proactive_prompt, "inject_memory", memory)
+        monkeypatch.setattr(
+            proactive_prompt, "truncate_history_for_proactive_llm", truncate
+        )
+        monkeypatch.setattr(proactive_prompt, "call_llm", call)
+        result = await proactive_prompt.prepare_and_call_auto_check(
+            plugin, "platform:FriendMessage:42", session_config, 0, ""
+        )
+
+        assert result is not None
+        assert captured["system_prompt"] == "persona"
+        assert "[動態記憶] 最近喜歡看電影" in captured["prompt"]
+
+    anyio.run(scenario)
+
+
 def test_llm_fallback_keeps_explicit_context_provider() -> None:
     async def scenario() -> None:
         calls: list[str] = []

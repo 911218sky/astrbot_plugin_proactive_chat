@@ -126,7 +126,7 @@ Converted `private_sessions` and `group_sessions` from 5 hardcoded slots (`sessi
 
 ### 4. livingmemory Integration
 
-Optional integration with [astrbot_plugin_livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory) — retrieves relevant long-term memories during proactive message generation and injects them into the system prompt, making conversations more personalized and contextually rich.
+Optional integration with [astrbot_plugin_livingmemory](https://github.com/lxfight-s-Astrbot-Plugins/astrbot_plugin_livingmemory) — retrieves relevant long-term memories during proactive message generation and adds them to the current user prompt, keeping the stable system prompt prefix cache-friendly while making conversations more personalized and contextually rich.
 
 - Toggle on/off via `context_aware_settings.enable_memory`
 - Control retrieval count via `memory_top_k` (1-20, visible when memory is enabled)
