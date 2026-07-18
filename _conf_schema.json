@@ -656,21 +656,29 @@
                         "description": "啟用真人互動節奏",
                         "type": "bool",
                         "default": false,
-                        "hint": "只套用私聊；會依訊息長度、時段與互動熱度調整即時跟進，並提供冷卻與頻率上限。"
+                        "hint": "只套用私聊；正常 AI 回覆與即時跟進都會依訊息長度、時段與互動熱度調整等待，並提供連續訊息防抖、冷卻與頻率上限。"
                     },
                     "timing_min_seconds": {
-                        "description": "跟進最短等待（秒）",
+                        "description": "真人回覆最短等待（秒）",
                         "type": "int",
                         "default": 2,
                         "condition": {"enable": true},
                         "slider": {"min": 0, "max": 60, "step": 1}
                     },
                     "timing_max_seconds": {
-                        "description": "跟進最長等待（秒）",
+                        "description": "真人回覆最長等待（秒）",
                         "type": "int",
                         "default": 8,
                         "condition": {"enable": true},
                         "slider": {"min": 0, "max": 60, "step": 1}
+                    },
+                    "inbound_debounce_seconds": {
+                        "description": "使用者連續訊息等待（秒）",
+                        "type": "int",
+                        "default": 3,
+                        "condition": {"enable": true},
+                        "hint": "使用者分段傳訊息時，先等待這段安靜時間再讓正常 AI 回覆；期間有新訊息會取代上一段，只處理最後一段。填 0 表示不等待，執行時限制在 0 到 30 秒。",
+                        "slider": {"min": 0, "max": 30, "step": 1}
                     },
                     "long_message_chars": {
                         "description": "長訊息字數門檻",
@@ -2168,21 +2176,29 @@
                                 "description": "啟用真人互動節奏",
                                 "type": "bool",
                                 "default": false,
-                                "hint": "只套用私聊；會依訊息長度、時段與互動熱度調整即時跟進，並提供冷卻與頻率上限。"
+                                "hint": "只套用私聊；正常 AI 回覆與即時跟進都會依訊息長度、時段與互動熱度調整等待，並提供連續訊息防抖、冷卻與頻率上限。"
                             },
                             "timing_min_seconds": {
-                                "description": "跟進最短等待（秒）",
+                                "description": "真人回覆最短等待（秒）",
                                 "type": "int",
                                 "default": 2,
                                 "condition": {"enable": true},
                                 "slider": {"min": 0, "max": 60, "step": 1}
                             },
                             "timing_max_seconds": {
-                                "description": "跟進最長等待（秒）",
+                                "description": "真人回覆最長等待（秒）",
                                 "type": "int",
                                 "default": 8,
                                 "condition": {"enable": true},
                                 "slider": {"min": 0, "max": 60, "step": 1}
+                            },
+                            "inbound_debounce_seconds": {
+                                "description": "使用者連續訊息等待（秒）",
+                                "type": "int",
+                                "default": 3,
+                                "condition": {"enable": true},
+                                "hint": "使用者分段傳訊息時，先等待這段安靜時間再讓正常 AI 回覆；期間有新訊息會取代上一段，只處理最後一段。填 0 表示不等待，執行時限制在 0 到 30 秒。",
+                                "slider": {"min": 0, "max": 30, "step": 1}
                             },
                             "long_message_chars": {
                                 "description": "長訊息字數門檻",

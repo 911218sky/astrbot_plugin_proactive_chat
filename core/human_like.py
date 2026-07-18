@@ -12,6 +12,8 @@ HeatLabel = Literal["cold", "normal", "warm", "hot"]
 _DEFAULT_TIMING_MIN_SECONDS: Final[int] = 2
 _DEFAULT_TIMING_MAX_SECONDS: Final[int] = 8
 _MAX_TIMING_SECONDS: Final[int] = 60
+_DEFAULT_INBOUND_DEBOUNCE_SECONDS: Final[int] = 3
+_MAX_INBOUND_DEBOUNCE_SECONDS: Final[int] = 30
 _DEFAULT_HEAT_SCORE: Final[int] = 50
 _HEAT_MIN: Final[int] = 0
 _HEAT_MAX: Final[int] = 100
@@ -23,6 +25,7 @@ class HumanLikeSettings:
     enable: bool = False
     timing_min_seconds: int = _DEFAULT_TIMING_MIN_SECONDS
     timing_max_seconds: int = _DEFAULT_TIMING_MAX_SECONDS
+    inbound_debounce_seconds: int = _DEFAULT_INBOUND_DEBOUNCE_SECONDS
     long_message_chars: int = 120
     long_message_bonus_seconds: int = 2
     night_bonus_seconds: int = 2
@@ -87,6 +90,12 @@ def resolve_human_like_settings(session_config: object) -> HumanLikeSettings:
         enable=enable if type(enable) is bool else False,
         timing_min_seconds=minimum,
         timing_max_seconds=maximum,
+        inbound_debounce_seconds=_bounded_int(
+            raw.get("inbound_debounce_seconds"),
+            default=_DEFAULT_INBOUND_DEBOUNCE_SECONDS,
+            minimum=0,
+            maximum=_MAX_INBOUND_DEBOUNCE_SECONDS,
+        ),
         long_message_chars=_bounded_int(
             raw.get("long_message_chars"),
             default=120,

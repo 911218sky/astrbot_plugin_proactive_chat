@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 import time
 import zoneinfo
 from datetime import datetime
@@ -38,6 +39,7 @@ from .core.delivery import (
 )
 from .core.human_like import (
     apply_heat,
+    compute_follow_up_delay_seconds,
     normalize_cooldown_until,
     normalize_heat_score,
     resolve_human_like_settings,
@@ -115,6 +117,7 @@ class ProactiveChatPlugin(star.Star):
         "_ctx_task_counter",
         "_delivery_coordinators",
         "_reply_follow_up_tasks",
+        "_inbound_debounce_tokens",
         "_chat_run_semaphore",
         "_history_save_lock",
         "page_api",
@@ -170,6 +173,7 @@ class ProactiveChatPlugin(star.Star):
         self._ctx_task_counter: int = 0
         self._delivery_coordinators = DeliveryCoordinatorRegistry()
         self._reply_follow_up_tasks: dict[str, asyncio.Task] = {}
+        self._inbound_debounce_tokens: dict[str, asyncio.Task] = {}
         # 全域限流：避免多個會話同時觸發主動訊息，一起打進 AstrBot agent/history 流程。
         self._chat_run_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
         # 主動訊息寫回 AstrBot 主對話歷史時使用，避免本插件自己並發搶同一個 SQLite。
@@ -534,6 +538,7 @@ class ProactiveChatPlugin(star.Star):
                 *self._reply_follow_up_tasks.values(), return_exceptions=True
             )
             self._reply_follow_up_tasks.clear()
+        self._inbound_debounce_tokens.clear()
 
         if self.scheduler and self.scheduler.running:
             try:
@@ -1829,6 +1834,47 @@ class ProactiveChatPlugin(star.Star):
             delay = 10.0
         return min(max(delay, 0.0), 120.0)
 
+    async def _wait_for_inbound_quiet(
+        self,
+        session_id: str,
+        session_config: dict,
+        *,
+        message_text: str = "",
+        local_hour: int | None = None,
+        random_value: float | None = None,
+        sleep=asyncio.sleep,
+    ) -> bool:
+        settings = resolve_human_like_settings(session_config)
+        if not settings.enable:
+            return True
+
+        if local_hour is None:
+            local_hour = datetime.now(getattr(self, "timezone", None)).hour
+        if random_value is None:
+            random_value = random.random()
+        delay_seconds = max(
+            settings.inbound_debounce_seconds,
+            compute_follow_up_delay_seconds(
+                message_text,
+                local_hour,
+                settings,
+                random_value,
+            ),
+        )
+        if delay_seconds <= 0:
+            return True
+
+        token = asyncio.current_task()
+        if token is None:
+            return True
+        self._inbound_debounce_tokens[session_id] = token
+        try:
+            await sleep(delay_seconds)
+            return self._inbound_debounce_tokens.get(session_id) is token
+        finally:
+            if self._inbound_debounce_tokens.get(session_id) is token:
+                self._inbound_debounce_tokens.pop(session_id, None)
+
     def _schedule_context_analysis(
         self,
         session_id: str,
@@ -1910,6 +1956,16 @@ class ProactiveChatPlugin(star.Star):
         cancel_follow_up = getattr(self, "_cancel_reply_follow_up_task", None)
         if callable(cancel_follow_up):
             cancel_follow_up(session_id)
+        session_config = get_session_config(self.config, session_id)
+        enabled = bool(session_config and session_config.get("enable", False))
+        if enabled and not is_group:
+            if not await self._wait_for_inbound_quiet(
+                session_id,
+                session_config,
+                message_text=getattr(event, "message_str", "") or "",
+            ):
+                event.stop_event()
+                return
         gate = self._delivery_coordinators.record_activity(alias_session_id, session_id)
         coordinator = self._delivery_coordinators.coordinator_for(session_id)
         try:
@@ -1922,9 +1978,6 @@ class ProactiveChatPlugin(star.Star):
                 if is_group:
                     # 群聊額外記錄臨時狀態（用於 after_message_sent 的過期清理）
                     self.session_temp_state[session_id] = {"last_user_time": now}
-
-                session_config = get_session_config(self.config, session_id)
-                enabled = bool(session_config and session_config.get("enable", False))
 
                 # 先把使用者已回覆這件事落盤：舊任務不應在重啟後又被恢復。
                 async with self.data_lock:

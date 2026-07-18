@@ -22,6 +22,7 @@ def test_defaults_keep_human_like_disabled() -> None:
     module = _load_module()
     settings = module.resolve_human_like_settings({})
     assert settings.enable is False
+    assert settings.inbound_debounce_seconds == 3
     assert module.compute_follow_up_delay_seconds("hello", 12, settings, 0.5) == 2
 
 
@@ -135,6 +136,19 @@ def test_invalid_values_are_clamped_without_enabling_feature() -> None:
     assert settings.timing_min_seconds == 2
     assert settings.timing_max_seconds == 8
     assert settings.cooldown_minutes == 1440
+
+
+def test_inbound_debounce_is_clamped_to_a_short_quiet_window() -> None:
+    module = _load_module()
+    settings = module.resolve_human_like_settings(
+        {
+            "human_like_settings": {
+                "enable": True,
+                "inbound_debounce_seconds": 99,
+            }
+        }
+    )
+    assert settings.inbound_debounce_seconds == 30
 
 
 def test_delivery_counts_prune_old_and_invalid_values() -> None:
