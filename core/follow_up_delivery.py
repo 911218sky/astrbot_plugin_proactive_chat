@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import random
-from datetime import datetime
 from collections.abc import Awaitable, Callable
+from datetime import datetime
 from typing import assert_never
 
 from astrbot.api import logger

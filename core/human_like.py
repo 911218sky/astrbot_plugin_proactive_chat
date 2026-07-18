@@ -16,7 +16,6 @@ _DEFAULT_HEAT_SCORE: Final[int] = 50
 _HEAT_MIN: Final[int] = 0
 _HEAT_MAX: Final[int] = 100
 _DELIVERY_WINDOW_SECONDS: Final[int] = 24 * 60 * 60
-_DELIVERY_WINDOW_SECONDS: Final[int] = 24 * 60 * 60
 
 
 @dataclass(frozen=True, slots=True)
