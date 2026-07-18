@@ -23,10 +23,12 @@
 
 A proactive messaging plugin for [AstrBot](https://github.com/AstrBotDevs/AstrBot) that enables your Bot to initiate context-aware, persona-consistent conversations with dynamic emotions at random intervals after session silence.
 
-Current version: `v2.22.0`
+Current version: `v2.23.0`
 
 Recent updates:
 
+- Added optional private-session auto-check/revisit mode with six interaction profiles and context-analysis LLM decisions based on recent chat history.
+- Auto-check intervals follow the selected profile and can be replaced with custom minimum/maximum values.
 - Added optional AI-decided immediate follow-ups. After each proactive message, the AI can stop or append another message, up to 0-10 follow-ups per burst.
 - A new user activity, disabled session, quiet hours, incomplete send, invalid controller output, or an AI stop decision ends the burst before any future message is sent.
 - Added a plugin-owned SQLite state store, `proactive_state.db`, for the latest task/session state.
@@ -113,6 +115,10 @@ Added `schedule_rules` (`template_list` type) to all `schedule_settings`, enabli
 ### Immediate AI-Decided Follow-Ups
 
 `immediate_follow_up_settings` is disabled by default. After a normal AI reply or a proactive message is delivered, the AI can decide whether another message is useful. `max_follow_ups` defaults to 1 and is bounded to 0-10 additional messages; `delay_seconds` defaults to 2 and is bounded to 0-10 seconds. Its semantics are a quiet-period debounce: new user activity cancels the pending follow-up, so only the final message in a burst can trigger it. The implementation also reads the temporary `debounce_seconds` key. A stop decision, malformed controller output, incomplete send, disabled session, or quiet-hours gate ends the burst immediately.
+
+### Private Auto-Check / Revisit
+
+`auto_check_settings` is disabled by default and applies only to private sessions. It reuses the existing schedule, then bounds the next check by the selected interaction profile or optional custom minimum/maximum intervals. At each check, the plugin reviews recent chat history and asks the provider selected by `context_aware_settings.llm_provider_id` to return `{"send_message": true|false, "message": "..."}`. A false decision only schedules the next check without increasing the unanswered counter; a true decision uses the normal proactive delivery, history, and immediate follow-up pipeline.
 
 ### 4. livingmemory Integration
 
