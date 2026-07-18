@@ -42,6 +42,7 @@ from .core.human_like import (
     normalize_heat_score,
     resolve_human_like_settings,
 )
+from .core.immediate_follow_up import resolve_immediate_follow_up_settings
 from .core.scheduler import (
     compute_habit_next_run,
     get_current_time_slot_id,
@@ -1936,9 +1937,12 @@ class ProactiveChatPlugin(star.Star):
                     if enabled:
                         sd["unanswered_count"] = 0
                         human_settings = resolve_human_like_settings(session_config)
+                        follow_up_enabled = resolve_immediate_follow_up_settings(
+                            session_config
+                        ).enable
                         parsed_session = parse_session_id(session_id)
                         if (
-                            human_settings.enable
+                            (human_settings.enable or follow_up_enabled)
                             and parsed_session
                             and is_private_session(parsed_session[1])
                         ):

@@ -117,7 +117,7 @@
 
 ### 個人チャットの人間らしいリズム
 
-`human_like_settings` はデフォルトで無効で、個人チャットにのみ適用されます。有効にすると、メッセージ長と夜間に応じてフォローアップの待機時間を自然に調整します。`initial_heat_score`、`user_activity_delta`、`proactive_delivery_delta` で 0-100 に制限される会話熱量を調整できます。未返信のクールダウンと毎時／毎日の送信上限も設定できます。
+`human_like_settings` はデフォルトで無効で、個人チャットにのみ適用されます。有効にすると、メッセージ長と夜間に応じてフォローアップの待機時間を自然に調整します。未返信のクールダウンと毎時／毎日の送信上限も設定できます。会話熱量の設定は個人チャットの `immediate_follow_up_settings` に集約され、`initial_heat_score` は 50、`user_activity_delta` は 15、`proactive_delivery_delta` は -5 が既定値です。即時フォローアップを有効にすると、LLM は 0-100 の現在の熱量を受け取り、熱量が高く自然な続きがある場合は追加返信を選びやすくなります。旧 `human_like_settings` 内の熱量キーは互換 fallback として読み取ります。
 
 ### 個人チャットの自動確認／再訪
 

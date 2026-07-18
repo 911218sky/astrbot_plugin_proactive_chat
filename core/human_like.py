@@ -50,9 +50,24 @@ def _bounded_int(
 def resolve_human_like_settings(session_config: object) -> HumanLikeSettings:
     if not isinstance(session_config, Mapping):
         return HumanLikeSettings()
-    raw = session_config.get("human_like_settings")
-    if not isinstance(raw, Mapping):
-        return HumanLikeSettings()
+    raw_value = session_config.get("human_like_settings")
+    raw = raw_value if isinstance(raw_value, Mapping) else {}
+    follow_up_value = session_config.get("immediate_follow_up_settings")
+    follow_up = (
+        follow_up_value if isinstance(follow_up_value, Mapping) else {}
+    )
+    heat_source = (
+        follow_up
+        if any(
+            key in follow_up
+            for key in (
+                "initial_heat_score",
+                "user_activity_delta",
+                "proactive_delivery_delta",
+            )
+        )
+        else raw
+    )
     minimum = _bounded_int(
         raw.get("timing_min_seconds"),
         default=_DEFAULT_TIMING_MIN_SECONDS,
@@ -115,19 +130,19 @@ def resolve_human_like_settings(session_config: object) -> HumanLikeSettings:
             maximum=100,
         ),
         initial_heat_score=_bounded_int(
-            raw.get("initial_heat_score"),
+            heat_source.get("initial_heat_score"),
             default=_DEFAULT_HEAT_SCORE,
             minimum=_HEAT_MIN,
             maximum=_HEAT_MAX,
         ),
         user_activity_delta=_bounded_int(
-            raw.get("user_activity_delta"),
+            heat_source.get("user_activity_delta"),
             default=15,
             minimum=-100,
             maximum=100,
         ),
         proactive_delivery_delta=_bounded_int(
-            raw.get("proactive_delivery_delta"),
+            heat_source.get("proactive_delivery_delta"),
             default=-5,
             minimum=-100,
             maximum=100,

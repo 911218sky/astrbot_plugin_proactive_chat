@@ -585,6 +585,39 @@
                             "step": 1
                         }
                     },
+                    "initial_heat_score": {
+                        "description": "互動熱度初始分數",
+                        "type": "int",
+                        "default": 50,
+                        "hint": "即時跟進使用的初始互動熱度，限制為 0 到 100；熱度越高，LLM 越可能在有自然延續理由時追加訊息。",
+                        "slider": {
+                            "min": 0,
+                            "max": 100,
+                            "step": 1
+                        }
+                    },
+                    "user_activity_delta": {
+                        "description": "使用者回覆熱度變化",
+                        "type": "int",
+                        "default": 15,
+                        "hint": "使用者每次回覆後增加的熱度分數，可填負值。",
+                        "slider": {
+                            "min": -100,
+                            "max": 100,
+                            "step": 1
+                        }
+                    },
+                    "proactive_delivery_delta": {
+                        "description": "主動發送熱度變化",
+                        "type": "int",
+                        "default": -5,
+                        "hint": "Bot 每次成功發送主動訊息後的熱度變化，可填負值。",
+                        "slider": {
+                            "min": -100,
+                            "max": 100,
+                            "step": 1
+                        }
+                    },
                     "random_probability": {
                         "description": "隨機模式初始機率 (%)",
                         "type": "int",
@@ -690,29 +723,6 @@
                         "hint": "填 0 表示不限制；只計算每次主動訊息的第一句，不計即時跟進。",
                         "condition": {"enable": true},
                         "slider": {"min": 0, "max": 100, "step": 1}
-                    },
-                    "initial_heat_score": {
-                        "description": "互動熱度初始分數",
-                        "type": "int",
-                        "default": 50,
-                        "condition": {"enable": true},
-                        "slider": {"min": 0, "max": 100, "step": 1}
-                    },
-                    "user_activity_delta": {
-                        "description": "使用者回覆熱度變化",
-                        "type": "int",
-                        "default": 15,
-                        "hint": "使用者每次回覆後增加的熱度分數，可填負值。",
-                        "condition": {"enable": true},
-                        "slider": {"min": -100, "max": 100, "step": 1}
-                    },
-                    "proactive_delivery_delta": {
-                        "description": "主動發送熱度變化",
-                        "type": "int",
-                        "default": -5,
-                        "hint": "Bot 每次成功發送主動訊息後的熱度變化，可填負值。",
-                        "condition": {"enable": true},
-                        "slider": {"min": -100, "max": 100, "step": 1}
                     }
                 }
             },
@@ -2087,6 +2097,39 @@
                                     "step": 1
                                 }
                             },
+                            "initial_heat_score": {
+                                "description": "互動熱度初始分數",
+                                "type": "int",
+                                "default": 50,
+                                "hint": "即時跟進使用的初始互動熱度，限制為 0 到 100；熱度越高，LLM 越可能在有自然延續理由時追加訊息。",
+                                "slider": {
+                                    "min": 0,
+                                    "max": 100,
+                                    "step": 1
+                                }
+                            },
+                            "user_activity_delta": {
+                                "description": "使用者回覆熱度變化",
+                                "type": "int",
+                                "default": 15,
+                                "hint": "使用者每次回覆後增加的熱度分數，可填負值。",
+                                "slider": {
+                                    "min": -100,
+                                    "max": 100,
+                                    "step": 1
+                                }
+                            },
+                            "proactive_delivery_delta": {
+                                "description": "主動發送熱度變化",
+                                "type": "int",
+                                "default": -5,
+                                "hint": "Bot 每次成功發送主動訊息後的熱度變化，可填負值。",
+                                "slider": {
+                                    "min": -100,
+                                    "max": 100,
+                                    "step": 1
+                                }
+                            },
                             "random_probability": {
                                 "description": "隨機模式初始機率 (%)",
                                 "type": "int",
@@ -2192,29 +2235,6 @@
                                 "hint": "填 0 表示不限制；只計算每次主動訊息的第一句，不計即時跟進。",
                                 "condition": {"enable": true},
                                 "slider": {"min": 0, "max": 100, "step": 1}
-                            },
-                            "initial_heat_score": {
-                                "description": "互動熱度初始分數",
-                                "type": "int",
-                                "default": 50,
-                                "condition": {"enable": true},
-                                "slider": {"min": 0, "max": 100, "step": 1}
-                            },
-                            "user_activity_delta": {
-                                "description": "使用者回覆熱度變化",
-                                "type": "int",
-                                "default": 15,
-                                "hint": "使用者每次回覆後增加的熱度分數，可填負值。",
-                                "condition": {"enable": true},
-                                "slider": {"min": -100, "max": 100, "step": 1}
-                            },
-                            "proactive_delivery_delta": {
-                                "description": "主動發送熱度變化",
-                                "type": "int",
-                                "default": -5,
-                                "hint": "Bot 每次成功發送主動訊息後的熱度變化，可填負值。",
-                                "condition": {"enable": true},
-                                "slider": {"min": -100, "max": 100, "step": 1}
                             }
                         }
                     },

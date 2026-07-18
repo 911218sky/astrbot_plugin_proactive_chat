@@ -15,6 +15,7 @@ from .auto_check import (
 )
 from .config import get_session_config
 from .delivery import DispatchGate, GateVerdict
+from .immediate_follow_up import resolve_immediate_follow_up_settings
 from .human_like import (
     apply_heat,
     cooldown_is_active,
@@ -138,8 +139,13 @@ async def check_preconditions(
         state = plugin.session_data.get(session_id, {})
         unanswered_count = state.get("unanswered_count", 0)
         human_settings = resolve_human_like_settings(session_config)
+        follow_up_enabled = resolve_immediate_follow_up_settings(session_config).enable
         parsed_session = parse_session_id(session_id)
-        if human_settings.enable and parsed_session and is_private_session(parsed_session[1]):
+        if (
+            (human_settings.enable or follow_up_enabled)
+            and parsed_session
+            and is_private_session(parsed_session[1])
+        ):
             now = time.time()
             cooldown_until = normalize_cooldown_until(
                 state.get("human_like_cooldown_until")
@@ -224,8 +230,13 @@ async def update_unanswered_and_reschedule(
         next_count = unanswered_count + int(count_unanswered)
         state["unanswered_count"] = next_count
         human_settings = resolve_human_like_settings(session_config)
+        follow_up_enabled = resolve_immediate_follow_up_settings(session_config).enable
         parsed_session = parse_session_id(session_id)
-        if human_settings.enable and parsed_session and is_private_session(parsed_session[1]):
+        if (
+            (human_settings.enable or follow_up_enabled)
+            and parsed_session
+            and is_private_session(parsed_session[1])
+        ):
             now = time.time()
             state["interaction_heat"] = apply_heat(
                 normalize_heat_score(

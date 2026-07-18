@@ -118,7 +118,7 @@ Converted `private_sessions` and `group_sessions` from 5 hardcoded slots (`sessi
 
 ### Human-Like Private Timing
 
-`human_like_settings` is disabled by default and applies only to private sessions. When enabled, follow-ups add content- and night-aware timing on top of the debounce window. `initial_heat_score`, `user_activity_delta`, and `proactive_delivery_delta` customize the clamped 0-100 interaction heat score. Optional unanswered-message cooldowns and hourly/daily caps apply only to initial proactive deliveries.
+`human_like_settings` is disabled by default and applies only to private sessions. When enabled, follow-ups add content- and night-aware timing on top of the debounce window. Optional unanswered-message cooldowns and hourly/daily caps apply only to initial proactive deliveries. Private `immediate_follow_up_settings` owns the interaction heat controls: `initial_heat_score` defaults to 50, `user_activity_delta` to 15, and `proactive_delivery_delta` to -5. When immediate follow-ups are enabled, the LLM receives the current 0-100 heat score and is more willing to continue a naturally active conversation at higher heat, while staying restrained at lower heat. Legacy heat keys under `human_like_settings` remain a compatibility fallback.
 
 ### Private Auto-Check / Revisit
 

@@ -28,6 +28,7 @@ from .human_like import (
     normalize_heat_score,
     resolve_human_like_settings,
 )
+from .immediate_follow_up import resolve_immediate_follow_up_settings
 from .messaging import sanitize_history_content
 from .proactive_state import (
     active_task_description,
@@ -70,6 +71,27 @@ _RELATIONSHIP_CONTEXT = (
     "請把這個資訊當成背景感受來調整熟悉程度、關心方式和話題深度；"
     "不要生硬地報出精確時間，除非使用者正在詢問。"
 )
+
+
+def _interaction_heat_prompt(
+    plugin: ProactiveChatPlugin,
+    session_id: str,
+    session_config: dict,
+) -> str:
+    human_settings = resolve_human_like_settings(session_config)
+    follow_up_enabled = resolve_immediate_follow_up_settings(session_config).enable
+    if not (human_settings.enable or follow_up_enabled):
+        return ""
+    heat_score = normalize_heat_score(
+        plugin.session_data.get(session_id, {}).get("interaction_heat"),
+        human_settings.initial_heat_score,
+    )
+    label = heat_label(heat_score)
+    return (
+        "\n\n[互動熱度]\n"
+        f"目前互動熱度分數：{heat_score}/100（{label}）。"
+        f"{heat_guidance(label)}"
+    )
 
 
 async def _prepare_prompt_context(
@@ -217,6 +239,11 @@ async def _request_follow_up_completion(
         [accepted_turn_text(turn) for turn in accepted_turns], ensure_ascii=False
     )
     session_config = get_session_config(plugin.config, session_id) or {}
+    prompt += _interaction_heat_prompt(plugin, session_id, session_config)
+    prompt += (
+        "\n若互動熱度較高且最近對話有自然延續理由，可以較傾向追加；"
+        "若互動熱度較低或對方已顯示結束話題，請克制並停止。"
+    )
     provider_id = _resolved_context_provider_id(plugin, session_config)
     try:
         response = await call_llm(
@@ -286,16 +313,7 @@ def build_final_prompt(
         first_interaction_time=first_text,
         relationship_duration=duration_text,
     )
-    human_settings = resolve_human_like_settings(session_config)
-    if human_settings.enable:
-        heat_score = normalize_heat_score(
-            plugin.session_data.get(session_id, {}).get("interaction_heat")
-        )
-        prompt += (
-            "\n\n[互動熱度]\n"
-            f"目前互動熱度：{heat_label(heat_score)}。"
-            f"{heat_guidance(heat_label(heat_score))}"
-        )
+    prompt += _interaction_heat_prompt(plugin, session_id, session_config)
     context_task = find_context_task(plugin, session_id, ctx_job_id)
     if context_task:
         prompt += (

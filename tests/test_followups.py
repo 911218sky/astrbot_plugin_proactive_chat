@@ -17,6 +17,7 @@ SCHEMA_PATHS = (
     ("private_sessions", "templates", "private_session", "items"),
     ("group_sessions", "templates", "group_session", "items"),
 )
+PRIVATE_SCHEMA_PATHS = SCHEMA_PATHS[0:1] + SCHEMA_PATHS[2:3]
 
 
 def _load_source_module(name: str, path: Path) -> ModuleType:
@@ -100,12 +101,12 @@ def test_schema_defines_exact_follow_up_defaults_and_bounds() -> None:
     assert all(isinstance(block, dict) for block in blocks), (
         "PCF-01 RED: all four schema blocks must exist"
     )
-    for block in blocks:
+    for path, block in zip(SCHEMA_PATHS, blocks, strict=True):
         assert isinstance(block, dict)
         assert block["type"] == "object"
         items = block["items"]
         assert isinstance(items, dict)
-        assert set(items) == {
+        expected_keys = {
             "enable",
             "decision_mode",
             "max_follow_ups",
@@ -113,6 +114,13 @@ def test_schema_defines_exact_follow_up_defaults_and_bounds() -> None:
             "random_probability",
             "random_decay",
         }
+        if path in PRIVATE_SCHEMA_PATHS:
+            expected_keys |= {
+                "initial_heat_score",
+                "user_activity_delta",
+                "proactive_delivery_delta",
+            }
+        assert set(items) == expected_keys
         assert items["enable"]["type"] == "bool"
         assert items["enable"]["default"] is False
         assert items["decision_mode"]["type"] == "string"
@@ -148,6 +156,25 @@ def test_schema_defines_exact_follow_up_defaults_and_bounds() -> None:
             "max": 100,
             "step": 1,
         }
+        if path in PRIVATE_SCHEMA_PATHS:
+            assert items["initial_heat_score"]["default"] == 50
+            assert items["initial_heat_score"]["slider"] == {
+                "min": 0,
+                "max": 100,
+                "step": 1,
+            }
+            assert items["user_activity_delta"]["default"] == 15
+            assert items["user_activity_delta"]["slider"] == {
+                "min": -100,
+                "max": 100,
+                "step": 1,
+            }
+            assert items["proactive_delivery_delta"]["default"] == -5
+            assert items["proactive_delivery_delta"]["slider"] == {
+                "min": -100,
+                "max": 100,
+                "step": 1,
+            }
 
 
 @pytest.mark.parametrize(

@@ -22,6 +22,7 @@
 - 新增頂層共用語境分析 LLM 設定；舊會話 provider 仍可相容 fallback。
 - 自適應回訪支援自然語言 `guidance` 與模型回傳 `next_check_minutes`，時間會受最短／最長間隔限制。
 - 私聊移除複雜分時段排程規則設定，保留免打擾時段與未回覆硬性上限；互動熱度增減值可自訂。
+- 私聊互動熱度設定移入 `immediate_follow_up_settings`，LLM 跟進判斷會參考目前熱度；舊位置仍可相容讀取。
 
 ## v2.23.0
 
