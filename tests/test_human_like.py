@@ -4,6 +4,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -44,12 +45,31 @@ def test_follow_up_delay_uses_length_and_night_buckets() -> None:
     )
     assert module.compute_follow_up_delay_seconds("short", 12, settings, 0.0) == 1
     assert module.compute_follow_up_delay_seconds("short", 23, settings, 0.0) == 4
-    assert (
-        module.compute_follow_up_delay_seconds("long message", 12, settings, 0.99) == 6
+    assert module.compute_follow_up_delay_seconds(
+        "long message", 12, settings, 0.99
+    ) == pytest.approx(6.96)
+    assert module.compute_follow_up_delay_seconds(
+        "long message", 23, settings, 0.99
+    ) == pytest.approx(9.96)
+
+
+def test_timing_settings_support_decimal_random_delays() -> None:
+    module = _load_module()
+    settings = module.resolve_human_like_settings(
+        {
+            "human_like_settings": {
+                "enable": True,
+                "timing_min_seconds": 0.5,
+                "timing_max_seconds": 1.5,
+            }
+        }
     )
-    assert (
-        module.compute_follow_up_delay_seconds("long message", 23, settings, 0.99) == 9
-    )
+
+    assert settings.timing_min_seconds == 0.5
+    assert settings.timing_max_seconds == 1.5
+    assert module.compute_follow_up_delay_seconds(
+        "hello", 12, settings, 0.2
+    ) == pytest.approx(0.7)
 
 
 def test_heat_transitions_are_clamped_and_labeled() -> None:

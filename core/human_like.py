@@ -8,9 +8,9 @@ from typing import Final, Literal
 HeatEvent = Literal["user_activity", "proactive_delivery"]
 HeatLabel = Literal["cold", "normal", "warm", "hot"]
 
-_DEFAULT_TIMING_MIN_SECONDS: Final[int] = 1
-_DEFAULT_TIMING_MAX_SECONDS: Final[int] = 3
-_MAX_TIMING_SECONDS: Final[int] = 60
+_DEFAULT_TIMING_MIN_SECONDS: Final[float] = 1.0
+_DEFAULT_TIMING_MAX_SECONDS: Final[float] = 3.0
+_MAX_TIMING_SECONDS: Final[float] = 60.0
 _DEFAULT_INBOUND_DEBOUNCE_SECONDS: Final[int] = 3
 _MAX_INBOUND_DEBOUNCE_SECONDS: Final[int] = 30
 _DEFAULT_HEAT_SCORE: Final[int] = 50
@@ -21,8 +21,8 @@ _HEAT_MAX: Final[int] = 100
 @dataclass(frozen=True, slots=True)
 class HumanLikeSettings:
     enable: bool = False
-    timing_min_seconds: int = _DEFAULT_TIMING_MIN_SECONDS
-    timing_max_seconds: int = _DEFAULT_TIMING_MAX_SECONDS
+    timing_min_seconds: float = _DEFAULT_TIMING_MIN_SECONDS
+    timing_max_seconds: float = _DEFAULT_TIMING_MAX_SECONDS
     inbound_debounce_seconds: int = _DEFAULT_INBOUND_DEBOUNCE_SECONDS
     long_message_chars: int = 120
     long_message_bonus_seconds: int = 2
@@ -44,6 +44,18 @@ def _bounded_int(
     return max(minimum, min(value, maximum))
 
 
+def _bounded_float(
+    value: object,
+    *,
+    default: float,
+    minimum: float,
+    maximum: float,
+) -> float:
+    if type(value) not in (int, float):
+        return default
+    return max(minimum, min(float(value), maximum))
+
+
 def resolve_human_like_settings(session_config: object) -> HumanLikeSettings:
     if not isinstance(session_config, Mapping):
         return HumanLikeSettings()
@@ -63,16 +75,16 @@ def resolve_human_like_settings(session_config: object) -> HumanLikeSettings:
         )
         else raw
     )
-    minimum = _bounded_int(
+    minimum = _bounded_float(
         raw.get("timing_min_seconds"),
         default=_DEFAULT_TIMING_MIN_SECONDS,
-        minimum=0,
+        minimum=0.0,
         maximum=_MAX_TIMING_SECONDS,
     )
-    maximum = _bounded_int(
+    maximum = _bounded_float(
         raw.get("timing_max_seconds"),
         default=_DEFAULT_TIMING_MAX_SECONDS,
-        minimum=0,
+        minimum=0.0,
         maximum=_MAX_TIMING_SECONDS,
     )
     if minimum > maximum:
@@ -132,7 +144,7 @@ def compute_follow_up_delay_seconds(
     local_hour: int,
     settings: HumanLikeSettings,
     random_value: float,
-) -> int:
+) -> float:
     if not settings.enable:
         return settings.timing_min_seconds
     bonus = 0
@@ -143,7 +155,7 @@ def compute_follow_up_delay_seconds(
     minimum = settings.timing_min_seconds + bonus
     maximum = settings.timing_max_seconds + bonus
     bounded_random = max(0.0, min(1.0, float(random_value)))
-    return minimum + int((maximum - minimum) * bounded_random)
+    return minimum + (maximum - minimum) * bounded_random
 
 
 def apply_heat(
