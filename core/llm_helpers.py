@@ -441,10 +441,8 @@ async def get_current_system_prompt(context: Context, session_id: str) -> str:
             else None
         )
         return await resolve_system_prompt(context, conversation, session_id)
-    except Exception as error:  # noqa: BLE001, BROAD_EXCEPT_OK
-        logger.debug(
-            f"{_LOG_TAG} 讀取語境分析人格提示失敗，使用分析專用提示: {error}"
-        )
+    except Exception as error:  # noqa: BLE001
+        logger.debug(f"{_LOG_TAG} 讀取語境分析人格提示失敗，使用分析專用提示: {error}")
         return ""
 
 

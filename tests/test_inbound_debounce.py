@@ -43,7 +43,12 @@ def test_inbound_debounce_only_latest_event_continues() -> None:
                 await main.ProactiveChatPlugin._wait_for_inbound_quiet(
                     plugin,
                     "platform:FriendMessage:42",
-                    {"human_like_settings": {"enable": True, "inbound_debounce_seconds": 3}},
+                    {
+                        "human_like_settings": {
+                            "enable": True,
+                            "inbound_debounce_seconds": 3,
+                        }
+                    },
                     sleep=first_sleep,
                 )
             )
@@ -54,7 +59,12 @@ def test_inbound_debounce_only_latest_event_continues() -> None:
                 await main.ProactiveChatPlugin._wait_for_inbound_quiet(
                     plugin,
                     "platform:FriendMessage:42",
-                    {"human_like_settings": {"enable": True, "inbound_debounce_seconds": 3}},
+                    {
+                        "human_like_settings": {
+                            "enable": True,
+                            "inbound_debounce_seconds": 3,
+                        }
+                    },
                     sleep=second_sleep,
                 )
             )
@@ -143,5 +153,37 @@ def test_inbound_wait_uses_human_reply_timing() -> None:
 
         assert result is True
         assert delays == [20]
+
+    anyio.run(scenario)
+
+
+def test_zero_inbound_debounce_keeps_human_timing_without_cancellation() -> None:
+    async def scenario() -> None:
+        delays: list[float] = []
+
+        async def record_sleep(delay: float) -> None:
+            delays.append(delay)
+
+        plugin = SimpleNamespace(_inbound_debounce_tokens={})
+        result = await main.ProactiveChatPlugin._wait_for_inbound_quiet(
+            plugin,
+            "platform:FriendMessage:42",
+            {
+                "human_like_settings": {
+                    "enable": True,
+                    "timing_min_seconds": 20,
+                    "timing_max_seconds": 32,
+                    "inbound_debounce_seconds": 0,
+                }
+            },
+            message_text="hello",
+            local_hour=12,
+            random_value=0.0,
+            sleep=record_sleep,
+        )
+
+        assert result is True
+        assert delays == [20]
+        assert plugin._inbound_debounce_tokens == {}
 
     anyio.run(scenario)

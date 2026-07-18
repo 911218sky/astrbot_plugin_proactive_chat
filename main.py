@@ -40,7 +40,6 @@ from .core.delivery import (
 from .core.human_like import (
     apply_heat,
     compute_follow_up_delay_seconds,
-    normalize_cooldown_until,
     normalize_heat_score,
     resolve_human_like_settings,
 )
@@ -1218,21 +1217,6 @@ class ProactiveChatPlugin(star.Star):
                     int(unanswered_count or 0),
                 )
             run_date = datetime.fromtimestamp(time.time() + interval, tz=self.timezone)
-            human_settings = resolve_human_like_settings(session_config)
-            parsed_session = parse_session_id(session_id)
-            if (
-                human_settings.enable
-                and parsed_session
-                and is_private_session(parsed_session[1])
-            ):
-                cooldown_until = normalize_cooldown_until(
-                    sd.get("human_like_cooldown_until")
-                )
-                if cooldown_until > run_date.timestamp():
-                    run_date = datetime.fromtimestamp(
-                        cooldown_until, tz=self.timezone
-                    )
-
             # 持久化下次觸發時間（供重啟後恢復）
             sd["next_trigger_time"] = run_date.timestamp()
             for key in clear_timer_keys:
@@ -1847,21 +1831,22 @@ class ProactiveChatPlugin(star.Star):
         settings = resolve_human_like_settings(session_config)
         if not settings.enable:
             return True
-
         if local_hour is None:
             local_hour = datetime.now(getattr(self, "timezone", None)).hour
         if random_value is None:
             random_value = random.random()
-        delay_seconds = max(
-            settings.inbound_debounce_seconds,
-            compute_follow_up_delay_seconds(
-                message_text,
-                local_hour,
-                settings,
-                random_value,
-            ),
+        human_delay_seconds = compute_follow_up_delay_seconds(
+            message_text,
+            local_hour,
+            settings,
+            random_value,
         )
+        delay_seconds = max(settings.inbound_debounce_seconds, human_delay_seconds)
         if delay_seconds <= 0:
+            return True
+
+        if settings.inbound_debounce_seconds <= 0:
+            await sleep(human_delay_seconds)
             return True
 
         token = asyncio.current_task()
@@ -2007,7 +1992,6 @@ class ProactiveChatPlugin(star.Star):
                                 "user_activity",
                                 human_settings,
                             )
-                            sd.pop("human_like_cooldown_until", None)
                     await self._save_data()
 
                 # 首次訊息日誌（每個會話只記錄一次）

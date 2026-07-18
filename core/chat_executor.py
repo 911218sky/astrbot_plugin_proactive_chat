@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio  # noqa: ANYIO_OK - compatibility seam patched by PCF-02/03 tests
+import asyncio
 import random
 from typing import TYPE_CHECKING
 
@@ -115,7 +115,7 @@ async def check_and_chat(
         if delivered:
             context_finished = True
             habit_finished = True
-    except Exception as error:  # noqa: BROAD_EXCEPT_OK - scheduler boundary
+    except Exception as error:  # noqa: BLE001
         await _handle_fatal_error(
             plugin,
             session_id,

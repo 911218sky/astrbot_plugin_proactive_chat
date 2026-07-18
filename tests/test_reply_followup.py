@@ -47,7 +47,9 @@ def make_plugin() -> SimpleNamespace:
     )
 
 
-def test_after_message_sent_schedules_only_llm_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_after_message_sent_schedules_only_llm_reply(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     async def scenario() -> None:
         plugin = make_plugin()
         calls = []
@@ -56,9 +58,7 @@ def test_after_message_sent_schedules_only_llm_reply(monkeypatch: pytest.MonkeyP
             calls.append((session_id, config, gate, turn))
 
         plugin._run_reply_follow_ups = run_follow_ups
-        monkeypatch.setattr(
-            main, "get_session_config", lambda *_args: {"enable": True}
-        )
+        monkeypatch.setattr(main, "get_session_config", lambda *_args: {"enable": True})
 
         await main.ProactiveChatPlugin.on_after_message_sent(
             plugin, Event(Result(llm=True))
@@ -92,9 +92,7 @@ def test_after_message_sent_debounces_rapid_replies(
             calls.append(turn.message)
 
         plugin._run_reply_follow_ups = run_follow_ups
-        monkeypatch.setattr(
-            main, "get_session_config", lambda *_args: {"enable": True}
-        )
+        monkeypatch.setattr(main, "get_session_config", lambda *_args: {"enable": True})
 
         await main.ProactiveChatPlugin.on_after_message_sent(
             plugin, Event(Result(llm=True, text="first"))
@@ -115,9 +113,7 @@ def test_after_message_sent_ignores_missing_or_empty_result(
     async def scenario() -> None:
         plugin = make_plugin()
         plugin._run_reply_follow_ups = pytest.fail
-        monkeypatch.setattr(
-            main, "get_session_config", lambda *_args: {"enable": True}
-        )
+        monkeypatch.setattr(main, "get_session_config", lambda *_args: {"enable": True})
         await main.ProactiveChatPlugin.on_after_message_sent(plugin, Event(None))
         await main.ProactiveChatPlugin.on_after_message_sent(
             plugin, Event(Result(llm=True, text=""))
@@ -132,9 +128,7 @@ def test_reply_follow_up_task_uses_gate_and_does_not_finalize(
 ) -> None:
     async def scenario() -> None:
         plugin = make_plugin()
-        gate = plugin._delivery_coordinators.record_activity(
-            Event.unified_msg_origin
-        )
+        gate = plugin._delivery_coordinators.record_activity(Event.unified_msg_origin)
         calls = []
 
         async def collect(*args, **kwargs):

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import asyncio  # noqa: ANYIO_OK
+import asyncio
 import traceback
 from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING

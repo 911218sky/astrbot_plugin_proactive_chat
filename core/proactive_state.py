@@ -18,13 +18,8 @@ from .delivery import DispatchGate, GateVerdict
 from .immediate_follow_up import resolve_immediate_follow_up_settings
 from .human_like import (
     apply_heat,
-    cooldown_is_active,
-    delivery_counts,
-    is_outreach_capped,
-    normalize_cooldown_until,
     normalize_heat_score,
     resolve_human_like_settings,
-    should_enter_cooldown,
 )
 from .scheduler import (
     is_unanswered_limit_reached,
@@ -134,40 +129,10 @@ async def check_preconditions(
 
     schedule_conf = session_config.get("schedule_settings", {})
     log_str = get_session_log_str(session_id, session_config, plugin.session_data)
-    human_blocked = False
     async with plugin.data_lock:
         state = plugin.session_data.get(session_id, {})
         unanswered_count = state.get("unanswered_count", 0)
-        human_settings = resolve_human_like_settings(session_config)
-        follow_up_enabled = resolve_immediate_follow_up_settings(session_config).enable
-        parsed_session = parse_session_id(session_id)
-        if (
-            (human_settings.enable or follow_up_enabled)
-            and parsed_session
-            and is_private_session(parsed_session[1])
-        ):
-            now = time.time()
-            cooldown_until = normalize_cooldown_until(
-                state.get("human_like_cooldown_until")
-            )
-            sent_hour, sent_day, normalized = delivery_counts(
-                state.get("human_like_delivery_timestamps"),
-                now,
-                plugin.timezone,
-            )
-            if normalized != state.get("human_like_delivery_timestamps"):
-                state["human_like_delivery_timestamps"] = normalized
-                await plugin._save_data()
-            if cooldown_is_active(cooldown_until, now) or is_outreach_capped(
-                human_settings, sent_hour, sent_day, int(unanswered_count or 0)
-            ):
-                human_blocked = True
-                logger.info(
-                    f"{_LOG_TAG} {log_str} 人性化冷卻或頻率上限生效，略過本次 LLM。"
-                )
-        if human_blocked:
-            should_trigger, reason = False, "人性化冷卻或頻率上限"
-        elif skip_unanswered:
+        if skip_unanswered:
             reached, reason = is_unanswered_limit_reached(
                 unanswered_count, schedule_conf, plugin.timezone
             )
@@ -178,9 +143,7 @@ async def check_preconditions(
             )
     if not should_trigger:
         logger.info(f"{_LOG_TAG} {log_str} {reason}")
-        if human_blocked:
-            await plugin._schedule_next_chat_and_save(session_id)
-        elif "衰減" in reason:
+        if "衰減" in reason:
             await plugin._schedule_next_chat_and_save(session_id)
         elif "硬性上限" in reason:
             await plugin._clear_regular_job_state(session_id)
@@ -237,7 +200,6 @@ async def update_unanswered_and_reschedule(
             and parsed_session
             and is_private_session(parsed_session[1])
         ):
-            now = time.time()
             state["interaction_heat"] = apply_heat(
                 normalize_heat_score(
                     state.get("interaction_heat"),
@@ -246,14 +208,6 @@ async def update_unanswered_and_reschedule(
                 "proactive_delivery",
                 human_settings,
             )
-            sent = state.get("human_like_delivery_timestamps")
-            timestamps = sent if isinstance(sent, list) else []
-            timestamps.append(now)
-            state["human_like_delivery_timestamps"] = timestamps
-            if should_enter_cooldown(next_count, human_settings):
-                state["human_like_cooldown_until"] = now + (
-                    human_settings.cooldown_minutes * 60
-                )
         if clear_task_description:
             state.pop("task_description", None)
         if habit_task and not count_unanswered:

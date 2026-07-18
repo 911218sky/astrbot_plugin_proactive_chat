@@ -2,22 +2,20 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, tzinfo
 from typing import Final, Literal
 
 
 HeatEvent = Literal["user_activity", "proactive_delivery"]
 HeatLabel = Literal["cold", "normal", "warm", "hot"]
 
-_DEFAULT_TIMING_MIN_SECONDS: Final[int] = 2
-_DEFAULT_TIMING_MAX_SECONDS: Final[int] = 8
+_DEFAULT_TIMING_MIN_SECONDS: Final[int] = 1
+_DEFAULT_TIMING_MAX_SECONDS: Final[int] = 3
 _MAX_TIMING_SECONDS: Final[int] = 60
 _DEFAULT_INBOUND_DEBOUNCE_SECONDS: Final[int] = 3
 _MAX_INBOUND_DEBOUNCE_SECONDS: Final[int] = 30
 _DEFAULT_HEAT_SCORE: Final[int] = 50
 _HEAT_MIN: Final[int] = 0
 _HEAT_MAX: Final[int] = 100
-_DELIVERY_WINDOW_SECONDS: Final[int] = 24 * 60 * 60
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,10 +27,6 @@ class HumanLikeSettings:
     long_message_chars: int = 120
     long_message_bonus_seconds: int = 2
     night_bonus_seconds: int = 2
-    cooldown_after_unanswered: int = 0
-    cooldown_minutes: int = 120
-    max_proactive_per_hour: int = 0
-    max_proactive_per_day: int = 0
     initial_heat_score: int = _DEFAULT_HEAT_SCORE
     user_activity_delta: int = 15
     proactive_delivery_delta: int = -5
@@ -56,9 +50,7 @@ def resolve_human_like_settings(session_config: object) -> HumanLikeSettings:
     raw_value = session_config.get("human_like_settings")
     raw = raw_value if isinstance(raw_value, Mapping) else {}
     follow_up_value = session_config.get("immediate_follow_up_settings")
-    follow_up = (
-        follow_up_value if isinstance(follow_up_value, Mapping) else {}
-    )
+    follow_up = follow_up_value if isinstance(follow_up_value, Mapping) else {}
     heat_source = (
         follow_up
         if any(
@@ -113,30 +105,6 @@ def resolve_human_like_settings(session_config: object) -> HumanLikeSettings:
             default=2,
             minimum=0,
             maximum=30,
-        ),
-        cooldown_after_unanswered=_bounded_int(
-            raw.get("cooldown_after_unanswered"),
-            default=0,
-            minimum=0,
-            maximum=10,
-        ),
-        cooldown_minutes=_bounded_int(
-            raw.get("cooldown_minutes"),
-            default=120,
-            minimum=0,
-            maximum=1440,
-        ),
-        max_proactive_per_hour=_bounded_int(
-            raw.get("max_proactive_per_hour"),
-            default=0,
-            minimum=0,
-            maximum=20,
-        ),
-        max_proactive_per_day=_bounded_int(
-            raw.get("max_proactive_per_day"),
-            default=0,
-            minimum=0,
-            maximum=100,
         ),
         initial_heat_score=_bounded_int(
             heat_source.get("initial_heat_score"),
@@ -197,14 +165,6 @@ def normalize_heat_score(value: object, default: int = _DEFAULT_HEAT_SCORE) -> i
     return max(_HEAT_MIN, min(_HEAT_MAX, value))
 
 
-def normalize_cooldown_until(value: object) -> float:
-    try:
-        timestamp = float(value)
-    except (TypeError, ValueError):
-        return 0.0
-    return timestamp if timestamp > 0 else 0.0
-
-
 def heat_label(score: int) -> HeatLabel:
     bounded_score = max(_HEAT_MIN, min(_HEAT_MAX, int(score)))
     if bounded_score < 30:
@@ -223,67 +183,3 @@ def heat_guidance(label: HeatLabel) -> str:
         "warm": "互動偏熱，可以更自然地延續話題，但不要硬聊。",
         "hot": "互動熱絡，可以親近地接話，但仍要尊重對方節奏。",
     }[label]
-
-
-def should_enter_cooldown(
-    unanswered_count: int,
-    settings: HumanLikeSettings,
-) -> bool:
-    return (
-        settings.enable
-        and settings.cooldown_after_unanswered > 0
-        and unanswered_count >= settings.cooldown_after_unanswered
-    )
-
-
-def cooldown_is_active(cooldown_until: float, now: float) -> bool:
-    return cooldown_until > now
-
-
-def is_outreach_capped(
-    settings: HumanLikeSettings,
-    sent_this_hour: int,
-    sent_today: int,
-    unanswered_count: int,
-) -> bool:
-    if not settings.enable:
-        return False
-    if should_enter_cooldown(unanswered_count, settings):
-        return True
-    return (
-        settings.max_proactive_per_hour > 0
-        and sent_this_hour >= settings.max_proactive_per_hour
-    ) or (
-        settings.max_proactive_per_day > 0
-        and sent_today >= settings.max_proactive_per_day
-    )
-
-
-def normalize_delivery_timestamps(values: object, now: float) -> list[float]:
-    if not isinstance(values, list):
-        return []
-    cutoff = now - _DELIVERY_WINDOW_SECONDS
-    timestamps: list[float] = []
-    for value in values:
-        if type(value) not in (int, float):
-            continue
-        timestamp = float(value)
-        if cutoff <= timestamp <= now:
-            timestamps.append(timestamp)
-    return timestamps
-
-
-def delivery_counts(
-    values: object,
-    now: float,
-    timezone: tzinfo | None = None,
-) -> tuple[int, int, list[float]]:
-    timestamps = normalize_delivery_timestamps(values, now)
-    hour_cutoff = now - 60 * 60
-    today = datetime.fromtimestamp(now, tz=timezone).date()
-    hourly = sum(timestamp >= hour_cutoff for timestamp in timestamps)
-    daily = sum(
-        datetime.fromtimestamp(timestamp, tz=timezone).date() == today
-        for timestamp in timestamps
-    )
-    return hourly, daily, timestamps

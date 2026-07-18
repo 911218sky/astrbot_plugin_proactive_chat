@@ -23,7 +23,9 @@ def test_defaults_keep_human_like_disabled() -> None:
     settings = module.resolve_human_like_settings({})
     assert settings.enable is False
     assert settings.inbound_debounce_seconds == 3
-    assert module.compute_follow_up_delay_seconds("hello", 12, settings, 0.5) == 2
+    assert settings.timing_min_seconds == 1
+    assert settings.timing_max_seconds == 3
+    assert module.compute_follow_up_delay_seconds("hello", 12, settings, 0.5) == 1
 
 
 def test_follow_up_delay_uses_length_and_night_buckets() -> None:
@@ -42,8 +44,12 @@ def test_follow_up_delay_uses_length_and_night_buckets() -> None:
     )
     assert module.compute_follow_up_delay_seconds("short", 12, settings, 0.0) == 1
     assert module.compute_follow_up_delay_seconds("short", 23, settings, 0.0) == 4
-    assert module.compute_follow_up_delay_seconds("long message", 12, settings, 0.99) == 6
-    assert module.compute_follow_up_delay_seconds("long message", 23, settings, 0.99) == 9
+    assert (
+        module.compute_follow_up_delay_seconds("long message", 12, settings, 0.99) == 6
+    )
+    assert (
+        module.compute_follow_up_delay_seconds("long message", 23, settings, 0.99) == 9
+    )
 
 
 def test_heat_transitions_are_clamped_and_labeled() -> None:
@@ -98,28 +104,6 @@ def test_legacy_heat_settings_remain_a_fallback() -> None:
     assert settings.proactive_delivery_delta == -12
 
 
-def test_cooldown_and_caps_are_explicit() -> None:
-    module = _load_module()
-    settings = module.resolve_human_like_settings(
-        {
-            "human_like_settings": {
-                "enable": True,
-                "cooldown_after_unanswered": 3,
-                "cooldown_minutes": 30,
-                "max_proactive_per_hour": 2,
-                "max_proactive_per_day": 4,
-            }
-        }
-    )
-    assert module.should_enter_cooldown(2, settings) is False
-    assert module.should_enter_cooldown(3, settings) is True
-    assert module.cooldown_is_active(1200, 1100) is True
-    assert module.cooldown_is_active(1000, 1000) is False
-    assert module.is_outreach_capped(settings, 1, 2, 3) is True
-    assert module.is_outreach_capped(settings, 1, 1, 3) is True
-    assert module.is_outreach_capped(settings, 1, 1, 2) is False
-
-
 def test_invalid_values_are_clamped_without_enabling_feature() -> None:
     module = _load_module()
     settings = module.resolve_human_like_settings(
@@ -128,14 +112,12 @@ def test_invalid_values_are_clamped_without_enabling_feature() -> None:
                 "enable": "true",
                 "timing_min_seconds": 100,
                 "timing_max_seconds": -1,
-                "cooldown_minutes": 99999,
             }
         }
     )
     assert settings.enable is False
-    assert settings.timing_min_seconds == 2
-    assert settings.timing_max_seconds == 8
-    assert settings.cooldown_minutes == 1440
+    assert settings.timing_min_seconds == 1
+    assert settings.timing_max_seconds == 3
 
 
 def test_inbound_debounce_is_clamped_to_a_short_quiet_window() -> None:
@@ -151,19 +133,7 @@ def test_inbound_debounce_is_clamped_to_a_short_quiet_window() -> None:
     assert settings.inbound_debounce_seconds == 30
 
 
-def test_delivery_counts_prune_old_and_invalid_values() -> None:
-    module = _load_module()
-    hourly, daily, timestamps = module.delivery_counts(
-        [350, 3_601, 3_900, "bad", 9_999],
-        4_000,
-    )
-    assert hourly == 2
-    assert daily == 3
-    assert timestamps == [350.0, 3_601.0, 3_900.0]
-
-
 def test_corrupt_persisted_values_use_safe_defaults() -> None:
     module = _load_module()
     assert module.normalize_heat_score("broken") == 50
     assert module.normalize_heat_score(120) == 100
-    assert module.normalize_cooldown_until("broken") == 0

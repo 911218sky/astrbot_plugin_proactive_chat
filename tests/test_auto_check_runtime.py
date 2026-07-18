@@ -57,6 +57,7 @@ def test_auto_check_no_send_reschedules_without_delivery(monkeypatch) -> None:
         plugin = _plugin()
         scheduled: list[str] = []
         delivered: list[str] = []
+
         async def schedule(session_id: str) -> None:
             scheduled.append(session_id)
 
@@ -160,7 +161,9 @@ def test_habit_auto_check_no_send_keeps_single_habit_schedule(monkeypatch) -> No
         )
 
         assert scheduled == ["platform:FriendMessage:42"]
-        assert cleaned == ["platform:FriendMessage:42:habit_platform:FriendMessage:42_1"]
+        assert cleaned == [
+            "platform:FriendMessage:42:habit_platform:FriendMessage:42_1"
+        ]
 
     anyio.run(scenario)
 
@@ -280,9 +283,9 @@ def test_llm_fallback_keeps_explicit_context_provider() -> None:
 
         context = SimpleNamespace(
             llm_generate=generate,
-            get_provider_by_id=lambda provider_id: Provider()
-            if provider_id == "context-provider"
-            else None,
+            get_provider_by_id=lambda provider_id: (
+                Provider() if provider_id == "context-provider" else None
+            ),
             get_using_provider=unexpected_default,
             get_current_chat_provider_id=lambda _session_id: "default",
         )

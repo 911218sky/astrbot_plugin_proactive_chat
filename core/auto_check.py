@@ -196,7 +196,9 @@ def compute_session_interval(
                 unanswered_count,
             )
         if schedule_settings.get("interval_mode", "adaptive") != "weighted_random":
-            return compute_schedule_adaptive_interval(schedule_settings, unanswered_count)
+            return compute_schedule_adaptive_interval(
+                schedule_settings, unanswered_count
+            )
     return compute_weighted_interval(schedule_settings, timezone, unanswered_count)
 
 
@@ -241,9 +243,7 @@ def parse_auto_check_decision(response: object) -> AutoCheckDecision | None:
         next_check_minutes = value
     if not send_message:
         return (
-            AutoCheckDecision(False, "", next_check_minutes)
-            if message == ""
-            else None
+            AutoCheckDecision(False, "", next_check_minutes) if message == "" else None
         )
     if len(message) > _MAX_AUTO_CHECK_MESSAGE_LENGTH:
         return None

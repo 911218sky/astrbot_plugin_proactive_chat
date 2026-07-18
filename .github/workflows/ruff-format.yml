@@ -26,18 +26,17 @@ jobs:
       - name: 安裝 uv
         run: pip install uv
 
-      - name: 執行 Ruff 格式化與修復
+      - name: 執行 Ruff 格式與品質檢查
         id: ruff
-        # 使用 || true 確保即使有錯誤也不立即中斷，以便後續步驟生成報告
         run: |
-          echo "Running ruff format..."
-          FORMAT_LOG=$(uvx ruff@0.15.1 format . 2>&1 || true)
+          echo "Running ruff format --check..."
+          FORMAT_LOG=$(uvx ruff@0.15.1 format --check . 2>&1 || true)
           echo "$FORMAT_LOG"
-          
-          echo "Running ruff check --fix..."
-          CHECK_LOG=$(uvx ruff@0.15.1 check --fix . 2>&1 || true)
+
+          echo "Running ruff check..."
+          CHECK_LOG=$(uvx ruff@0.15.1 check . 2>&1 || true)
           echo "$CHECK_LOG"
-          
+
           # 將日誌儲存到檔案供後續腳本讀取
           echo "$FORMAT_LOG" > format.log
           echo "$CHECK_LOG" > check.log
@@ -53,7 +52,9 @@ jobs:
             
             // --- 解析格式化日誌 ---
             const formatMatch = formatLog.match(/(\d+) file(s)? reformatted/);
+            const formatCheckMatch = formatLog.match(/(\d+) file(s)? would be reformatted/);
             const reformattedCount = formatMatch ? parseInt(formatMatch[1]) : 0;
+            const formatCheckCount = formatCheckMatch ? parseInt(formatCheckMatch[1]) : 0;
             
             const unchangedMatch = formatLog.match(/(\d+) file(s)? left unchanged/);
             const unchangedCount = unchangedMatch ? parseInt(unchangedMatch[1]) : 0;
@@ -80,16 +81,18 @@ jobs:
             
             // --- 構建報告內容 ---
             let summary = '';
-            let isSuccess = (reformattedCount === 0 && remainingCount === 0);
+            const hasFormatErrors = formatCheckCount > 0 || formatLog.includes('Would reformat:');
+            let isSuccess = !hasFormatErrors && remainingCount === 0;
             
             if (isSuccess) {
                 summary = '### ✅ All checks passed!';
             } else {
                 summary = '### ⚠️ 程式碼品質檢查報告\n\n';
-                summary += '> 發現部分檔案需要格式化或存在程式碼問題，建議在本地執行 `ruff format .` 和 `ruff check --fix .`。\n\n';
+                summary += '> 發現部分檔案需要格式化或存在程式碼問題，請在本地執行 `ruff format .` 和 `ruff check .`。\n\n';
                 
-                if (reformattedCount > 0) {
-                    summary += `**🖌️ 格式化**：\`${reformattedCount}\` 個檔案被重新格式化（未變更：${unchangedCount}）\n`;
+                if (hasFormatErrors) {
+                    const count = formatCheckCount || reformattedCount;
+                    summary += `**🖌️ 格式化**：\`${count}\` 個檔案需要格式化（未變更：${unchangedCount}）\n`;
                 } else {
                     summary += `**🖌️ 格式化**：✅ 無需變更\n`;
                 }

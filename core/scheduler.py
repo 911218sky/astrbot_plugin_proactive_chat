@@ -172,10 +172,14 @@ def _coerce_float(
 
 def compute_adaptive_interval(schedule_conf: dict, unanswered_count: int = 0) -> int:
     min_seconds = max(60, int(schedule_conf.get("min_interval_minutes", 30)) * 60)
-    max_seconds = max(min_seconds, int(schedule_conf.get("max_interval_minutes", 900)) * 60)
+    max_seconds = max(
+        min_seconds, int(schedule_conf.get("max_interval_minutes", 900)) * 60
+    )
     midpoint = min_seconds + (max_seconds - min_seconds) // 2
     unanswered = max(0, int(unanswered_count))
-    extra = min(max_seconds - midpoint, (max_seconds - midpoint) * min(unanswered, 4) // 4)
+    extra = min(
+        max_seconds - midpoint, (max_seconds - midpoint) * min(unanswered, 4) // 4
+    )
     return midpoint + extra
 
 

@@ -129,7 +129,9 @@ async def _prepare_prompt_context(
     return request, final_prompt, request["system_prompt"], history, ctx_task
 
 
-def _resolved_context_provider_id(plugin: ProactiveChatPlugin, session_config: dict) -> str | None:
+def _resolved_context_provider_id(
+    plugin: ProactiveChatPlugin, session_config: dict
+) -> str | None:
     provider_id = get_context_analysis_provider_id(
         getattr(plugin, "config", {}), session_config
     )
