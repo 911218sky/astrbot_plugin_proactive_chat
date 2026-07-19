@@ -104,8 +104,12 @@ def test_private_schema_shows_weighted_random_controls_only_for_legacy_mode() ->
         node = schema
         for key in path:
             node = node[key]
-        assert "schedule_rules" in node
-        assert "default_decay_rate" in node
+        assert node["schedule_rules"]["condition"] == {
+            "interval_mode": "weighted_random"
+        }
+        assert node["default_decay_rate"]["condition"] == {
+            "interval_mode": "weighted_random"
+        }
 
 
 def test_group_schema_exposes_adaptive_and_human_like_controls() -> None:

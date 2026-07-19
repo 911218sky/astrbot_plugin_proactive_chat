@@ -1080,6 +1080,9 @@
                     "schedule_rules": {
                         "description": "📅 分時段排程規則",
                         "type": "template_list",
+                        "condition": {
+                            "interval_mode": "weighted_random"
+                        },
                         "hint": "可新增多條時段規則。每條規則定義一個時段的觸發間隔分佈，並可選配置未回覆衰減率。未匹配到任何規則時回退到上方的全域最小/最大觸發間隔",
                         "templates": {
                             "time_rule": {
@@ -1191,6 +1194,9 @@
                         "description": "📉 全域預設衰減遞減步長",
                         "type": "string",
                         "default": "0",
+                        "condition": {
+                            "interval_mode": "weighted_random"
+                        },
                         "hint": "預設為 0，表示不衰減。想要永遠不衰減：時段衰減率留空，本欄保持 0。這裡是「遞減步長」，不同於上方時段衰減率列表中的「0 = 概率為 0」。填 0~1 的數字可作為每次未回覆後的遞減步長，例如「0.05」代表每次降低 5%。當時段衰減列表用完時，會從列表最後一個概率繼續扣；未設定時段衰減列表時，會從 100% 開始扣"
                     }
                 }
@@ -2784,6 +2790,9 @@
                             "schedule_rules": {
                                 "description": "📅 分時段排程規則",
                                 "type": "template_list",
+                                "condition": {
+                                    "interval_mode": "weighted_random"
+                                },
                                 "hint": "可新增多條時段規則。每條規則定義一個時段的觸發間隔分佈，並可選配置未回覆衰減率。未匹配到任何規則時回退到上方的全域最小/最大觸發間隔",
                                 "templates": {
                                     "time_rule": {
@@ -2895,6 +2904,9 @@
                                 "description": "📉 全域預設衰減遞減步長",
                                 "type": "string",
                                 "default": "0",
+                                "condition": {
+                                    "interval_mode": "weighted_random"
+                                },
                                 "hint": "預設為 0，表示不衰減。想要永遠不衰減：時段衰減率留空，本欄保持 0。這裡是「遞減步長」，不同於上方時段衰減率列表中的「0 = 概率為 0」。填 0~1 的數字可作為每次未回覆後的遞減步長，例如「0.05」代表每次降低 5%。當時段衰減列表用完時，會從列表最後一個概率繼續扣；未設定時段衰減列表時，會從 100% 開始扣"
                             }
                         }
