@@ -86,7 +86,7 @@
 
 ### 3. schedule_rules — グループ向け時間帯別加重ランダムスケジューリング
 
-`group_settings.schedule_settings` とグループセッションテンプレートでは `schedule_rules`（`template_list` 型）を引き続き利用できます。プライベートチャットは下記の自適応スケジュールと LLM 判定フローを使うため、WebUI では旧ルール項目を表示しません：
+`group_settings.schedule_settings` とグループセッションテンプレートでは `schedule_rules`（`template_list` 型）を引き続き利用できます。プライベートチャットは下記の自適応スケジュールと LLM 判定フローを既定で使用します。プライベートのスケジュール方式で `weighted_random` を選ぶと、互換性のため WebUI に旧ルール（時間帯と減衰）の設定が表示されます：
 
 - 各ルールに `start_hour`、`end_hour`、`interval_weights` を設定
 - `interval_weights` フォーマット：`"20-30:0.2,30-50:0.5,50-90:0.3"`（分:重み）

@@ -87,7 +87,7 @@ Converted `private_sessions` and `group_sessions` from 5 hardcoded slots (`sessi
 
 ### 3. schedule_rules — Group Time-Based Weighted Random Scheduling
 
-`group_settings.schedule_settings` and group session templates retain `schedule_rules` (`template_list` type), enabling weighted random interval distribution by time of day. Private chats use the adaptive schedule and LLM check flow described below; their WebUI no longer exposes these legacy rule fields:
+`group_settings.schedule_settings` and group session templates retain `schedule_rules` (`template_list` type), enabling weighted random interval distribution by time of day. Private chats use the adaptive schedule and LLM check flow described below by default. Selecting `weighted_random` in the private schedule mode reveals the legacy time-rule and decay controls in WebUI for compatibility:
 
 - Each rule has `start_hour`, `end_hour`, `interval_weights`
 - `interval_weights` format: `"20-30:0.2,30-50:0.5,50-90:0.3"` (minutes:weight)
