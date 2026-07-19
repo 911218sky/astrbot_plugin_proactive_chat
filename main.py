@@ -617,8 +617,6 @@ class ProactiveChatPlugin(star.Star):
         """合併手動設定與自動學習出的習慣時段規則。"""
         habit_conf = dict(self._habit_settings(session_config))
         allow_manual_rules = bool(habit_conf.get("allow_manual_habit_rules", True))
-        if is_group_session_id(session_id):
-            allow_manual_rules = True
         manual_rules = (
             [
                 rule
@@ -642,7 +640,7 @@ class ProactiveChatPlugin(star.Star):
                 ]
 
         habit_conf["habit_rules"] = [*manual_rules, *learned_rules]
-        habit_conf["adaptive_timing"] = not is_group_session_id(session_id)
+        habit_conf["adaptive_timing"] = True
         if learned_rules:
             habit_conf["enable"] = True
         return habit_conf
@@ -671,7 +669,6 @@ class ProactiveChatPlugin(star.Star):
         settings: dict,
         now_ts: float,
     ) -> dict | None:
-        """依近期私聊時間樣本產生一條內部習慣規則。"""
         min_samples = int(settings["min_samples"])
         window = int(settings["cluster_window_minutes"])
         points: list[dict] = []
@@ -727,9 +724,9 @@ class ProactiveChatPlugin(star.Star):
             "oversleep_chance": 0.05,
             "oversleep_min_minutes": 10,
             "oversleep_max_minutes": 45,
-            "message_hint": "根據最近私聊習慣，這個時段對方通常比較有空；像自然剛有空一樣打招呼，不要提到排程或學習規則。",
+            "message_hint": "根據最近互動習慣，這個時段通常比較有空；像自然剛有空一樣打招呼，不要提到排程或學習規則。",
             "description": (
-                f"由最近 {len(best_cluster)} 次私聊時間自動學習，更新於 {updated_at}。"
+                f"由最近 {len(best_cluster)} 次互動時間自動學習，更新於 {updated_at}。"
             ),
             "count_unanswered": False,
             "auto_learned": True,
@@ -737,10 +734,9 @@ class ProactiveChatPlugin(star.Star):
             "updated_at": updated_at,
         }
 
-    async def _record_private_habit_observation(
+    async def _record_habit_observation(
         self, session_id: str, session_config: dict, now_ts: float
     ) -> None:
-        """記錄私聊發生時段，樣本足夠時自動寫入內部習慣規則。"""
         habit_conf = self._habit_settings(session_config)
         settings = self._habit_learning_settings(habit_conf)
         if not settings["enable"]:
@@ -816,7 +812,7 @@ class ProactiveChatPlugin(star.Star):
         if removed or not self._pending_habit_tasks.get(session_id):
             logger.info(
                 f"{_LOG_TAG} 已更新 {get_session_log_str(session_id, session_config, self.session_data)} "
-                "的自動學習私聊習慣時段。"
+                "的自動學習互動習慣時段。"
             )
             await self._schedule_next_habit_task(session_id)
 
@@ -2022,13 +2018,14 @@ class ProactiveChatPlugin(star.Star):
                     await self._schedule_next_chat_and_save(
                         session_id, reset_counter=True
                     )
-                    habit_conf = self._habit_settings(session_config)
-                    if self._habit_learning_settings(habit_conf)["enable"]:
-                        await self._record_private_habit_observation(
-                            session_id, session_config, now
-                        )
-                    else:
-                        await self._cleanup_auto_habit_rule_task(session_id)
+
+                habit_conf = self._habit_settings(session_config)
+                if self._habit_learning_settings(habit_conf)["enable"]:
+                    await self._record_habit_observation(
+                        session_id, session_config, now
+                    )
+                else:
+                    await self._cleanup_auto_habit_rule_task(session_id)
 
                 habit_settings = self._effective_habit_settings(
                     session_id, session_config

@@ -1211,12 +1211,80 @@
                         "default": false,
                         "hint": "開啟後，Bot 會依下方規則在指定時段自然出現。這類訊息預設不累加未回覆次數，可在單條規則中改為累加。"
                     },
-                    "habit_rules": {
-                        "description": "📅 習慣時段規則",
-                        "type": "template_list",
-                        "hint": "可新增多條日常出現規則。系統會從符合日期與時間窗的規則中安排下一次任務，並依出現機率、賴床機率與時間抖動製造自然感。",
+                    "enable_auto_learning": {
+                        "description": "🧠 自動學習群聊互動時段",
+                        "type": "bool",
+                        "default": true,
+                        "hint": "開啟後，插件會記錄群聊通常在什麼時間互動，樣本足夠後由 AI/插件自動產生內部習慣時段規則，不需要人手寫。"
+                    },
+                    "allow_manual_habit_rules": {
+                        "description": "🛠️ 進階：允許手動習慣規則",
+                        "type": "bool",
+                        "default": true,
+                        "hint": "開啟後採用下方手動時間窗；關閉時只使用自動學習出的時段。"
+                    },
+                    "auto_learning_min_samples": {
+                        "description": "📊 自動學習最少樣本",
+                        "type": "int",
+                        "default": 5,
+                        "hint": "至少累積幾次群聊互動時間後才建立自動習慣規則。數字太小會比較容易誤判，建議 5~10。",
                         "condition": {
-                            "enable": true
+                            "enable_auto_learning": true
+                        },
+                        "slider": {
+                            "min": 2,
+                            "max": 30,
+                            "step": 1
+                        }
+                    },
+                    "auto_learning_history_days": {
+                        "description": "🗓️ 自動學習回看天數",
+                        "type": "int",
+                        "default": 30,
+                        "hint": "只用最近幾天的群聊互動時間建立習慣，避免很久以前的作息影響現在。",
+                        "condition": {
+                            "enable_auto_learning": true
+                        },
+                        "slider": {
+                            "min": 1,
+                            "max": 120,
+                            "step": 1
+                        }
+                    },
+                    "auto_learning_cluster_window_minutes": {
+                        "description": "🕒 自動學習時段寬度（分鐘）",
+                        "type": "int",
+                        "default": 120,
+                        "hint": "用多大的時間窗尋找群聊常互動時段。例如 120 代表找出大約兩小時內最常互動的區間。",
+                        "condition": {
+                            "enable_auto_learning": true
+                        },
+                        "slider": {
+                            "min": 30,
+                            "max": 360,
+                            "step": 10
+                        }
+                    },
+                    "auto_learning_appear_chance": {
+                        "description": "🎲 自動習慣出現機率",
+                        "type": "float",
+                        "default": 0.75,
+                        "hint": "自動學出的時段命中時，Bot 在群聊自然出現的機率。0.75 代表約 75%。",
+                        "condition": {
+                            "enable_auto_learning": true
+                        },
+                        "slider": {
+                            "min": 0,
+                            "max": 1,
+                            "step": 0.01
+                        }
+                    },
+                    "habit_rules": {
+                        "description": "📅 進階手動習慣規則",
+                        "type": "template_list",
+                        "hint": "每條規則是一個可能的互動時間窗。啟用自動查看時，時間窗只建立檢查機會，是否發送由 LLM 決定。",
+                        "condition": {
+                            "allow_manual_habit_rules": true
                         },
                         "templates": {
                             "habit_rule": {
@@ -2911,23 +2979,91 @@
                             }
                         }
                     },
-                    "habit_settings": {
-                        "description": "🌅 群聊習慣時段主動出現",
-                        "type": "object",
-                        "items": {
-                            "enable": {
-                                "description": "✅ 啟用習慣時段",
-                                "type": "bool",
-                                "default": false,
-                                "hint": "開啟後，Bot 會依下方規則在指定時段自然出現。這類訊息預設不累加未回覆次數，可在單條規則中改為累加。"
-                            },
-                            "habit_rules": {
-                                "description": "📅 習慣時段規則",
-                                "type": "template_list",
-                                "hint": "可新增多條日常出現規則。系統會從符合日期與時間窗的規則中安排下一次任務，並依出現機率、賴床機率與時間抖動製造自然感。",
-                                "condition": {
-                                    "enable": true
+                        "habit_settings": {
+                            "description": "🌅 群聊習慣時段主動出現",
+                            "type": "object",
+                            "items": {
+                                "enable": {
+                                    "description": "✅ 啟用習慣時段",
+                                    "type": "bool",
+                                    "default": false,
+                                    "hint": "開啟後，Bot 會依下方規則在指定時段自然出現。這類訊息預設不累加未回覆次數，可在單條規則中改為累加。"
                                 },
+                                "enable_auto_learning": {
+                                    "description": "🧠 自動學習群聊互動時段",
+                                    "type": "bool",
+                                    "default": true,
+                                    "hint": "開啟後，插件會記錄群聊通常在什麼時間互動，樣本足夠後由 AI/插件自動產生內部習慣時段規則，不需要人手寫。"
+                                },
+                                "allow_manual_habit_rules": {
+                                    "description": "🛠️ 進階：允許手動習慣規則",
+                                    "type": "bool",
+                                    "default": true,
+                                    "hint": "開啟後採用下方手動時間窗；關閉時只使用自動學習出的時段。"
+                                },
+                                "auto_learning_min_samples": {
+                                    "description": "📊 自動學習最少樣本",
+                                    "type": "int",
+                                    "default": 5,
+                                    "hint": "至少累積幾次群聊互動時間後才建立自動習慣規則。數字太小會比較容易誤判，建議 5~10。",
+                                    "condition": {
+                                        "enable_auto_learning": true
+                                    },
+                                    "slider": {
+                                        "min": 2,
+                                        "max": 30,
+                                        "step": 1
+                                    }
+                                },
+                                "auto_learning_history_days": {
+                                    "description": "🗓️ 自動學習回看天數",
+                                    "type": "int",
+                                    "default": 30,
+                                    "hint": "只用最近幾天的群聊互動時間建立習慣，避免很久以前的作息影響現在。",
+                                    "condition": {
+                                        "enable_auto_learning": true
+                                    },
+                                    "slider": {
+                                        "min": 1,
+                                        "max": 120,
+                                        "step": 1
+                                    }
+                                },
+                                "auto_learning_cluster_window_minutes": {
+                                    "description": "🕒 自動學習時段寬度（分鐘）",
+                                    "type": "int",
+                                    "default": 120,
+                                    "hint": "用多大的時間窗尋找群聊常互動時段。例如 120 代表找出大約兩小時內最常互動的區間。",
+                                    "condition": {
+                                        "enable_auto_learning": true
+                                    },
+                                    "slider": {
+                                        "min": 30,
+                                        "max": 360,
+                                        "step": 10
+                                    }
+                                },
+                                "auto_learning_appear_chance": {
+                                    "description": "🎲 自動習慣出現機率",
+                                    "type": "float",
+                                    "default": 0.75,
+                                    "hint": "自動學出的時段命中時，Bot 在群聊自然出現的機率。0.75 代表約 75%。",
+                                    "condition": {
+                                        "enable_auto_learning": true
+                                    },
+                                    "slider": {
+                                        "min": 0,
+                                        "max": 1,
+                                        "step": 0.01
+                                    }
+                                },
+                                "habit_rules": {
+                                    "description": "📅 進階手動習慣規則",
+                                    "type": "template_list",
+                                    "hint": "每條規則是一個可能的互動時間窗。啟用自動查看時，時間窗只建立檢查機會，是否發送由 LLM 決定。",
+                                    "condition": {
+                                        "allow_manual_habit_rules": true
+                                    },
                                 "templates": {
                                     "habit_rule": {
                                         "name": "🌤️ 習慣規則",

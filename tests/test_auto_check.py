@@ -132,6 +132,69 @@ def test_group_schema_exposes_adaptive_and_human_like_controls() -> None:
         assert follow_up["proactive_delivery_delta"]["default"] == -5
 
 
+def test_group_habit_schema_matches_private_learning_controls() -> None:
+    schema = _load_schema()
+    private_paths = (
+        ("private_settings", "items"),
+        ("private_sessions", "templates", "private_session", "items"),
+    )
+    group_paths = (
+        ("group_settings", "items"),
+        ("group_sessions", "templates", "group_session", "items"),
+    )
+
+    for private_path, group_path in zip(private_paths, group_paths, strict=True):
+        private_node = schema
+        group_node = schema
+        for key in private_path:
+            private_node = private_node[key]
+        for key in group_path:
+            group_node = group_node[key]
+        private_habit = private_node["habit_settings"]["items"]
+        group_habit = group_node["habit_settings"]["items"]
+        assert set(group_habit) == set(private_habit)
+        assert group_habit["habit_rules"]["condition"] == {
+            "allow_manual_habit_rules": True
+        }
+
+
+def test_group_schema_matches_private_shared_sections() -> None:
+    schema = _load_schema()
+    paths = (
+        (
+            ("private_settings", "items"),
+            ("group_settings", "items"),
+        ),
+        (
+            ("private_sessions", "templates", "private_session", "items"),
+            ("group_sessions", "templates", "group_session", "items"),
+        ),
+    )
+    sections = (
+        "auto_check_settings",
+        "auto_trigger_settings",
+        "context_aware_settings",
+        "habit_settings",
+        "human_like_settings",
+        "immediate_follow_up_settings",
+        "schedule_settings",
+        "segmented_reply_settings",
+        "tts_settings",
+    )
+
+    for private_path, group_path in paths:
+        private_node = schema
+        group_node = schema
+        for key in private_path:
+            private_node = private_node[key]
+        for key in group_path:
+            group_node = group_node[key]
+        for section in sections:
+            assert set(group_node[section]["items"]) == set(
+                private_node[section]["items"]
+            )
+
+
 @pytest.mark.parametrize(
     ("profile", "minimum", "maximum"),
     (

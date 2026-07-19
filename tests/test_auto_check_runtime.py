@@ -14,6 +14,7 @@ from astrbot_plugin_proactive_chat.core.delivery import (
     DeliveryCoordinatorRegistry,
     GateVerdict,
 )
+from astrbot_plugin_proactive_chat.main import ProactiveChatPlugin
 
 
 def _plugin() -> SimpleNamespace:
@@ -72,6 +73,56 @@ def test_group_adaptive_schedule_does_not_use_weighted_random(
     )
 
     assert result == 1800
+
+
+def test_group_habit_settings_respect_private_controls() -> None:
+    plugin = object.__new__(ProactiveChatPlugin)
+    plugin.session_data = {}
+    session_config = {
+        "habit_settings": {
+            "enable": True,
+            "allow_manual_habit_rules": False,
+            "enable_auto_learning": True,
+            "habit_rules": [{"name": "手動規則"}],
+        }
+    }
+
+    effective = ProactiveChatPlugin._effective_habit_settings(
+        plugin,
+        "platform:GroupMessage:42",
+        session_config,
+    )
+
+    assert effective["adaptive_timing"] is True
+    assert effective["habit_rules"] == []
+
+
+def test_group_habit_learning_records_interaction() -> None:
+    async def scenario() -> None:
+        plugin = object.__new__(ProactiveChatPlugin)
+        plugin.session_data = {}
+        plugin.timezone = None
+        plugin.data_lock = anyio.Lock()
+
+        async def save_data() -> None:
+            return None
+
+        async def reschedule(*_args) -> None:
+            return None
+
+        plugin._save_data = save_data
+        plugin._reschedule_auto_habit_rule = reschedule
+        await ProactiveChatPlugin._record_habit_observation(
+            plugin,
+            "platform:GroupMessage:42",
+            {"habit_settings": {"enable_auto_learning": True}},
+            1_750_000_000,
+        )
+
+        learning = plugin.session_data["platform:GroupMessage:42"]["habit_learning"]
+        assert len(learning["observations"]) == 1
+
+    anyio.run(scenario)
 
 
 def test_auto_check_no_send_reschedules_without_delivery(monkeypatch) -> None:
