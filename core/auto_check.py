@@ -87,7 +87,6 @@ def _bounded_int(value: object, *, minimum: int, maximum: int) -> int | None:
 
 
 def resolve_auto_check_settings(session_config: object) -> AutoCheckSettings:
-    """Parse private auto-check configuration and apply preset defaults."""
     if not isinstance(session_config, Mapping):
         return AutoCheckSettings()
     raw = session_config.get("auto_check_settings")
@@ -180,25 +179,24 @@ def compute_session_interval(
     timezone: zoneinfo.ZoneInfo | None,
     unanswered_count: int,
 ) -> int:
-    """Select the legacy interval or the private auto-check bounded interval."""
     from .scheduler import (
         compute_adaptive_interval as compute_schedule_adaptive_interval,
         compute_weighted_interval,
     )
 
     settings = resolve_auto_check_settings(session_config)
-    if session_config.get("_session_type") == "private":
-        if settings.enable:
-            return compute_auto_check_interval(
-                schedule_settings,
-                settings,
-                timezone,
-                unanswered_count,
-            )
-        if schedule_settings.get("interval_mode", "adaptive") != "weighted_random":
-            return compute_schedule_adaptive_interval(
-                schedule_settings, unanswered_count
-            )
+    if settings.enable:
+        return compute_auto_check_interval(
+            schedule_settings,
+            settings,
+            timezone,
+            unanswered_count,
+        )
+    if (
+        session_config.get("_session_type") == "private"
+        and schedule_settings.get("interval_mode", "adaptive") != "weighted_random"
+    ):
+        return compute_schedule_adaptive_interval(schedule_settings, unanswered_count)
     return compute_weighted_interval(schedule_settings, timezone, unanswered_count)
 
 

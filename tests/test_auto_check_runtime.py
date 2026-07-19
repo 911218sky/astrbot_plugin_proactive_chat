@@ -122,6 +122,38 @@ def test_auto_check_send_uses_existing_delivery_pipeline(monkeypatch) -> None:
     anyio.run(scenario)
 
 
+def test_group_auto_check_uses_existing_delivery_pipeline(monkeypatch) -> None:
+    async def scenario() -> None:
+        plugin = _plugin()
+        delivered: list[tuple] = []
+
+        async def preconditions(*_args, **_kwargs):
+            return (
+                {"_session_type": "group", "auto_check_settings": {"enable": True}},
+                0,
+                False,
+            )
+
+        async def auto_check(*_args):
+            return AutoCheckDecision(True, "群裡想聊聊嗎？"), "conv", "prompt", None
+
+        monkeypatch.setattr(chat_executor, "_check_preconditions", preconditions)
+        monkeypatch.setattr(chat_executor, "_prepare_and_call_auto_check", auto_check)
+
+        async def deliver(*args) -> bool:
+            delivered.append(args)
+            return True
+
+        monkeypatch.setattr(chat_executor, "_deliver_and_finalize", deliver)
+        await chat_executor.check_and_chat(
+            plugin, "platform:GroupMessage:42", gate=plugin._test_gate
+        )
+        assert delivered
+        assert delivered[0][3] == "群裡想聊聊嗎？"
+
+    anyio.run(scenario)
+
+
 def test_habit_auto_check_no_send_keeps_single_habit_schedule(monkeypatch) -> None:
     async def scenario() -> None:
         plugin = _plugin()

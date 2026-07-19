@@ -59,7 +59,6 @@ from .core.utils import (
     MSG_TYPE_KEYWORD_FRIEND,
     get_session_log_str,
     is_group_session_id,
-    is_private_session,
     is_quiet_time,
     parse_session_id,
     resolve_full_umo,
@@ -1383,11 +1382,9 @@ class ProactiveChatPlugin(star.Star):
                 continue
 
             auto_settings = resolve_auto_check_settings(cfg)
-            parsed_session = parse_session_id(sid)
-            is_private = bool(parsed_session and is_private_session(parsed_session[1]))
             bounded_next_t = (
                 clamp_future_trigger_time(next_t, now, auto_settings)
-                if is_private and auto_settings.enable
+                if auto_settings.enable
                 else next_t
             )
             if bounded_next_t != next_t:
@@ -1943,7 +1940,7 @@ class ProactiveChatPlugin(star.Star):
             cancel_follow_up(session_id)
         session_config = get_session_config(self.config, session_id)
         enabled = bool(session_config and session_config.get("enable", False))
-        if enabled and not is_group:
+        if enabled:
             if not await self._wait_for_inbound_quiet(
                 session_id,
                 session_config,
@@ -1978,12 +1975,7 @@ class ProactiveChatPlugin(star.Star):
                         follow_up_enabled = resolve_immediate_follow_up_settings(
                             session_config
                         ).enable
-                        parsed_session = parse_session_id(session_id)
-                        if (
-                            (human_settings.enable or follow_up_enabled)
-                            and parsed_session
-                            and is_private_session(parsed_session[1])
-                        ):
+                        if human_settings.enable or follow_up_enabled:
                             sd["interaction_heat"] = apply_heat(
                                 normalize_heat_score(
                                     sd.get("interaction_heat"),

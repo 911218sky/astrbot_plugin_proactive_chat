@@ -14,7 +14,6 @@ from .immediate_follow_up import (
     should_send_random_follow_up,
 )
 from .human_like import compute_follow_up_delay_seconds, resolve_human_like_settings
-from .utils import is_private_session, parse_session_id
 
 _LOG_TAG = "[主動訊息]"
 Sleep = Callable[[float], Awaitable[None]]
@@ -43,10 +42,8 @@ async def collect_follow_ups(
         if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:
             break
         human_settings = resolve_human_like_settings(session_config)
-        parsed_session = parse_session_id(session_id)
-        is_private = bool(parsed_session and is_private_session(parsed_session[1]))
         delay_seconds = settings.debounce_seconds
-        if human_settings.enable and is_private and turns:
+        if human_settings.enable and turns:
             timezone = getattr(plugin, "timezone", None)
             local_hour = (datetime.now(timezone) if timezone else datetime.now()).hour
             delay_seconds = max(

@@ -108,6 +108,25 @@ def test_private_schema_shows_weighted_random_controls_only_for_legacy_mode() ->
         assert "default_decay_rate" in node
 
 
+def test_group_schema_exposes_adaptive_and_human_like_controls() -> None:
+    schema = _load_schema()
+    paths = (
+        ("group_settings", "items"),
+        ("group_sessions", "templates", "group_session", "items"),
+    )
+    for path in paths:
+        node = schema
+        for key in path:
+            node = node[key]
+        assert node["auto_check_settings"]["items"]["profile"]["default"] == "romantic"
+        assert node["schedule_settings"]["items"]["interval_mode"]["default"] == "adaptive"
+        assert node["human_like_settings"]["items"]["timing_min_seconds"]["type"] == "float"
+        follow_up = node["immediate_follow_up_settings"]["items"]
+        assert follow_up["initial_heat_score"]["default"] == 50
+        assert follow_up["user_activity_delta"]["default"] == 15
+        assert follow_up["proactive_delivery_delta"]["default"] == -5
+
+
 @pytest.mark.parametrize(
     ("profile", "minimum", "maximum"),
     (
@@ -132,6 +151,22 @@ def test_profiles_resolve_to_human_like_ranges(
         minimum,
         maximum,
     )
+
+
+def test_group_auto_check_interval_uses_configured_bounds() -> None:
+    module = _load_module()
+    settings = module.resolve_auto_check_settings(
+        {
+            "auto_check_settings": {
+                "enable": True,
+                "use_custom_intervals": True,
+                "min_interval_minutes": 12,
+                "max_interval_minutes": 24,
+            }
+        }
+    )
+    interval = module.compute_adaptive_interval(settings, 0)
+    assert 12 * 60 <= interval <= 24 * 60
 
 
 def test_auto_check_defaults_off_and_clamps_overrides() -> None:

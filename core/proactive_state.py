@@ -28,8 +28,6 @@ from .scheduler import (
 from .utils import (
     get_session_log_str,
     is_group_session_id,
-    is_private_session,
-    parse_session_id,
 )
 
 if TYPE_CHECKING:
@@ -194,12 +192,7 @@ async def update_unanswered_and_reschedule(
         state["unanswered_count"] = next_count
         human_settings = resolve_human_like_settings(session_config)
         follow_up_enabled = resolve_immediate_follow_up_settings(session_config).enable
-        parsed_session = parse_session_id(session_id)
-        if (
-            (human_settings.enable or follow_up_enabled)
-            and parsed_session
-            and is_private_session(parsed_session[1])
-        ):
+        if human_settings.enable or follow_up_enabled:
             state["interaction_heat"] = apply_heat(
                 normalize_heat_score(
                     state.get("interaction_heat"),
@@ -213,7 +206,9 @@ async def update_unanswered_and_reschedule(
         if habit_task and not count_unanswered:
             await plugin._save_data()
             return True
-        if is_group_session_id(session_id):
+        if is_group_session_id(session_id) and not resolve_auto_check_settings(
+            session_config
+        ).enable:
             state.pop("next_trigger_time", None)
             await plugin._save_data()
             return True

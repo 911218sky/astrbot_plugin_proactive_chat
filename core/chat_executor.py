@@ -16,7 +16,7 @@ from . import (
 )
 from .delivery import AcceptedTurn, DispatchGate, GateVerdict
 from .send import dispatch_proactive_message
-from .utils import is_private_session, parse_session_id, resolve_full_umo
+from .utils import parse_session_id, resolve_full_umo
 
 if TYPE_CHECKING:
     from astrbot.core.conversation_mgr import ConversationManager
@@ -49,10 +49,8 @@ async def check_and_chat(
             return
         if plugin._gate_verdict(current_gate) is not GateVerdict.CURRENT:
             return
-        parsed_session = parse_session_id(session_id)
-        is_private = bool(parsed_session and is_private_session(parsed_session[1]))
         auto_settings = auto_check.resolve_auto_check_settings(session_config)
-        if is_private and auto_settings.enable and (not ctx_job_id or habit_task):
+        if auto_settings.enable and (not ctx_job_id or habit_task):
             auto_result = await _prepare_and_call_auto_check(
                 plugin, session_id, session_config, unanswered_count, ctx_job_id
             )

@@ -730,14 +730,14 @@
                 }
             },
             "human_like_settings": {
-                "description": "🧍 真人互動節奏（私聊）",
+                "description": "🧍 真人互動節奏",
                 "type": "object",
                 "items": {
                     "enable": {
                         "description": "啟用真人互動節奏",
                         "type": "bool",
                         "default": false,
-                        "hint": "只套用私聊；正常 AI 回覆與即時跟進都會依訊息長度與時段調整等待，並提供連續訊息防抖。"
+                        "hint": "正常 AI 回覆與即時跟進都會依訊息長度與時段調整等待，並提供連續訊息防抖。"
                     },
                     "timing_min_seconds": {
                         "description": "真人回覆最短等待（秒）",
@@ -887,6 +887,61 @@
                 "default": false,
                 "hint": "開啟後，只要此全域配置已啟用，未列在 session_list 或個性化會話中的新會話也會使用這份全域設定。請確認你真的希望 Bot 對所有此類型會話主動回覆。"
             },
+            "human_like_settings": {
+                "description": "🧍 真人互動節奏（群聊）",
+                "type": "object",
+                "items": {
+                    "enable": {
+                        "description": "啟用真人互動節奏",
+                        "type": "bool",
+                        "default": false,
+                        "hint": "套用到群聊正常 AI 回覆與即時跟進；會依訊息長度與時段調整等待，並可使用連續訊息防抖。"
+                    },
+                    "timing_min_seconds": {
+                        "description": "真人回覆最短等待（秒）",
+                        "type": "float",
+                        "default": 1.0,
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 60, "step": 0.1}
+                    },
+                    "timing_max_seconds": {
+                        "description": "真人回覆最長等待（秒）",
+                        "type": "float",
+                        "default": 3.0,
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 60, "step": 0.1}
+                    },
+                    "inbound_debounce_seconds": {
+                        "description": "使用者連續訊息等待（秒）",
+                        "type": "int",
+                        "default": 3,
+                        "condition": {"enable": true},
+                        "hint": "群聊訊息連續到達時，先等待安靜時間再回覆；填 0 表示不等待。",
+                        "slider": {"min": 0, "max": 30, "step": 1}
+                    },
+                    "long_message_chars": {
+                        "description": "長訊息字數門檻",
+                        "type": "int",
+                        "default": 120,
+                        "condition": {"enable": true},
+                        "slider": {"min": 1, "max": 2000, "step": 1}
+                    },
+                    "long_message_bonus_seconds": {
+                        "description": "長訊息額外等待（秒）",
+                        "type": "int",
+                        "default": 2,
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 30, "step": 1}
+                    },
+                    "night_bonus_seconds": {
+                        "description": "深夜額外等待（秒）",
+                        "type": "int",
+                        "default": 2,
+                        "condition": {"enable": true},
+                        "slider": {"min": 0, "max": 30, "step": 1}
+                    }
+                }
+            },
             "auto_trigger_settings": {
                 "description": "🤖 自動主動訊息設定",
                 "type": "object",
@@ -907,6 +962,50 @@
                             "max": 120,
                             "step": 1
                         }
+                    }
+                }
+            },
+            "auto_check_settings": {
+                "description": "👀 自動查看／回訪設定",
+                "type": "object",
+                "items": {
+                    "enable": {
+                        "description": "✅ 啟用自動查看／回訪",
+                        "type": "bool",
+                        "default": false,
+                        "hint": "開啟後，Bot 會沿用上方群聊排程，在每次到點時先查看最近對話，再由 LLM 判斷是否需要主動發送下一則訊息。"
+                    },
+                    "profile": {
+                        "description": "💞 回訪互動風格",
+                        "type": "string",
+                        "options": ["romantic", "normal", "active", "very_active", "inactive", "very_inactive"],
+                        "labels": ["熱戀中的情侶", "一般", "積極", "非常積極", "不積極", "非常不積極"],
+                        "default": "romantic",
+                        "hint": "預設會影響回訪檢查的時間範圍與 LLM 的互動語氣，但最後是否發送仍由 LLM 根據最近對話判斷。"
+                    },
+                    "use_custom_intervals": {
+                        "description": "🛠️ 使用自訂回訪時間範圍",
+                        "type": "bool",
+                        "default": false,
+                        "hint": "關閉時使用上方互動風格的預設範圍；開啟後才會套用下方最短與最長回訪間隔。"
+                    },
+                    "min_interval_minutes": {
+                        "description": "⏱️ 最短回訪間隔（分鐘）",
+                        "type": "int",
+                        "default": 10,
+                        "slider": {"min": 1, "max": 1440, "step": 1}
+                    },
+                    "max_interval_minutes": {
+                        "description": "⏱️ 最長回訪間隔（分鐘）",
+                        "type": "int",
+                        "default": 60,
+                        "slider": {"min": 1, "max": 2880, "step": 1}
+                    },
+                    "guidance": {
+                        "description": "📝 自適應回訪補充提示",
+                        "type": "text",
+                        "default": "",
+                        "hint": "提供給自適應回訪 LLM 的補充提示，例如群組平日晚上較常聊天、週末下午比較有空。"
                     }
                 }
             },
@@ -952,6 +1051,14 @@
                             "max": 2880,
                             "step": 1
                         }
+                    },
+                    "interval_mode": {
+                        "description": "🧭 群聊排程方式",
+                        "type": "string",
+                        "options": ["adaptive", "weighted_random"],
+                        "labels": ["自適應檢查", "進階：加權隨機"],
+                        "default": "adaptive",
+                        "hint": "自適應檢查使用穩定節奏，到點再由 LLM 判斷是否適合開口；選加權隨機則沿用舊的分時段規則。"
                     },
                     "quiet_hours": {
                         "description": "🌙 免打擾時段（24 小時制）",
@@ -1426,6 +1533,27 @@
                             "max": 10,
                             "step": 1
                         }
+                    },
+                    "initial_heat_score": {
+                        "description": "互動熱度初始分數",
+                        "type": "int",
+                        "default": 50,
+                        "hint": "即時跟進使用的初始互動熱度，限制為 0 到 100；熱度越高，LLM 越可能在有自然延續理由時追加訊息。",
+                        "slider": {"min": 0, "max": 100, "step": 1}
+                    },
+                    "user_activity_delta": {
+                        "description": "使用者回覆熱度變化",
+                        "type": "int",
+                        "default": 15,
+                        "hint": "使用者每次回覆後增加的熱度分數，可填負值。",
+                        "slider": {"min": -100, "max": 100, "step": 1}
+                    },
+                    "proactive_delivery_delta": {
+                        "description": "主動發送熱度變化",
+                        "type": "int",
+                        "default": -5,
+                        "hint": "Bot 每次成功發送主動訊息後的熱度變化，可填負值。",
+                        "slider": {"min": -100, "max": 100, "step": 1}
                     },
                     "random_probability": {
                         "description": "隨機模式初始機率 (%)",
@@ -2300,14 +2428,14 @@
                         }
                     },
                     "human_like_settings": {
-                        "description": "🧍 真人互動節奏（私聊）",
+                        "description": "🧍 真人互動節奏",
                         "type": "object",
                         "items": {
                             "enable": {
                                 "description": "啟用真人互動節奏",
                                 "type": "bool",
                                 "default": false,
-                                "hint": "只套用私聊；正常 AI 回覆與即時跟進都會依訊息長度與時段調整等待，並提供連續訊息防抖。"
+                                "hint": "正常 AI 回覆與即時跟進都會依訊息長度與時段調整等待，並提供連續訊息防抖。"
                             },
                             "timing_min_seconds": {
                                 "description": "真人回覆最短等待（秒）",
@@ -2457,6 +2585,61 @@
                         "default": "",
                         "hint": "用於快速識別這個會話"
                     },
+                    "human_like_settings": {
+                        "description": "🧍 真人互動節奏（群聊）",
+                        "type": "object",
+                        "items": {
+                            "enable": {
+                                "description": "啟用真人互動節奏",
+                                "type": "bool",
+                                "default": false,
+                                "hint": "套用到群聊正常 AI 回覆與即時跟進；會依訊息長度與時段調整等待，並可使用連續訊息防抖。"
+                            },
+                            "timing_min_seconds": {
+                                "description": "真人回覆最短等待（秒）",
+                                "type": "float",
+                                "default": 1.0,
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 60, "step": 0.1}
+                            },
+                            "timing_max_seconds": {
+                                "description": "真人回覆最長等待（秒）",
+                                "type": "float",
+                                "default": 3.0,
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 60, "step": 0.1}
+                            },
+                            "inbound_debounce_seconds": {
+                                "description": "使用者連續訊息等待（秒）",
+                                "type": "int",
+                                "default": 3,
+                                "condition": {"enable": true},
+                                "hint": "群聊訊息連續到達時，先等待安靜時間再回覆；填 0 表示不等待。",
+                                "slider": {"min": 0, "max": 30, "step": 1}
+                            },
+                            "long_message_chars": {
+                                "description": "長訊息字數門檻",
+                                "type": "int",
+                                "default": 120,
+                                "condition": {"enable": true},
+                                "slider": {"min": 1, "max": 2000, "step": 1}
+                            },
+                            "long_message_bonus_seconds": {
+                                "description": "長訊息額外等待（秒）",
+                                "type": "int",
+                                "default": 2,
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 30, "step": 1}
+                            },
+                            "night_bonus_seconds": {
+                                "description": "深夜額外等待（秒）",
+                                "type": "int",
+                                "default": 2,
+                                "condition": {"enable": true},
+                                "slider": {"min": 0, "max": 30, "step": 1}
+                            }
+                        }
+                    },
                     "enable": {
                         "description": "✅ 啟用此群聊會話",
                         "type": "bool",
@@ -2483,6 +2666,50 @@
                                     "max": 120,
                                     "step": 1
                                 }
+                            }
+                        }
+                    },
+                    "auto_check_settings": {
+                        "description": "👀 自動查看／回訪設定",
+                        "type": "object",
+                        "items": {
+                            "enable": {
+                                "description": "✅ 啟用自動查看／回訪",
+                                "type": "bool",
+                                "default": false,
+                                "hint": "開啟後，Bot 會沿用上方群聊排程，在每次到點時先查看最近對話，再由 LLM 判斷是否需要主動發送下一則訊息。"
+                            },
+                            "profile": {
+                                "description": "💞 回訪互動風格",
+                                "type": "string",
+                                "options": ["romantic", "normal", "active", "very_active", "inactive", "very_inactive"],
+                                "labels": ["熱戀中的情侶", "一般", "積極", "非常積極", "不積極", "非常不積極"],
+                                "default": "romantic",
+                                "hint": "預設會影響回訪檢查的時間範圍與 LLM 的互動語氣，但最後是否發送仍由 LLM 根據最近對話判斷。"
+                            },
+                            "use_custom_intervals": {
+                                "description": "🛠️ 使用自訂回訪時間範圍",
+                                "type": "bool",
+                                "default": false,
+                                "hint": "關閉時使用上方互動風格的預設範圍；開啟後才會套用下方最短與最長回訪間隔。"
+                            },
+                            "min_interval_minutes": {
+                                "description": "⏱️ 最短回訪間隔（分鐘）",
+                                "type": "int",
+                                "default": 10,
+                                "slider": {"min": 1, "max": 1440, "step": 1}
+                            },
+                            "max_interval_minutes": {
+                                "description": "⏱️ 最長回訪間隔（分鐘）",
+                                "type": "int",
+                                "default": 60,
+                                "slider": {"min": 1, "max": 2880, "step": 1}
+                            },
+                            "guidance": {
+                                "description": "📝 自適應回訪補充提示",
+                                "type": "text",
+                                "default": "",
+                                "hint": "提供給自適應回訪 LLM 的補充提示，例如群組平日晚上較常聊天、週末下午比較有空。"
                             }
                         }
                     },
@@ -2528,6 +2755,14 @@
                                     "max": 2880,
                                     "step": 1
                                 }
+                            },
+                            "interval_mode": {
+                                "description": "🧭 群聊排程方式",
+                                "type": "string",
+                                "options": ["adaptive", "weighted_random"],
+                                "labels": ["自適應檢查", "進階：加權隨機"],
+                                "default": "adaptive",
+                                "hint": "自適應檢查使用穩定節奏，到點再由 LLM 判斷是否適合開口；選加權隨機則沿用舊的分時段規則。"
                             },
                             "quiet_hours": {
                                 "description": "🌙 免打擾時段（24 小時制）",
@@ -3002,6 +3237,27 @@
                                     "max": 10,
                                     "step": 1
                                 }
+                            },
+                            "initial_heat_score": {
+                                "description": "互動熱度初始分數",
+                                "type": "int",
+                                "default": 50,
+                                "hint": "即時跟進使用的初始互動熱度，限制為 0 到 100；熱度越高，LLM 越可能在有自然延續理由時追加訊息。",
+                                "slider": {"min": 0, "max": 100, "step": 1}
+                            },
+                            "user_activity_delta": {
+                                "description": "使用者回覆熱度變化",
+                                "type": "int",
+                                "default": 15,
+                                "hint": "使用者每次回覆後增加的熱度分數，可填負值。",
+                                "slider": {"min": -100, "max": 100, "step": 1}
+                            },
+                            "proactive_delivery_delta": {
+                                "description": "主動發送熱度變化",
+                                "type": "int",
+                                "default": -5,
+                                "hint": "Bot 每次成功發送主動訊息後的熱度變化，可填負值。",
+                                "slider": {"min": -100, "max": 100, "step": 1}
                             },
                             "random_probability": {
                                 "description": "隨機模式初始機率 (%)",

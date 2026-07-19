@@ -17,7 +17,7 @@ SCHEMA_PATHS = (
     ("private_sessions", "templates", "private_session", "items"),
     ("group_sessions", "templates", "group_session", "items"),
 )
-PRIVATE_SCHEMA_PATHS = SCHEMA_PATHS[0:1] + SCHEMA_PATHS[2:3]
+PRIVATE_SCHEMA_PATHS = SCHEMA_PATHS
 
 
 def _load_source_module(name: str, path: Path) -> ModuleType:

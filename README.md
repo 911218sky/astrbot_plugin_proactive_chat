@@ -129,17 +129,17 @@ flowchart LR
 | `context_analysis_llm_provider_id` | 全域共用語境分析、回訪與跟進判斷 LLM；留空使用會話預設 |
 | `habit_settings` | 依日常習慣時段建立檢查機會，可搭配 LLM 決定是否自然出現 |
 | `immediate_follow_up_settings` | 控制主動訊息後的 LLM/隨機即時跟進 |
-| `human_like_settings` | 私聊真人節奏：內容等待與連續訊息防抖 |
-| `auto_check_settings` | 私聊到點後先查看最近對話，再由語境分析 LLM 決定是否回訪；可選六種互動預設與最短/最長回訪間隔 |
+| `human_like_settings` | 私聊與群聊真人節奏：內容等待與連續訊息防抖 |
+| `auto_check_settings` | 到點後先查看最近對話，再由語境分析 LLM 決定是否回訪；可選六種互動預設與最短/最長回訪間隔 |
 | `history_settings` | 控制是否把主動訊息寫回 AstrBot 主對話歷史 |
 | `segmented_reply_settings` | 長訊息切段發送 |
 | `tts_settings` | 啟用語音輸出 |
 
 `immediate_follow_up_settings` 預設關閉。Bot 正常回覆或主動訊息送出後，會依設定判斷是否追加。`decision_mode` 可選 `llm` 或 `random`：兩種模式的 LLM 都優先使用上方「語境分析用 LLM 平台」（留空時使用會話預設）；`llm` 由模型判斷是否追加，`random` 則由機率決定是否追加。每次判斷都會搭配原本的對話歷史與本輪已發送訊息，提示模型優先理解使用者最新意圖，避免重複、答非所問或話題已結束仍硬聊。`max_follow_ups` 預設為 1，可設 0 到 10，代表初始訊息之外最多追加幾句；`delay_seconds` 預設為 2，可設 0 到 10 秒，但它的語義是防抖安靜等待時間：期間使用者有新訊息會取消舊跟進，只在最後一則訊息後觸發一次。程式也能讀取暫時的 `debounce_seconds` key。隨機模式的 `random_probability` 是第一句的 0 到 100% 機率，`random_decay` 是每追加一則後下降的百分點。
 
-`human_like_settings` 預設關閉且只套用私聊。開啟後，`timing_min_seconds` 到 `timing_max_seconds`（預設 1～3 秒，支援 0.1 秒小數）會成為正常 AI 回覆與即時跟進的真人等待範圍；訊息較長或深夜會再加上額外等待。`inbound_debounce_seconds`（預設 3 秒）會讓使用者連續分段訊息先等待安靜，舊段會停止進入 LLM，只讓最後一段觸發正常回覆；填 0 表示停用分段防抖，每一段仍各自套用真人回覆時間。互動熱度設定已集中到私聊的 `immediate_follow_up_settings`：`initial_heat_score` 預設 50，`user_activity_delta` 預設 15，`proactive_delivery_delta` 預設 -5，分數固定限制在 0 到 100。啟用即時跟進後，LLM 會看到目前熱度；熱度較高且有自然延續理由時較傾向追加，熱度較低時會更克制。舊的 `human_like_settings` 熱度欄位仍可讀取作相容 fallback。
+`human_like_settings` 預設關閉。開啟後，`timing_min_seconds` 到 `timing_max_seconds`（預設 1～3 秒，支援 0.1 秒小數）會成為正常 AI 回覆與即時跟進的真人等待範圍；訊息較長或深夜會再加上額外等待。`inbound_debounce_seconds`（預設 3 秒）會讓連續分段訊息先等待安靜，舊段會停止進入 LLM，只讓最後一段觸發正常回覆；填 0 表示停用分段防抖，每一段仍各自套用真人回覆時間。私聊與群聊都可使用這組設定。互動熱度設定位於各會話的 `immediate_follow_up_settings`：`initial_heat_score` 預設 50，`user_activity_delta` 預設 15，`proactive_delivery_delta` 預設 -5，分數固定限制在 0 到 100。啟用即時跟進後，LLM 會看到目前熱度；舊的 `human_like_settings` 熱度欄位仍可讀取作相容 fallback。
 
-`auto_check_settings` 只套用私聊，預設關閉。開啟後會使用互動風格的穩定檢查節奏，到點先讀取最近聊天，由頂層 `context_analysis_llm_provider_id`（舊的會話內 `context_aware_settings.llm_provider_id` 僅作 fallback）判斷。模型可回傳 `{"send_message": true|false, "message": "...", "next_check_minutes": 180}`，下一次檢查會被限制在設定的最短／最長間隔內；舊版兩欄回傳格式仍可安全使用。判斷不發送時只重排下一次檢查，不增加未回覆次數；判斷發送時沿用既有主動訊息、歷史與即時跟進流程。`guidance` 可用自然語言補充平日、週末或常聊天時段。`schedule_settings.interval_mode` 可選 `adaptive`（預設）或 `weighted_random`（舊設定相容）。
+`auto_check_settings` 預設關閉。開啟後會使用互動風格的穩定檢查節奏，到點先讀取最近聊天，由頂層 `context_analysis_llm_provider_id`（舊的會話內 `context_aware_settings.llm_provider_id` 僅作 fallback）判斷。模型可回傳 `{"send_message": true|false, "message": "...", "next_check_minutes": 180}`，下一次檢查會被限制在設定的最短／最長間隔內；舊版兩欄回傳格式仍可安全使用。私聊與群聊都能開啟，判斷不發送時只重排下一次檢查，不增加未回覆次數。`guidance` 可用自然語言補充平日、週末或常聊天時段。`schedule_settings.interval_mode` 可選 `adaptive`（預設）或 `weighted_random`（舊設定相容）。
 
 ### 3) Prompt 佔位符
 
