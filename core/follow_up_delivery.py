@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import random
 from collections.abc import Awaitable, Callable
-from datetime import datetime
 from typing import assert_never
 
 from astrbot.api import logger
@@ -13,7 +12,6 @@ from .immediate_follow_up import (
     resolve_immediate_follow_up_settings,
     should_send_random_follow_up,
 )
-from .human_like import compute_follow_up_delay_seconds, resolve_human_like_settings
 
 _LOG_TAG = "[主動訊息]"
 Sleep = Callable[[float], Awaitable[None]]
@@ -41,20 +39,7 @@ async def collect_follow_ups(
     for index in range(settings.max_follow_ups):
         if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:
             break
-        human_settings = resolve_human_like_settings(session_config)
         delay_seconds = settings.debounce_seconds
-        if human_settings.enable and turns:
-            timezone = getattr(plugin, "timezone", None)
-            local_hour = (datetime.now(timezone) if timezone else datetime.now()).hour
-            delay_seconds = max(
-                delay_seconds,
-                compute_follow_up_delay_seconds(
-                    accepted_turn_text(turns[-1]),
-                    local_hour,
-                    human_settings,
-                    random_source(),
-                ),
-            )
         if delay_seconds:
             await sleep(delay_seconds)
             if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:

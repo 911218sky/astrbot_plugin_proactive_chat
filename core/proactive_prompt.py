@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from astrbot.api import logger
 
-from .delivery import AcceptedTurn, DispatchGate, GateVerdict, accepted_turn_text
 from .auto_check import (
     AutoCheckDecision,
     AutoCheckSettings,
@@ -15,6 +14,13 @@ from .auto_check import (
     resolve_auto_check_settings,
 )
 from .config import get_context_analysis_provider_id, get_session_config
+from .delivery import AcceptedTurn, DispatchGate, GateVerdict, accepted_turn_text
+from .interaction_heat import (
+    heat_guidance,
+    heat_label,
+    normalize_heat_score,
+    resolve_heat_settings,
+)
 from .llm_helpers import (
     NonRetryableLLMError,
     call_llm,
@@ -22,13 +28,6 @@ from .llm_helpers import (
     safe_prepare_llm_request,
     truncate_history_for_proactive_llm,
 )
-from .human_like import (
-    heat_guidance,
-    heat_label,
-    normalize_heat_score,
-    resolve_human_like_settings,
-)
-from .immediate_follow_up import resolve_immediate_follow_up_settings
 from .messaging import sanitize_history_content
 from .proactive_state import (
     active_task_description,
@@ -85,13 +84,12 @@ def _interaction_heat_prompt(
     session_id: str,
     session_config: dict,
 ) -> str:
-    human_settings = resolve_human_like_settings(session_config)
-    follow_up_enabled = resolve_immediate_follow_up_settings(session_config).enable
-    if not (human_settings.enable or follow_up_enabled):
+    heat_settings = resolve_heat_settings(session_config)
+    if not heat_settings.enable:
         return ""
     heat_score = normalize_heat_score(
         plugin.session_data.get(session_id, {}).get("interaction_heat"),
-        human_settings.initial_heat_score,
+        heat_settings.initial_heat_score,
     )
     label = heat_label(heat_score)
     return (

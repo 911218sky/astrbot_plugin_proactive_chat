@@ -118,7 +118,7 @@ Converted `private_sessions` and `group_sessions` from 5 hardcoded slots (`sessi
 
 ### Human-Like Timing
 
-`human_like_settings` is disabled by default and can be used in both private and group sessions. When enabled, `timing_min_seconds` to `timing_max_seconds` (1-3 seconds by default, with 0.1-second precision) become the human-like wait range for both normal AI replies and immediate follow-ups; long messages and late-night replies add their configured bonus. `inbound_debounce_seconds` (3 seconds by default) waits while a burst is arriving, stops stale events before they reach the LLM, and lets only the final segment trigger a normal reply; `0` disables segment debounce while keeping human reply timing for every event. Each session's `immediate_follow_up_settings` owns the interaction heat controls.
+Interaction heat is configured in each session's `immediate_follow_up_settings`: `initial_heat_score` defaults to 50, `user_activity_delta` to 15, and `proactive_delivery_delta` to -5, clamped to 0-100. When immediate follow-up is enabled, the LLM receives the current heat label. Normal replies no longer add a separate human-like delay or inbound debounce.
 
 ### Private Auto-Check / Revisit
 

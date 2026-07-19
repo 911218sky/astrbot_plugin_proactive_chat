@@ -7,7 +7,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -113,7 +112,7 @@ def test_private_schema_shows_weighted_random_controls_only_for_legacy_mode() ->
         }
 
 
-def test_group_schema_exposes_adaptive_and_human_like_controls() -> None:
+def test_group_schema_exposes_adaptive_and_follow_up_controls() -> None:
     schema = _load_schema()
     paths = (
         ("group_settings", "items"),
@@ -124,8 +123,9 @@ def test_group_schema_exposes_adaptive_and_human_like_controls() -> None:
         for key in path:
             node = node[key]
         assert node["auto_check_settings"]["items"]["profile"]["default"] == "romantic"
-        assert node["schedule_settings"]["items"]["interval_mode"]["default"] == "adaptive"
-        assert node["human_like_settings"]["items"]["timing_min_seconds"]["type"] == "float"
+        assert (
+            node["schedule_settings"]["items"]["interval_mode"]["default"] == "adaptive"
+        )
         follow_up = node["immediate_follow_up_settings"]["items"]
         assert follow_up["initial_heat_score"]["default"] == 50
         assert follow_up["user_activity_delta"]["default"] == 15
@@ -175,7 +175,6 @@ def test_group_schema_matches_private_shared_sections() -> None:
         "auto_trigger_settings",
         "context_aware_settings",
         "habit_settings",
-        "human_like_settings",
         "immediate_follow_up_settings",
         "schedule_settings",
         "segmented_reply_settings",
@@ -206,7 +205,7 @@ def test_group_schema_matches_private_shared_sections() -> None:
         ("very_inactive", 180, 720),
     ),
 )
-def test_profiles_resolve_to_human_like_ranges(
+def test_profiles_resolve_to_adaptive_ranges(
     profile: str, minimum: int, maximum: int
 ) -> None:
     module = _load_module()

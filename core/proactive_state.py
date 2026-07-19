@@ -15,11 +15,10 @@ from .auto_check import (
 )
 from .config import get_session_config
 from .delivery import DispatchGate, GateVerdict
-from .immediate_follow_up import resolve_immediate_follow_up_settings
-from .human_like import (
+from .interaction_heat import (
     apply_heat,
     normalize_heat_score,
-    resolve_human_like_settings,
+    resolve_heat_settings,
 )
 from .scheduler import (
     is_unanswered_limit_reached,
@@ -190,25 +189,25 @@ async def update_unanswered_and_reschedule(
         state = plugin.session_data.setdefault(session_id, {})
         next_count = unanswered_count + int(count_unanswered)
         state["unanswered_count"] = next_count
-        human_settings = resolve_human_like_settings(session_config)
-        follow_up_enabled = resolve_immediate_follow_up_settings(session_config).enable
-        if human_settings.enable or follow_up_enabled:
+        heat_settings = resolve_heat_settings(session_config)
+        if heat_settings.enable:
             state["interaction_heat"] = apply_heat(
                 normalize_heat_score(
                     state.get("interaction_heat"),
-                    human_settings.initial_heat_score,
+                    heat_settings.initial_heat_score,
                 ),
                 "proactive_delivery",
-                human_settings,
+                heat_settings,
             )
         if clear_task_description:
             state.pop("task_description", None)
         if habit_task and not count_unanswered:
             await plugin._save_data()
             return True
-        if is_group_session_id(session_id) and not resolve_auto_check_settings(
-            session_config
-        ).enable:
+        if (
+            is_group_session_id(session_id)
+            and not resolve_auto_check_settings(session_config).enable
+        ):
             state.pop("next_trigger_time", None)
             await plugin._save_data()
             return True

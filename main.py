@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import random
 import time
 import zoneinfo
 from datetime import datetime
@@ -37,13 +36,11 @@ from .core.delivery import (
     GateVerdict,
     make_accepted_turn,
 )
-from .core.human_like import (
+from .core.interaction_heat import (
     apply_heat,
-    compute_follow_up_delay_seconds,
     normalize_heat_score,
-    resolve_human_like_settings,
+    resolve_heat_settings,
 )
-from .core.immediate_follow_up import resolve_immediate_follow_up_settings
 from .core.scheduler import (
     compute_habit_next_run,
     get_current_time_slot_id,
@@ -115,7 +112,6 @@ class ProactiveChatPlugin(star.Star):
         "_ctx_task_counter",
         "_delivery_coordinators",
         "_reply_follow_up_tasks",
-        "_inbound_debounce_tokens",
         "_chat_run_semaphore",
         "_history_save_lock",
         "page_api",
@@ -171,7 +167,6 @@ class ProactiveChatPlugin(star.Star):
         self._ctx_task_counter: int = 0
         self._delivery_coordinators = DeliveryCoordinatorRegistry()
         self._reply_follow_up_tasks: dict[str, asyncio.Task] = {}
-        self._inbound_debounce_tokens: dict[str, asyncio.Task] = {}
         # 全域限流：避免多個會話同時觸發主動訊息，一起打進 AstrBot agent/history 流程。
         self._chat_run_semaphore: asyncio.Semaphore = asyncio.Semaphore(1)
         # 主動訊息寫回 AstrBot 主對話歷史時使用，避免本插件自己並發搶同一個 SQLite。
@@ -536,8 +531,6 @@ class ProactiveChatPlugin(star.Star):
                 *self._reply_follow_up_tasks.values(), return_exceptions=True
             )
             self._reply_follow_up_tasks.clear()
-        self._inbound_debounce_tokens.clear()
-
         if self.scheduler and self.scheduler.running:
             try:
                 for job in self.scheduler.get_jobs():
@@ -1811,48 +1804,6 @@ class ProactiveChatPlugin(star.Star):
             delay = 10.0
         return min(max(delay, 0.0), 120.0)
 
-    async def _wait_for_inbound_quiet(
-        self,
-        session_id: str,
-        session_config: dict,
-        *,
-        message_text: str = "",
-        local_hour: int | None = None,
-        random_value: float | None = None,
-        sleep=asyncio.sleep,
-    ) -> bool:
-        settings = resolve_human_like_settings(session_config)
-        if not settings.enable:
-            return True
-        if local_hour is None:
-            local_hour = datetime.now(getattr(self, "timezone", None)).hour
-        if random_value is None:
-            random_value = random.random()
-        human_delay_seconds = compute_follow_up_delay_seconds(
-            message_text,
-            local_hour,
-            settings,
-            random_value,
-        )
-        delay_seconds = max(settings.inbound_debounce_seconds, human_delay_seconds)
-        if delay_seconds <= 0:
-            return True
-
-        if settings.inbound_debounce_seconds <= 0:
-            await sleep(human_delay_seconds)
-            return True
-
-        token = asyncio.current_task()
-        if token is None:
-            return True
-        self._inbound_debounce_tokens[session_id] = token
-        try:
-            await sleep(delay_seconds)
-            return self._inbound_debounce_tokens.get(session_id) is token
-        finally:
-            if self._inbound_debounce_tokens.get(session_id) is token:
-                self._inbound_debounce_tokens.pop(session_id, None)
-
     def _schedule_context_analysis(
         self,
         session_id: str,
@@ -1936,14 +1887,6 @@ class ProactiveChatPlugin(star.Star):
             cancel_follow_up(session_id)
         session_config = get_session_config(self.config, session_id)
         enabled = bool(session_config and session_config.get("enable", False))
-        if enabled:
-            if not await self._wait_for_inbound_quiet(
-                session_id,
-                session_config,
-                message_text=getattr(event, "message_str", "") or "",
-            ):
-                event.stop_event()
-                return
         gate = self._delivery_coordinators.record_activity(alias_session_id, session_id)
         coordinator = self._delivery_coordinators.coordinator_for(session_id)
         try:
@@ -1967,18 +1910,15 @@ class ProactiveChatPlugin(star.Star):
                         sd["last_message_time"] = now
                     if enabled:
                         sd["unanswered_count"] = 0
-                        human_settings = resolve_human_like_settings(session_config)
-                        follow_up_enabled = resolve_immediate_follow_up_settings(
-                            session_config
-                        ).enable
-                        if human_settings.enable or follow_up_enabled:
+                        heat_settings = resolve_heat_settings(session_config)
+                        if heat_settings.enable:
                             sd["interaction_heat"] = apply_heat(
                                 normalize_heat_score(
                                     sd.get("interaction_heat"),
-                                    human_settings.initial_heat_score,
+                                    heat_settings.initial_heat_score,
                                 ),
                                 "user_activity",
-                                human_settings,
+                                heat_settings,
                             )
                     await self._save_data()
 
