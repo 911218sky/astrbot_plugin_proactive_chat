@@ -151,7 +151,7 @@ flowchart LR
 
 ### 4) 私聊排程邊界
 
-私聊不再需要撰寫分時段 `schedule_rules`。`min_interval_minutes`、`max_interval_minutes` 是 LLM 自適應時間的安全邊界；`quiet_hours` 和 `max_unanswered_times` 仍是硬性保護。群聊仍可使用既有 `schedule_rules`。
+私聊選擇預設的「自適應檢查」時不需要撰寫分時段 `schedule_rules`；`min_interval_minutes`、`max_interval_minutes` 是 LLM 自適應時間的安全邊界。若為相容舊設定而選擇「進階：加權隨機」，下方會重新顯示分時段權重與衰減設定。`quiet_hours` 和 `max_unanswered_times` 仍是硬性保護，群聊也可使用既有 `schedule_rules`。
 
 ### 5) livingmemory 長期記憶
 

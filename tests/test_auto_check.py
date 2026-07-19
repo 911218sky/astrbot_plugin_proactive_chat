@@ -64,7 +64,7 @@ def test_schema_defines_private_auto_check_settings_and_presets() -> None:
         ]
 
 
-def test_private_schema_hides_legacy_slot_rules_but_group_keeps_them() -> None:
+def test_private_schema_shows_weighted_random_controls_only_for_legacy_mode() -> None:
     schema = _load_schema()
 
     private_paths = (
@@ -94,8 +94,12 @@ def test_private_schema_hides_legacy_slot_rules_but_group_keeps_them() -> None:
         node = schema
         for key in path:
             node = node[key]
-        assert "schedule_rules" not in node
-        assert "default_decay_rate" not in node
+        assert node["schedule_rules"]["condition"] == {
+            "interval_mode": "weighted_random"
+        }
+        assert node["default_decay_rate"]["condition"] == {
+            "interval_mode": "weighted_random"
+        }
     for path in group_paths:
         node = schema
         for key in path:
