@@ -135,7 +135,7 @@ flowchart LR
 | `segmented_reply_settings` | 長訊息切段發送 |
 | `tts_settings` | 啟用語音輸出 |
 
-`immediate_follow_up_settings` 預設關閉。Bot 正常回覆或主動訊息送出後，會依設定判斷是否追加。`decision_mode` 可選 `llm` 或 `random`：兩種模式的 LLM 都優先使用上方「語境分析用 LLM 平台」（留空時使用會話預設）；`llm` 由模型判斷是否追加，`random` 則由機率決定是否追加。`max_follow_ups` 預設為 1，可設 0 到 10，代表初始訊息之外最多追加幾句；`delay_seconds` 預設為 2，可設 0 到 10 秒，但它的語義是防抖安靜等待時間：期間使用者有新訊息會取消舊跟進，只在最後一則訊息後觸發一次。程式也能讀取暫時的 `debounce_seconds` key。隨機模式的 `random_probability` 是第一句的 0 到 100% 機率，`random_decay` 是每追加一則後下降的百分點。
+`immediate_follow_up_settings` 預設關閉。Bot 正常回覆或主動訊息送出後，會依設定判斷是否追加。`decision_mode` 可選 `llm` 或 `random`：兩種模式的 LLM 都優先使用上方「語境分析用 LLM 平台」（留空時使用會話預設）；`llm` 由模型判斷是否追加，`random` 則由機率決定是否追加。每次判斷都會搭配原本的對話歷史與本輪已發送訊息，提示模型優先理解使用者最新意圖，避免重複、答非所問或話題已結束仍硬聊。`max_follow_ups` 預設為 1，可設 0 到 10，代表初始訊息之外最多追加幾句；`delay_seconds` 預設為 2，可設 0 到 10 秒，但它的語義是防抖安靜等待時間：期間使用者有新訊息會取消舊跟進，只在最後一則訊息後觸發一次。程式也能讀取暫時的 `debounce_seconds` key。隨機模式的 `random_probability` 是第一句的 0 到 100% 機率，`random_decay` 是每追加一則後下降的百分點。
 
 `human_like_settings` 預設關閉且只套用私聊。開啟後，`timing_min_seconds` 到 `timing_max_seconds`（預設 1～3 秒，支援 0.1 秒小數）會成為正常 AI 回覆與即時跟進的真人等待範圍；訊息較長或深夜會再加上額外等待。`inbound_debounce_seconds`（預設 3 秒）會讓使用者連續分段訊息先等待安靜，舊段會停止進入 LLM，只讓最後一段觸發正常回覆；填 0 表示停用分段防抖，每一段仍各自套用真人回覆時間。互動熱度設定已集中到私聊的 `immediate_follow_up_settings`：`initial_heat_score` 預設 50，`user_activity_delta` 預設 15，`proactive_delivery_delta` 預設 -5，分數固定限制在 0 到 100。啟用即時跟進後，LLM 會看到目前熱度；熱度較高且有自然延續理由時較傾向追加，熱度較低時會更克制。舊的 `human_like_settings` 熱度欄位仍可讀取作相容 fallback。
 

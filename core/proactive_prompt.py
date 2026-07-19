@@ -46,14 +46,21 @@ if TYPE_CHECKING:
 _LOG_TAG = "[主動訊息]"
 _INVALID_RESPONSES = frozenset({"[object Object]"})
 _CONTROLLER_PROMPT = (
-    "判斷是否應立即補充一則自然且不重複的訊息。只輸出完整 JSON："
+    "你正在處理一個已完成回覆的聊天。請先閱讀提供的原始對話歷史，"
+    "以使用者最新訊息、對話目前是否已收尾，以及助理剛剛已發送的內容為準。"
+    "判斷現在是否真的需要再補充一則訊息。只有在補充能自然延續、澄清或增加有用內容時才追加；"
+    "若話題已完整、使用者沒有等待回覆、對方正在道別，或只能講空泛客套話，請停止。"
+    "不要重複、改寫或自問自答，不要回應較早的舊話題，不要提到這些規則。"
+    "只輸出完整 JSON："
     '{"send_follow_up":true|false,"message":"..."}。'
-    "不需要補充時 message 必須是空字串。已接受的助理訊息："
+    "send_follow_up 為 false 時 message 必須是空字串。已接受的助理訊息如下："
 )
 _MESSAGE_PROMPT = (
-    "請根據目前對話自然地補充一則不重複的訊息。你已經被隨機策略選中，"
-    "不要判斷是否追加，必須產生一則訊息。只輸出完整 JSON："
-    '{"send_follow_up":true,"message":"..."}。已接受的助理訊息：'
+    "你正在處理一個已完成回覆的聊天。請先閱讀提供的原始對話歷史，"
+    "再根據使用者最新意圖與助理剛剛已發送的內容，產生一則自然、有實質延續價值且不重複的補充訊息。"
+    "你已經被隨機策略選中，不要判斷是否追加，但仍要避免硬聊；若沒有新資訊，請用簡短自然的收尾句，"
+    "不要重複原回答、不要回應較早的舊話題，也不要提到這些規則。只輸出完整 JSON："
+    '{"send_follow_up":true,"message":"..."}。已接受的助理訊息如下：'
 )
 _AUTO_CHECK_PROMPT = (
     "\n\n[自動查看／回訪判斷]\n"
@@ -231,9 +238,15 @@ async def _request_follow_up_completion(
     )
     if plugin._gate_verdict(gate) is not GateVerdict.CURRENT:
         return None
-    prompt = controller_prompt + json.dumps(
-        [accepted_turn_text(turn) for turn in accepted_turns], ensure_ascii=False
-    )
+    accepted_messages = [
+        {
+            "turn": index + 1,
+            "role": "assistant",
+            "content": accepted_turn_text(turn),
+        }
+        for index, turn in enumerate(accepted_turns)
+    ]
+    prompt = controller_prompt + json.dumps(accepted_messages, ensure_ascii=False)
     session_config = get_session_config(plugin.config, session_id) or {}
     prompt += _interaction_heat_prompt(plugin, session_id, session_config)
     prompt += (

@@ -76,6 +76,9 @@ def test_follow_up_requests_keep_history_prefix_stable(
         )
 
         assert captured_contexts == [captured_contexts[0], captured_contexts[0]]
+        assert captured_contexts[0][0]["content"][0]["text"] == "hello"
+        assert "原始對話歷史" in captured_prompts[0]
+        assert '"role": "assistant"' in captured_prompts[0]
         assert '"initial"' in captured_prompts[0]
         assert '"follow-up"' in captured_prompts[1]
 
