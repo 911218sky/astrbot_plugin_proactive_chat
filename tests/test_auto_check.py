@@ -62,6 +62,7 @@ def test_schema_defines_private_auto_check_settings_and_presets() -> None:
             "adaptive",
             "weighted_random",
         ]
+        assert "自動查看／回訪設定" in schedule["interval_mode"]["hint"]
 
 
 def test_private_schema_shows_weighted_random_controls_only_for_legacy_mode() -> None:

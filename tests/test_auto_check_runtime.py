@@ -3,8 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import anyio
+import pytest
 
-from astrbot_plugin_proactive_chat.core import chat_executor
+from astrbot_plugin_proactive_chat.core import auto_check, chat_executor, scheduler
 from astrbot_plugin_proactive_chat.core.config import get_context_analysis_provider_id
 from astrbot_plugin_proactive_chat.core import llm_helpers
 from astrbot_plugin_proactive_chat.core import proactive_prompt
@@ -50,6 +51,27 @@ def test_context_analysis_provider_uses_legacy_session_fallback() -> None:
         )
         == "legacy-provider"
     )
+
+
+def test_group_adaptive_schedule_does_not_use_weighted_random(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_weighted(*_args, **_kwargs) -> int:
+        raise AssertionError("adaptive 群聊不應呼叫加權隨機排程")
+
+    monkeypatch.setattr(scheduler, "compute_weighted_interval", fail_weighted)
+    result = auto_check.compute_session_interval(
+        {
+            "interval_mode": "adaptive",
+            "min_interval_minutes": 10,
+            "max_interval_minutes": 50,
+        },
+        {"_session_type": "group"},
+        None,
+        0,
+    )
+
+    assert result == 1800
 
 
 def test_auto_check_no_send_reschedules_without_delivery(monkeypatch) -> None:

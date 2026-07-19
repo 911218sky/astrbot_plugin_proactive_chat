@@ -192,10 +192,7 @@ def compute_session_interval(
             timezone,
             unanswered_count,
         )
-    if (
-        session_config.get("_session_type") == "private"
-        and schedule_settings.get("interval_mode", "adaptive") != "weighted_random"
-    ):
+    if schedule_settings.get("interval_mode", "adaptive") != "weighted_random":
         return compute_schedule_adaptive_interval(schedule_settings, unanswered_count)
     return compute_weighted_interval(schedule_settings, timezone, unanswered_count)
 
