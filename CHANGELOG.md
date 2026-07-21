@@ -5,6 +5,14 @@
 <!-- markdownlint-disable MD041 -->
 # ChangeLog
 
+# 2026/07/21
+
+## v2.28.1
+
+### 修復 (Fix)
+
+- 穩定語境分析、主動訊息與即時跟進的 LLM system prompt 前綴，讓連續請求能正確重用 Provider 快取。
+
 # 2026/07/19
 
 ## v2.28.0

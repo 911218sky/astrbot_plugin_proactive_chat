@@ -171,9 +171,7 @@ async def prepare_and_call_llm(
             session_id,
             final_prompt,
             history,
-            build_cacheable_system_prompt(
-                system_prompt, _PROACTIVE_GENERATION_PROMPT
-            ),
+            build_cacheable_system_prompt(system_prompt, _PROACTIVE_GENERATION_PROMPT),
         )
     except NonRetryableLLMError as error:
         logger.error(f"{_LOG_TAG} LLM 不可重試錯誤 | session={session_id}: {error}")
@@ -205,10 +203,7 @@ async def prepare_and_call_auto_check(
         return None
     request, final_prompt, system_prompt, history, ctx_task = prepared
     decision_prompt = (
-        _AUTO_CHECK_CONTEXT_PREFIX
-        + settings.guidance
-        + "\n\n"
-        + final_prompt
+        _AUTO_CHECK_CONTEXT_PREFIX + settings.guidance + "\n\n" + final_prompt
     )
     provider_id = _resolved_context_provider_id(plugin, session_config)
     try:
