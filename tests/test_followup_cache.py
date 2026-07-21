@@ -4,7 +4,6 @@ from types import SimpleNamespace
 
 import anyio
 import pytest
-
 from astrbot_plugin_proactive_chat.core import proactive_prompt
 from astrbot_plugin_proactive_chat.core.delivery import (
     AcceptedComponent,
@@ -29,6 +28,7 @@ def test_follow_up_requests_keep_history_prefix_stable(
         )
         captured_contexts: list[list] = []
         captured_prompts: list[str] = []
+        captured_system_prompts: list[str] = []
         initial = make_accepted_turn(
             "initial",
             (AcceptedComponent(AcceptedComponentKind.TEXT, "initial"),),
@@ -58,6 +58,7 @@ def test_follow_up_requests_keep_history_prefix_stable(
         async def call(*args, **_kwargs):
             captured_contexts.append(args[3])
             captured_prompts.append(args[2])
+            captured_system_prompts.append(args[4])
             return SimpleNamespace(
                 completion_text='{"send_follow_up":false,"message":""}'
             )
@@ -77,7 +78,8 @@ def test_follow_up_requests_keep_history_prefix_stable(
 
         assert captured_contexts == [captured_contexts[0], captured_contexts[0]]
         assert captured_contexts[0][0]["content"][0]["text"] == "hello"
-        assert "原始對話歷史" in captured_prompts[0]
+        assert "原始對話歷史" in captured_system_prompts[0]
+        assert captured_system_prompts == [captured_system_prompts[0]] * 2
         assert '"role": "assistant"' in captured_prompts[0]
         assert '"initial"' in captured_prompts[0]
         assert '"follow-up"' in captured_prompts[1]

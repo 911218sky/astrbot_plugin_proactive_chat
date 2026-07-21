@@ -4,12 +4,15 @@ from types import SimpleNamespace
 
 import anyio
 import pytest
-
-from astrbot_plugin_proactive_chat.core import auto_check, chat_executor, scheduler
-from astrbot_plugin_proactive_chat.core.config import get_context_analysis_provider_id
-from astrbot_plugin_proactive_chat.core import llm_helpers
-from astrbot_plugin_proactive_chat.core import proactive_prompt
+from astrbot_plugin_proactive_chat.core import (
+    auto_check,
+    chat_executor,
+    llm_helpers,
+    proactive_prompt,
+    scheduler,
+)
 from astrbot_plugin_proactive_chat.core.auto_check import AutoCheckDecision
+from astrbot_plugin_proactive_chat.core.config import get_context_analysis_provider_id
 from astrbot_plugin_proactive_chat.core.delivery import (
     DeliveryCoordinatorRegistry,
     GateVerdict,
@@ -365,7 +368,8 @@ def test_dynamic_memory_stays_out_of_cached_system_prompt(monkeypatch) -> None:
         )
 
         assert result is not None
-        assert captured["system_prompt"] == "persona"
+        assert proactive_prompt._AUTO_CHECK_PROMPT in captured["system_prompt"]
+        assert "persona" in captured["system_prompt"]
         assert "[動態記憶] 最近喜歡看電影" in captured["prompt"]
 
     anyio.run(scenario)

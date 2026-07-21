@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 from astrbot.api import logger
 
+from .llm_helpers import build_cacheable_system_prompt
 from .utils import parse_llm_json
 
 if TYPE_CHECKING:
@@ -35,10 +36,6 @@ PREDICT_TIMING_PROMPT = _load_prompt("predict_timing.txt")
 PREDICT_TIMING_SYSTEM = _load_prompt("predict_timing_system.txt")
 CHECK_CANCEL_PROMPT = _load_prompt("check_cancel.txt")
 CHECK_CANCEL_SYSTEM = _load_prompt("check_cancel_system.txt")
-
-
-def _build_analysis_user_prompt(analysis_prompt: str, prompt: str) -> str:
-    return f"[語境分析規則]\n{analysis_prompt}\n\n{prompt}"
 
 
 def build_recent_messages_str(history: list, max_messages: int = 10) -> str:
@@ -147,8 +144,10 @@ async def predict_proactive_timing(
         )
         resp = await context.llm_generate(
             chat_provider_id=provider_id,
-            prompt=_build_analysis_user_prompt(PREDICT_TIMING_SYSTEM, prompt),
-            system_prompt=persona_system_prompt.strip() or PREDICT_TIMING_SYSTEM,
+            prompt=prompt,
+            system_prompt=build_cacheable_system_prompt(
+                persona_system_prompt, PREDICT_TIMING_SYSTEM
+            ),
         )
         if not resp or not resp.completion_text:
             return None
@@ -242,8 +241,10 @@ async def check_should_cancel_tasks_batch(
         )
         resp = await context.llm_generate(
             chat_provider_id=provider_id,
-            prompt=_build_analysis_user_prompt(CHECK_CANCEL_SYSTEM, prompt),
-            system_prompt=persona_system_prompt.strip() or CHECK_CANCEL_SYSTEM,
+            prompt=prompt,
+            system_prompt=build_cacheable_system_prompt(
+                persona_system_prompt, CHECK_CANCEL_SYSTEM
+            ),
         )
         if not resp or not resp.completion_text:
             return {}

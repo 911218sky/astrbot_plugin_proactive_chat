@@ -35,6 +35,17 @@ _AUTH_ERROR_KEYWORDS = frozenset(
 )
 
 
+def build_cacheable_system_prompt(
+    base_system_prompt: str, operation_prompt: str
+) -> str:
+    parts = tuple(
+        prompt.strip()
+        for prompt in (base_system_prompt, operation_prompt)
+        if isinstance(prompt, str) and prompt.strip()
+    )
+    return "\n\n".join(parts)
+
+
 class CoreHistoryBusy(RuntimeError):
     """AstrBot Core conversation DB is temporarily busy."""
 
